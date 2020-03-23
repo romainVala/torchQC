@@ -53,3 +53,46 @@ for epoch in range(5):
 
     #print('Reset scheduler')
     #scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, steps)
+
+
+
+for dd in td:
+    print('shape {} path {}'.format(dd['image']['data'].shape,dd['image']['path']))
+
+dataset = doit.tr
+
+from torchio.data.io import write_image
+from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad
+from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL
+from torchvision.transforms import Compose
+from nibabel.viewers import OrthoSlicer3D as ov
+
+tensor = data['image']['data'][0].squeeze(0)  # remove channels dim
+affine = data['image']['affine'].squeeze(0)
+
+write_image(tensor, affine, '/home/romain/QCcnn/motion_cati_brain_ms/toto.nii')
+mvt = pd.read_csv('/home/romain/QCcnn/motion_cati_brain_ms/ssim_0.03557806462049484_sample00010_suj_cat12_brain_s_S02_Sag_MPRAGE_mvt.csv',header=None)
+fpars = np.asarray(mvt)
+
+dico_params = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
+               "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 6),
+               "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 6),
+               "verbose": False, "keep_original": True, "proba_to_augment": 1,
+               "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
+               "oversampling_pct": 0, "correct_motion": True}
+
+dico_params['fitpars'] = fpars/10
+
+transforms = Compose((RandomMotionFromTimeCourse(**dico_params),))
+transforms = RandomMotionFromTimeCourse(**dico_params)
+
+suj = [[ Image('T1', '/home/romain/QCcnn/motion_cati_brain_ms/brain_s_S02_Sag_MPRAGE.nii.gz', 'intensity'), ]]
+
+dataset = ImagesDataset(suj, transform=transforms)
+s=dataset[0]
+
+ov(s['T1']['data'][0])
+tt = dataset.get_transform()
+plt.figure(); plt.plot(tt.fitpars.T)
+dataset.save_sample(s, dict(T1='/home/romain/QCcnn/motion_cati_brain_ms/toto10.nii'))
+
