@@ -21,15 +21,23 @@ else:
 import socket
 myHostName = socket.gethostname()
 if 'le53' in myHostName:
-    batch_size, num_workers, max_epochs = 4, 2, 1
+    batch_size, num_workers, max_epochs = 1, 0, 1
     cuda, verbose = False, True
     res_dir = '/home/romain/QCcnn/'
-    load_from_dir = '/home/romain/QCcnn/'
+    load_from_dir = '/home/romain/QCcnn/motion_cati_brain_ms/'
 
 dico_params = {"maxDisp": (1, 6),  "maxRot": (1, 6),    "noiseBasePars": (5, 20, 0.8),
                "swallowFrequency": (2, 6, 0.5),  "swallowMagnitude": (3, 6),
                "suddenFrequency": (2, 6, 0.5),  "suddenMagnitude": (3, 6),
                "verbose": False, "keep_original": True, "compare_to_original":True, "proba_to_augment": 1}
+#attention premier trainings, avec le mauvais dico_parame !
+dico_params = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
+               "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 6),
+               "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 6),
+               "verbose": False, "keep_original": True, "proba_to_augment": 1,
+               "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
+               "oversampling_pct": 0, "correct_motion": True}
+
 transforms = (RandomMotionFromTimeCourse(**dico_params),)
 
 
@@ -52,15 +60,12 @@ if do_save:
     doit.set_data_loader(train_csv_file, val_csv_file, transforms, batch_size, num_workers, save_to_dir = load_from_dir, replicate_suj=50)
     doit.save_to_dir(load_from_dir)
 else:
-    doit.set_data_loader(train_csv_file, val_csv_file, transforms, batch_size, num_workers, load_from_dir = load_from_dir)
+    doit.set_data_loader(train_csv_file, val_csv_file, None, batch_size, num_workers, load_from_dir = load_from_dir)
 
     doit.set_model(par_model)
     doit.train_regress_motion()
-
-
 
 test=False
 if test:
     td = doit.train_dataloader
     data = next(iter(td))
-
