@@ -25,7 +25,7 @@ def get_cati_sample():
 name_list = [ 'motion_cati_T1', 'motion_cati_ms', 'motion_cati_brain_ms', 'motion_train_hcp400_ms', 'motion_train_hcp400_brain_ms', 'motion_train_hcp400_T1']
 prefix = "/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/"
 data_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/'
-nb_motions_list = [10, 10, 10, 20, 20, 20]
+nb_motions_list = [20, 20, 20, 10, 10, 10]
 do_plotting = False
 
 fcsv =  [ data_path+ 'healthy_ms_train_hcp400.csv', data_path+ 'healthy_brain_ms_train_hcp400.csv', data_path+ 'Motion_T1_train_hcp400.csv']
