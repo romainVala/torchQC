@@ -62,18 +62,26 @@ if __name__ == '__main__':
                    "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
                    "oversampling_pct": 0, "correct_motion": True}
 
+    dico_params = {"maxDisp": (1, 4), "maxRot": (1, 4), "noiseBasePars": (5, 20, 0.8),
+                   "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 4),
+                   "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 4),
+                   "verbose": False, "keep_original": True, "proba_to_augment": 1,
+                   "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
+                   "oversampling_pct": 0, "correct_motion": True}
+
     transforms = RandomMotionFromTimeCourse(**dico_params)
 
 
     torch.manual_seed(seed)
     np.random.seed(seed)
-    subject = [[ Image('image', fin, INTENSITY),]]
+    subject = [ [ Image('image', fin, INTENSITY)] for i in range(0,nb_sample) ]
+    print('input list is duplicated {} '.format(len(subject)))
 
     dataset = ImagesDataset(subject, transform=transforms)
 
     for i in range(0, nb_sample):
 
-        sample = dataset[0]
+        sample = dataset[i]  #in n time sample[0] it is cumulativ
         fname = res_dir + '/sample{:05d}'.format(index)
         if 'image_orig' in sample: sample.pop('image_orig')
         torch.save(sample, fname + '_sample.pt')
