@@ -38,12 +38,16 @@ def create_jobs( params_fname ) :
         
     # copy scripts
     if 'scripts_to_copy' in  params:
-        scriptsCopyDir = params['output_directory'] + '/scripts'
+        if 'output_results' in params:
+            scriptsCopyDir = params['output_results'] + '/scripts'
+        else:
+            scriptsCopyDir = params['output_directory'] + '/scripts'
+
         command = ' '.join( [ 'rm', '-rf',  scriptsCopyDir ] )
         os.system( command )
         command = ' '.join( [ 'mkdir', '-p',  scriptsCopyDir ] )
         os.system( command )
-        command = ' '.join( [ 'cp', params['scripts_to_copy'],  scriptsCopyDir ] )
+        command = ' '.join( [ 'cp -pr', params['scripts_to_copy'],  scriptsCopyDir ] )
         os.system( command )
         # copy parameter file
         #command = ' '.join( [ 'cp', params_fname, scriptsCopyDir ] )
