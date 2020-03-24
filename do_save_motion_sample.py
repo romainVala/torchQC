@@ -21,6 +21,7 @@ from torchio.transforms import RandomMotionFromTimeCourse
 import torch, os
 from nilearn import plotting
 from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL
+from utils_file import get_parent_path, gfile
 
 if __name__ == '__main__':
     from optparse import OptionParser
@@ -74,7 +75,18 @@ if __name__ == '__main__':
 
     torch.manual_seed(seed)
     np.random.seed(seed)
-    subject = [ [ Image('image', fin, INTENSITY)] for i in range(0,nb_sample) ]
+
+    dir_img = get_parent_path([fin])[0]
+    fm = gfile(dir_img, '^mask', {"items":1})
+    fp1 = gfile(dir_img,'^p1', {"items":1})
+    fp2 = gfile(dir_img,'^p2', {"items":1})
+    one_suj = [ Image('image', fin, INTENSITY),
+                Image('brain', fm[0], LABEL),
+                Image('p1', fp1[0], LABEL),
+                Image('p2', fp2[0], LABEL),
+                ]
+
+    subject = [ one_suj for i in range(0,nb_sample) ]
     print('input list is duplicated {} '.format(len(subject)))
 
     dataset = ImagesDataset(subject, transform=transforms)
@@ -82,9 +94,6 @@ if __name__ == '__main__':
     for i in range(0, nb_sample):
 
         sample = dataset[i]  #in n time sample[0] it is cumulativ
-        fname = res_dir + '/sample{:05d}'.format(index)
-        if 'image_orig' in sample: sample.pop('image_orig')
-        torch.save(sample, fname + '_sample.pt')
 
         image_dict = sample['image']
         volume_path = image_dict['path']
@@ -92,11 +101,18 @@ if __name__ == '__main__':
         volume_name = dd[len(dd)-2] + '_' + image_dict['stem']
         nb_saved = image_dict['index']
 
-        fname = resdir_mvt + 'ssim_{}_sample{:05d}_suj_{}'.format(image_dict['metrics']['ssim'],
+        fname = resdir_mvt + 'ssim_{}_sample{:05d}_suj_{}_mvt.csv'.format(image_dict['metrics']['ssim'],
                                                     index, volume_name)
         t=dataset.get_transform()
         fitpars = t.fitpars
-        np.savetxt(fname + '_mvt.csv', fitpars, delimiter=',')
+        np.savetxt(fname , fitpars, delimiter=',')
+
+        sample['mvt_csv'] = fname
+        fname_sample = res_dir + '/sample{:05d}'.format(index)
+        if 'image_orig' in sample: sample.pop('image_orig')
+
+        torch.save(sample, fname_sample + '_sample.pt')
+
 
         if plot_volume:
             plt.ioff()
