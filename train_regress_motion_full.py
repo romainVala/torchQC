@@ -4,15 +4,25 @@ from torchio.transforms import RandomMotionFromTimeCourse
 import torch, os
 torch.multiprocessing.set_sharing_strategy('file_system')
 from torchvision.transforms import Compose
+from tqdm import tqdm
 
 do_save = False
-batch_size, num_workers, max_epochs = 4, 3, 5
+batch_size, num_workers, max_epochs = 4, 2, 5
 cuda, verbose = True, True
 in_size=[182, 218, 182]
 
+name_list = [ 'motion_cati_T1', 'motion_cati_ms', 'motion_cati_brain_ms',
+              'motion_train_hcp400_ms', 'motion_train_hcp400_brain_ms', 'motion_train_hcp400_T1']
+
+data_name = 'motion_train_hcp400_T1' #'motion_train_hcp400_ms'#'motion_train_hcp400_brain_ms'
+data_name = name_list[5]
 res_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/'
 load_from_dir = '/data/romain/CNN_cache/motion'
-res_name = 'RegressMot_HCPbrain_ms'
+load_from_dir = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/{}/'.format(data_name)
+#load_from_dir = '/data/romain/CNN_cache/{}/'.format(data_name)
+
+res_name = 'RegressMot_{}'.format(data_name)
+
 if os.path.exists('/data/romain/toolbox_python/torchio'):
     data_path = '/data/romain/HCPdata/'
 else:
@@ -67,5 +77,23 @@ else:
 
 test=False
 if test:
+    doit = do_training(res_dir, res_name, verbose)
+    doit.set_data_loader(train_csv_file, val_csv_file, None, batch_size, num_workers, load_from_dir = load_from_dir)
+
     td = doit.train_dataloader
     data = next(iter(td))
+    fs = doit.train_csv_load_file
+
+    for ff in tqdm(fs):
+        sample = torch.load(ff)
+        if type(sample) is tuple: #don't know why?
+            sample = sample[1]
+            print('RRRRR SAving {}'.format(ff))
+            torch.save(sample, ff)
+
+        else:
+            if 'image_orig' in sample:
+                sample.pop('image_orig')
+                print('saving {} type{}'.format(ff, type(sample)))
+                torch.save(sample, ff)
+
