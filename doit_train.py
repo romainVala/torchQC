@@ -45,6 +45,7 @@ class do_training():
             fsample = gfile(load_from_dir, 'sample.*pt')
             self.log_string += '\nloading {} sample from {}'.format(len(fsample), load_from_dir)
             train_dataset = ImagesDataset(fsample, load_from_dir=load_from_dir)
+            self.train_csv_load_file = fsample
             val_dataset = train_dataset
 
         else :
