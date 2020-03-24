@@ -59,18 +59,21 @@ for epoch in range(5):
 for dd in td:
     print('shape {} path {}'.format(dd['image']['data'].shape,dd['image']['path']))
 
-dataset = doit.tr
+td = doit.train_dataloader
+data = next(iter(td))
 
-from torchio.data.io import write_image
+
+from torchio.data.io import write_image, read_image
 from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad
 from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL
 from torchvision.transforms import Compose
 from nibabel.viewers import OrthoSlicer3D as ov
+from torchio.transforms.metrics import ssim3D
 
 tensor = data['image']['data'][0].squeeze(0)  # remove channels dim
 affine = data['image']['affine'].squeeze(0)
 
-write_image(tensor, affine, '/home/romain/QCcnn/motion_cati_brain_ms/toto.nii')
+write_image(tensor, affine, '/tmp/toto.nii')
 mvt = pd.read_csv('/home/romain/QCcnn/motion_cati_brain_ms/ssim_0.03557806462049484_sample00010_suj_cat12_brain_s_S02_Sag_MPRAGE_mvt.csv',header=None)
 fpars = np.asarray(mvt)
 
