@@ -22,7 +22,7 @@ def get_cati_sample():
 
 # parameters
 
-name_list = [ 'motion_cati_T1', 'motion_cati_ms', 'motion_cati_brain_ms', 'motion_train_hcp400_ms', 'motion_train_hcp400_brain_ms', 'motion_train_hcp400_T1']
+name_list = [ 'mask_mvt_cati_T1', 'mask_mvt_cati_ms', 'mask_mvt_cati_brain_ms', 'mask_mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
 prefix = "/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/"
 data_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/'
 nb_motions_list = [20, 20, 20, 10, 10, 10]
@@ -35,6 +35,10 @@ fincsv = [ pd.read_csv(ff).filename for ff in fcsv]
 #fT1, fms, fs_brain = get_cati_sample()
 fout = list( get_cati_sample() )
 fin_list = fout + fincsv
+
+#name_list = [name_list[0], name_list[5]]
+#fin_list = [fin_list[0], fin_list[5]]
+#nb_motions_list = [nb_motions_list[0], nb_motions_list[5]]
 
 for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
     resdir = prefix  + name + '/'
