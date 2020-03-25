@@ -1,99 +1,55 @@
-from doit_train import do_training
-from torchio.transforms import RandomMotionFromTimeCourse
-#from nibabel.viewers import OrthoSlicer3D as ov
-import torch, os
-torch.multiprocessing.set_sharing_strategy('file_system')
-from torchvision.transforms import Compose
-from tqdm import tqdm
+from doit_train import do_training, get_motion_transform, get_train_and_val_csv, get_cache_dir
+import torch
 
-do_save = False
-batch_size, num_workers, max_epochs = 4, 2, 5
+torch.multiprocessing.set_sharing_strategy('file_system')
+
+do_save, do_eval = False, False
+batch_size, num_workers, max_epochs = 4, 4, 5
 cuda, verbose = True, True
 in_size=[182, 218, 182]
 
-name_list = [ 'motion_cati_T1', 'motion_cati_ms', 'motion_cati_brain_ms',
-              'motion_train_hcp400_ms', 'motion_train_hcp400_brain_ms', 'motion_train_hcp400_T1']
+name_list_train = ['mask_mvt_cati_T1', 'mask_mvt_cati_ms', 'mask_mvt_cati_brain_ms',
+                   'mask_mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
+name_list_val = ['mask_mvt_cati_T1', 'mask_mvt_cati_ms', 'mask_mvt_cati_brain_ms',
+                 'mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
 
-data_name = 'motion_train_hcp400_T1' #'motion_train_hcp400_ms'#'motion_train_hcp400_brain_ms'
-data_name = name_list[5]
+data_name_train = name_list_train[3]
+data_name_val = name_list_val[3]
+
 res_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/'
-load_from_dir = '/data/romain/CNN_cache/motion'
-load_from_dir = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/{}/'.format(data_name)
-#load_from_dir = '/data/romain/CNN_cache/{}/'.format(data_name)
+base_name = 'RegressMot'
 
-res_name = 'RegressMot_{}'.format(data_name)
-
-if os.path.exists('/data/romain/toolbox_python/torchio'):
-    data_path = '/data/romain/HCPdata/'
-else:
-    data_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/'
-
-import socket
-myHostName = socket.gethostname()
-if 'le53' in myHostName:
-    batch_size, num_workers, max_epochs = 1, 0, 1
-    cuda, verbose = False, True
-    res_dir = '/home/romain/QCcnn/'
-    load_from_dir = '/home/romain/QCcnn/motion_cati_brain_ms/'
-
-dico_params = {"maxDisp": (1, 6),  "maxRot": (1, 6),    "noiseBasePars": (5, 20, 0.8),
-               "swallowFrequency": (2, 6, 0.5),  "swallowMagnitude": (3, 6),
-               "suddenFrequency": (2, 6, 0.5),  "suddenMagnitude": (3, 6),
-               "verbose": False, "keep_original": True, "compare_to_original":True, "proba_to_augment": 1}
-#attention premier trainings, avec le mauvais dico_parame !
-dico_params = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
-               "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 6),
-               "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 6),
-               "verbose": False, "keep_original": True, "proba_to_augment": 1,
-               "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
-               "oversampling_pct": 0, "correct_motion": True}
-
-transforms = (RandomMotionFromTimeCourse(**dico_params),)
-
-
-train_csv_file, val_csv_file = data_path + 'healthy_brain_ms_train_hcp400.csv', data_path + 'healthy_brain_ms_val_hcp200.csv'
+root_fs = 'le70' #'lustre'
 
 par_model = {'network_name': 'ConvN',
-             #'output_fnc': 'tanh',
-             'losstype': 'MSE',
+             'losstype': 'L1',
              'lr': 1e-5,
               'conv_block': [16, 32, 64, 128, 256], 'linear_block': [40, 50],
              'in_size': in_size,
-             'cuda': cuda,
-             'max_epochs': max_epochs}
+             'cuda': cuda, 'max_epochs': max_epochs}
 #'conv_block':[8, 16, 32, 64, 128]
 
+dir_cache = get_cache_dir(root_fs=root_fs)
+load_from_dir = ['{}/{}/'.format(dir_cache, data_name_train), '{}/{}/'.format(dir_cache, data_name_val)]
+res_name = '{}_{}'.format(base_name, data_name_train)
 
 doit = do_training(res_dir, res_name, verbose)
 
 if do_save:
-    doit.set_data_loader(train_csv_file, val_csv_file, transforms, batch_size, num_workers, save_to_dir = load_from_dir, replicate_suj=50)
-    doit.save_to_dir(load_from_dir)
-else:
-    doit.set_data_loader(train_csv_file, val_csv_file, None, batch_size, num_workers, load_from_dir = load_from_dir)
+    transforms = get_motion_transform()
+    train_csv_file, val_csv_file = get_train_and_val_csv(root_fs=root_fs)
+    doit.set_data_loader(train_csv_file=train_csv_file, val_csv_file=val_csv_file, transforms=transforms,
+                         batch_size=batch_size, num_workers=num_workers,
+                         save_to_dir = load_from_dir, replicate_suj=20)
+    doit.save_to_dir(load_from_dir) # no more use, because it is much faster on cluster with job created by
 
+elif do_eval:
+    doit.set_data_loader(batch_size=batch_size, num_workers=num_workers, load_from_dir=load_from_dir)
+    doit.set_model(par_model)
+    doit.eval_regress_motion()
+
+else:
+    doit.set_data_loader(batch_size=batch_size, num_workers=num_workers, load_from_dir = load_from_dir)
     doit.set_model(par_model)
     doit.train_regress_motion()
-
-test=False
-if test:
-    doit = do_training(res_dir, res_name, verbose)
-    doit.set_data_loader(train_csv_file, val_csv_file, None, batch_size, num_workers, load_from_dir = load_from_dir)
-
-    td = doit.train_dataloader
-    data = next(iter(td))
-    fs = doit.train_csv_load_file
-
-    for ff in tqdm(fs):
-        sample = torch.load(ff)
-        if type(sample) is tuple: #don't know why?
-            sample = sample[1]
-            print('RRRRR SAving {}'.format(ff))
-            torch.save(sample, ff)
-
-        else:
-            if 'image_orig' in sample:
-                sample.pop('image_orig')
-                print('saving {} type{}'.format(ff, type(sample)))
-                torch.save(sample, ff)
 

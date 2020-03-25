@@ -1,4 +1,4 @@
-from doit_train import do_training
+from doit_train import do_training, get_motion_transform
 from torchio.transforms import RandomMotionFromTimeCourse
 #from nibabel.viewers import OrthoSlicer3D as ov
 import torch
@@ -24,13 +24,7 @@ if 'le53' in myHostName:
     cuda, verbose = False, True
     res_dir = '/home/romain/QCcnn/'
 
-
-dico_params = {"maxDisp": (1, 6),  "maxRot": (1, 6),    "noiseBasePars": (5, 20, 0.8),
-               "swallowFrequency": (2, 6, 0.5),  "swallowMagnitude": (3, 6),
-               "suddenFrequency": (2, 6, 0.5),  "suddenMagnitude": (3, 6),
-               "verbose": False, "keep_original": True, "compare_to_original":True, "proba_to_augment": 1}
-transforms = (RandomMotionFromTimeCourse(**dico_params),)
-
+transforms = get_motion_transform()
 
 train_csv_file, val_csv_file = 'healthy_brain_ms_train_hcp400.csv', 'healthy_brain_ms_val_hcp200.csv'
 

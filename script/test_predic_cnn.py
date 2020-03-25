@@ -3,7 +3,21 @@ from utils_file import gfile, gdir, get_parent_path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import nibabel as nib
+from nibabel.viewers import OrthoSlicer3D as ov
+from nilearn import plotting
+import seaborn as sns
+
+import numpy as np
+import sys, os, logging
+
+import torch
+import torch.nn as nn
 import torch.optim as optim
+from torchio.transforms import RandomMotionFromTimeCourse
+from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL
+from utils_file import get_parent_path, gfile, gdir
+from doit_train import do_training, get_motion_transform
 
 
 d='/home/romain.valabregue/QCcnn/li'
@@ -77,17 +91,7 @@ write_image(tensor, affine, '/tmp/toto.nii')
 mvt = pd.read_csv('/home/romain/QCcnn/motion_cati_brain_ms/ssim_0.03557806462049484_sample00010_suj_cat12_brain_s_S02_Sag_MPRAGE_mvt.csv',header=None)
 fpars = np.asarray(mvt)
 
-dico_params = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
-               "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 6),
-               "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 6),
-               "verbose": False, "keep_original": True, "proba_to_augment": 1,
-               "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
-               "oversampling_pct": 0, "correct_motion": True}
-
-dico_params['fitpars'] = fpars/10
-
-transforms = Compose((RandomMotionFromTimeCourse(**dico_params),))
-transforms = RandomMotionFromTimeCourse(**dico_params)
+transforms = get_motion_transform()
 
 suj = [[ Image('T1', '/home/romain/QCcnn/motion_cati_brain_ms/brain_s_S02_Sag_MPRAGE.nii.gz', 'intensity'), ]]
 
@@ -99,3 +103,21 @@ tt = dataset.get_transform()
 plt.figure(); plt.plot(tt.fitpars.T)
 dataset.save_sample(s, dict(T1='/home/romain/QCcnn/motion_cati_brain_ms/toto10.nii'))
 
+
+
+#look at distribution of metric on simulate motion
+dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache'
+dd = gdir(dir_cache,'mask_mv')
+fr = gfile(dd,'resul')
+name_res = get_parent_path(dd)[1]
+res = [ pd.read_csv(ff) for ff in fr]
+sell_col = res[0].keys()
+
+sell_col = [ 'L1', 'MSE', 'corr', 'mean_DispP', 'rmse_Disp','rmse_DispTF',
+             'ssim', 'ssim_all', 'ssim_brain', 'ssim_p1', 'ssim_p2']
+sell_col = [ 'L1', 'MSE', 'corr', 'ssim', 'ssim_all', 'ssim_brain', 'ssim_p1', 'ssim_p2']
+sell_col = [ 'L1', 'MSE', 'corr', 'ssim', 'ssim_all']
+
+for rr in res:
+    rr=rr.loc[:,sell_col]
+    sns.pairplot(rr)

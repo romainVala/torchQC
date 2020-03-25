@@ -494,19 +494,30 @@ def summary(model, input_size, batch_size=-1, device="cuda"):
 # return summary
     return txt
 
-def load_existing_weights_if_exist(resdir, model, model_name='model', log=None, device='cuda'):
+def load_existing_weights_if_exist(resdir, model, model_name='model', log=None, device='cuda', index_mod=-1):
     from utils_file import  gfile, get_parent_path
 
     ep_start = 0
 
     resume_mod = gfile(resdir, '.*pt$')
     if len(resume_mod) > 0:
-        fn = get_parent_path(resume_mod)[1]
+        dir_mod, fn = get_parent_path(resume_mod)
         ffn = [ff[ff.find('_ep')+3:-3] for ff in fn]
-        ep = [int(ff) for ff in ffn]
-        aa = np.argsort(ep)
-        ep_start = ep[aa[-1]]
-        thelast = resume_mod[aa[-1]]
+        key_list = []
+        for fff, fffn in zip(ffn,fn):
+            if '_it' in fff:
+                ind = fff.find('_it')
+                ep = int(fff[0:ind])
+                it = int(fff[ind+3:])
+            else:
+                ep = int(fff)
+                it = 100000000
+            key_list.append([fffn, ep, it])
+        aa = np.array(sorted(key_list, key=lambda x: (x[1], x[2])))
+        name_sorted, ep_sorted = aa[:,0],  aa[:,1]
+
+        ep_start = int(ep_sorted[index_mod])
+        thelast = dir_mod[0] + '/' + name_sorted[index_mod]
         log.info('resuming model from epoch {} weight loaded from {}'.format(ep_start, thelast))
 
         tl = torch.load(thelast, map_location=device)
@@ -527,10 +538,11 @@ def load_existing_weights_if_exist(resdir, model, model_name='model', log=None, 
             model.load_state_dict(tl[model_name])
     else:
         log.info('New training starting epoch {}'.format(ep_start))
+        thelast = resdir
 
     log.info('Resdir is {}'.format(resdir))
 
-    return ep_start
+    return ep_start, get_parent_path([thelast])[1][0]
 
 """Common image segmentation losses.
 """

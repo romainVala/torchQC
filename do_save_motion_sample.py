@@ -6,22 +6,14 @@ Created on Aug  29  09:11:47 2019
 @author: romain
 """
 
-import nibabel as nb
 import numpy as np
-import sys, os, logging
-
 import matplotlib.pyplot as plt
-from nibabel.viewers import OrthoSlicer3D as ov
 import nibabel as nib
 import torch
-import torch.nn as nn
-from doit_train import do_training
-from torchio.transforms import RandomMotionFromTimeCourse
-#from nibabel.viewers import OrthoSlicer3D as ov
-import torch, os
 from nilearn import plotting
-from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL
-from utils_file import get_parent_path, gfile
+from torchio import Image, ImagesDataset, INTENSITY, LABEL
+from utils_file import get_parent_path, gfile, gdir
+from doit_train import get_motion_transform
 
 if __name__ == '__main__':
     from optparse import OptionParser
@@ -56,22 +48,7 @@ if __name__ == '__main__':
     if not os.path.isdir(resdir_mvt): os.mkdir(resdir_mvt)
     if not os.path.isdir(resdir_fig): os.mkdir(resdir_fig)
 
-    dico_params = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
-                   "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 6),
-                   "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 6),
-                   "verbose": False, "keep_original": True, "proba_to_augment": 1,
-                   "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
-                   "oversampling_pct": 0, "correct_motion": True}
-
-    dico_params = {"maxDisp": (1, 4), "maxRot": (1, 4), "noiseBasePars": (5, 20, 0.8),
-                   "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 4),
-                   "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 4),
-                   "verbose": False, "keep_original": True, "proba_to_augment": 1,
-                   "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
-                   "oversampling_pct": 0, "correct_motion": True}
-
-    transforms = RandomMotionFromTimeCourse(**dico_params)
-
+    transfo = get_motion_transform()
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -80,16 +57,24 @@ if __name__ == '__main__':
     fm = gfile(dir_img, '^mask', {"items":1})
     fp1 = gfile(dir_img,'^p1', {"items":1})
     fp2 = gfile(dir_img,'^p2', {"items":1})
+    if len(fm)==0: #may be in cat12 subdir (like for HCP)
+        fm = gfile(dir_img, '^brain_T1', {"items": 1})
+        #dir_cat = gdir(dir_img,'cat12')
+        #fm = gfile(dir_cat, '^mask_brain', {"items": 1})
+        #fp1 = gfile(dir_cat, '^p1', {"items": 1})
+        #fp2 = gfile(dir_cat, '^p2', {"items": 1})
+
     one_suj = [ Image('image', fin, INTENSITY),
-                Image('brain', fm[0], LABEL),
-                Image('p1', fp1[0], LABEL),
-                Image('p2', fp2[0], LABEL),
-                ]
+                Image('brain', fm[0], LABEL), ]
+    if len(fp1)==1:
+        one_suj.append(Image('p1', fp1[0], LABEL))
+    if len(fp2) == 1:
+        one_suj.append(Image('p2', fp2[0], LABEL))
 
     subject = [ one_suj for i in range(0,nb_sample) ]
     print('input list is duplicated {} '.format(len(subject)))
 
-    dataset = ImagesDataset(subject, transform=transforms)
+    dataset = ImagesDataset(subject, transform=transfo)
 
     for i in range(0, nb_sample):
 
@@ -109,7 +94,10 @@ if __name__ == '__main__':
 
         sample['mvt_csv'] = fname
         fname_sample = res_dir + '/sample{:05d}'.format(index)
+
         if 'image_orig' in sample: sample.pop('image_orig')
+        if 'p1' in sample: sample.pop('p1')
+        if 'p2' in sample: sample.pop('p2')
 
         torch.save(sample, fname_sample + '_sample.pt')
 

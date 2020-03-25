@@ -4,6 +4,7 @@ from torchio.data import ImagesClassifDataset, get_subject_list_and_csv_info_fro
 from torchio.data.sampler import ImageSampler
 from torchio.utils import is_image_dict
 from torchio import INTENSITY
+from torchio.transforms import RandomMotionFromTimeCourse
 
 from torch.utils.data import DataLoader
 import torch.nn as tnn
@@ -37,16 +38,19 @@ class do_training():
         #self.log = get_log_file(self.log_file)
 
 
-    def set_data_loader(self, train_csv_file, val_csv_file, transforms=None,
+    def set_data_loader(self, train_csv_file='', val_csv_file='', transforms=None,
                         batch_size=1, num_workers=0,
-                        par_queue=None, save_to_dir=None, load_from_dir=None, replicate_suj=0 ):
+                        par_queue=None, save_to_dir=None, load_from_dir=None,
+                        replicate_suj=0, shuffel_train=True ):
 
         if load_from_dir is not None :
-            fsample = gfile(load_from_dir, 'sample.*pt')
-            self.log_string += '\nloading {} sample from {}'.format(len(fsample), load_from_dir)
-            train_dataset = ImagesDataset(fsample, load_from_dir=load_from_dir)
-            self.train_csv_load_file = fsample
-            val_dataset = train_dataset
+            fsample_train, fsample_val = gfile(load_from_dir[0], 'sample.*pt'), gfile(load_from_dir[1], 'sample.*pt')
+            self.log_string += '\nloading {} train sample from {}'.format(len(fsample_train), load_from_dir[0])
+            self.log_string += '\nloading {} val   sample from {}'.format(len(fsample_val), load_from_dir[1])
+            train_dataset = ImagesDataset(fsample_train, load_from_dir=load_from_dir[0])
+            self.train_csv_load_file_train = fsample_train
+            val_dataset = ImagesDataset(fsample_val, load_from_dir=load_from_dir[1])
+            self.train_csv_load_file_train = fsample_val
 
         else :
             data_parameters = {'image': {'csv_file': train_csv_file}, }
@@ -86,14 +90,13 @@ class do_training():
                               shuffle_subjects=False, shuffle_patches=False, verbose=self.verbose)
             self.res_name += '_spv{}'.format(par_queue['samples_per_volume'])
 
-            self.train_dataloader = DataLoader(train_queue, batch_size=batch_size, shuffle=True)
+            self.train_dataloader = DataLoader(train_queue, batch_size=batch_size, shuffle=shuffel_train)
             self.val_dataloader = DataLoader(val_queue, batch_size=batch_size, shuffle=False)
 
         else:
             self.patch = False
-            self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+            self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffel_train, num_workers=num_workers)
             self.val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-
 
 
     def set_model(self, par_model):
@@ -153,7 +156,7 @@ class do_training():
 
         self.log.info(summary(self.model, (1, in_size[0], in_size[1], in_size[2]), device=device, batch_size=1))
 
-        self.ep_start = load_existing_weights_if_exist(self.res_dir, self.model, log=self.log, device=device)
+        self.ep_start, self.last_model_saved = load_existing_weights_if_exist(self.res_dir, self.model, log=self.log, device=device)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         #exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=25, gamma=0.1)
@@ -208,9 +211,7 @@ class do_training():
                     sliding_loss = 0
 
                 if (iteration % 500 == 0) :
-                    resname = self.res_dir + "/model_ep{}_it{}.pt".format(ep,iteration)
-                    torch.save({"model": self.model.state_dict()}, resname)
-                    self.log.info('saving model to %s' % (resname))
+                    self.save_model(ep, iteration, fct_eval=self.eval_regress_motion)
 
             self.log.info("Ep: {} Iteration: {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
                                                                          epoch_loss / epoch_samples))
@@ -218,9 +219,22 @@ class do_training():
             res.to_csv(fres)
 
             if ep % 4 == 0:
-                resname = self.res_dir + "/model_ep{}.pt".format(ep)
-                torch.save({"model": self.model.state_dict()}, resname)
-                self.log.info('saving model to %s' % (resname))
+                self.save_model(ep, fct_eval=self.eval_regress_motion)
+
+        self.save_model(ep, fct_eval=self.eval_regress_motion)
+
+    def save_model(self, ep, iteration=None, fct_eval=None):
+        if iteration is not None:
+            resname = "model_ep{}_it{}.pt".format(ep, iteration)
+        else:
+            resname = "model_ep{}.pt".format(ep)
+
+        torch.save({"model": self.model.state_dict()}, self.res_dir + resname)
+        self.log.info('saving model to %s' % (resname))
+        self.last_model_saved = resname
+        if fct_eval is not None:
+            fct_eval()
+            self.model.train()
 
     def eval_regress_motion(self):
 
@@ -255,12 +269,12 @@ class do_training():
             res = self.add_motion_info(data, res, extra_info)
 
             if (iteration % 100 == 0) or (iteration==10) :
-                self.log.info("Ep: {} Iteration: {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
+                self.log.info("VAL data Ep: {} Iteration: {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
                                                                         epoch_loss / epoch_samples))
 
-        self.log.info("Ep: {} Iteration: {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
+        self.log.info("VAL data Ep: {} Iteration: {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
                                                                      epoch_loss / epoch_samples))
-        fres = self.res_dir + '/res_val_ep{:02d}.csv'.format(ep)
+        fres = self.res_dir + '/res_val_{}.csv'.format( self.last_model_saved)
         res.to_csv(fres)
 
 
@@ -306,3 +320,119 @@ class do_training():
 
         fres = self.res_dir + '/res_data_set.csv'
         res.to_csv(fres)
+
+def get_motion_transform(type='motion1'):
+
+    if type=='motion1':
+        dico_params = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
+                       "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 6),
+                       "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 6),
+                       "verbose": False, "keep_original": True, "proba_to_augment": 1,
+                       "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
+                       "oversampling_pct": 0, "correct_motion": True}
+
+        dico_params = {"maxDisp": (1, 4), "maxRot": (1, 4), "noiseBasePars": (5, 20, 0.8),
+                       "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 4),
+                       "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 4),
+                       "verbose": False, "keep_original": True, "proba_to_augment": 1,
+                       "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
+                       "oversampling_pct": 0, "correct_motion": True}
+
+    transforms = RandomMotionFromTimeCourse(**dico_params)
+    return transforms
+
+def get_cache_dir(root_fs = 'lustre'):
+    if root_fs == 'lustre':
+        dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/'
+    elif root_fs == 'le70':
+        dir_cache = '/data/romain/CNN_cache/'
+    return dir_cache
+
+def get_train_and_val_csv(names='', root_fs = 'lustre'):
+
+    return_list = True
+    if names is str:
+        names = [names]
+        return_list = False
+
+    if root_fs == 'lustre':
+        data_path_hcp = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/'
+    elif root_fs == 'le70':
+        data_path_hcp = '/data/romain/HCPdata/'
+    data_path_cati = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/CATI_datasets/'
+
+    fcsv_train, fcsv_val = [], []
+    for name in names:
+        if 'hcp' in name:
+            if 'T1' in name:
+                fname_train, fname_val = 'Motion_T1_train_hcp400.csv',  'Motion_T1_val_hcp200.csv'
+            elif 'brain_ms' in name:
+                fname_train, fname_val = 'healthy_brain_ms_train_hcp400.csv', 'healthy_brain_ms_val_hcp200.csv'
+            elif 'ms' in name:
+                fname_train, fname_val = 'healthy_ms_train_hcp400.csv', 'healthy_ms_val_hcp200.csv'
+            else:
+                print('can not guess which DATA from {}'.format(name))
+                raise
+
+            file_train = data_path_hcp + fname_train
+            file_val   = data_path_hcp + fname_val
+
+        elif 'cati' in name:
+            if 'T1' in name:
+                fname_train, fname_val = 'cati_cenir_QC4_train_T1.csv',  'cati_cenir_QC4_val_T1.csv'
+            elif 'brain' in name:
+                fname_train, fname_val = 'cati_cenir_QC4_train_brain.csv',  'cati_cenir_QC4_val_brain.csv'
+            elif 'i_ms' in name:
+                fname_train, fname_val = 'cati_cenir_QC4_train_ms.csv',  'cati_cenir_QC4_val_ms.csv'
+            else:
+                print('can not guess which DATA from {}'.format(name))
+                raise
+
+            file_train = data_path_cati + fname_train
+            file_val   = data_path_cati + fname_val
+
+        else:
+            print('can not guess which DATA from {}'.format(name))
+            raise
+
+        print('data {}\nfor {} \t found {} {} in {}'.format(get_parent_path([file_train])[0], name, fname_train, fname_val))
+        fcsv_train.append(file_train)
+        fcsv_val.append(file_val)
+
+    if return_list:
+        return fcsv_train, fcsv_val
+    else:
+        return fcsv_train[0], fcsv_val[0]
+
+def write_cati_csv():
+    import pandas as pd
+    data_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/CATI_datasets/'
+    fcsv = data_path + 'all_cati.csv';
+    res = pd.read_csv(fcsv)
+
+    ser_dir = res.cenir_QC_path[res.globalQualitative > 3].values
+    dcat = gdir(ser_dir, 'cat12')
+    fT1 = gfile(dcat, '^s.*nii')
+    fms = gfile(dcat, '^ms.*nii')
+    fs_brain = gfile(dcat, '^brain_s.*nii')
+    # return fT1, fms, fs_brain
+
+    ind_perm = np.random.permutation(range(0, len(fT1)))
+    itrain = ind_perm[0:100]
+    ival = ind_perm[100:]
+
+    dd = pd.DataFrame({'filename': fT1})
+    dd.to_csv(data_path + 'cati_cenir_QC4_all_T1.csv', index=False)
+    dd.loc[ival, :].to_csv(data_path + 'cati_cenir_QC4_val_T1.csv', index=False)
+    dd.loc[itrain, :].to_csv(data_path + 'cati_cenir_QC4_train_T1.csv', index=False)
+
+    dd = pd.DataFrame({'filename': fms})
+    dd.to_csv(data_path + 'cati_cenir_QC4_all_ms.csv', index=False)
+    dd.loc[ival, :].to_csv(data_path + 'cati_cenir_QC4_val_ms.csv', index=False)
+    dd.loc[itrain, :].to_csv(data_path + 'cati_cenir_QC4_train_ms.csv', index=False)
+
+    dd = pd.DataFrame({'filename': fs_brain})
+    dd.to_csv(data_path + 'cati_cenir_QC4_all_brain.csv', index=False)
+    dd.loc[ival, :].to_csv(data_path + 'cati_cenir_QC4_val_brain.csv', index=False)
+    dd.loc[itrain, :].to_csv(data_path + 'cati_cenir_QC4_train_brain.csv', index=False)
+

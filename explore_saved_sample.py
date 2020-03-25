@@ -7,6 +7,7 @@ import nibabel as nib
 from doit_train import do_training
 from nilearn import plotting
 import time
+import torch
 
 do_plot_mv, do_plot_fig = False, False
 #do_plot_mv, do_plot_fig = True, True
@@ -14,76 +15,90 @@ do_plot_mv, do_plot_fig = False, False
 batch_size, num_workers = 1, 0
 cuda, verbose = True, True
 
-name_list = [ 'motion_cati_T1', 'motion_cati_ms', 'motion_cati_brain_ms',
-              'motion_train_hcp400_ms', 'motion_train_hcp400_brain_ms', 'motion_train_hcp400_T1']
+name_list = [ 'mask_mvt_cati_T1', 'mask_mvt_cati_ms', 'mask_mvt_cati_brain_ms',
+              'mask_mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
 
-data_name = 'motion_train_hcp400_T1' #'motion_train_hcp400_ms'#'motion_train_hcp400_brain_ms'
-data_name = name_list[0]
-load_from_dir = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/{}/'.format(data_name)
-load_from_dir = '/data/romain/CNN_cache/{}/'.format(data_name)
+dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/'
+#dir_cache = '/data/romain/CNN_cache/'
 
-res_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/'
-res_name = 'NNN'
+for data_name in name_list:
 
-import socket
-myHostName = socket.gethostname()
-if 'le53' in myHostName:
-    batch_size, num_workers, max_epochs = 1, 0, 1
-    cuda, verbose = False, True
-    res_dir = '/home/romain/QCcnn/'
-    load_from_dir = '/home/romain/QCcnn/motion_cati_brain_ms/'
+    load_from_dir = '{}/{}/'.format(dir_cache, data_name)
+    res_dir = load_from_dir
+    res_name = 'NNN'
 
+    doit = do_training(res_dir, res_name, verbose)
+    doit.set_data_loader(None, None, None, batch_size, num_workers, load_from_dir=load_from_dir, shuffel_train=False)
 
-doit = do_training(res_dir, res_name, verbose)
-doit.set_data_loader(None, None, None, batch_size, num_workers, load_from_dir = load_from_dir)
+    td = doit.train_dataloader
+    print('loading {} sample from {} \n estimated time {} h'.format(len(td), load_from_dir, len(td)*0.002))
+    start = time.time()
 
-td = doit.train_dataloader
-print('loading {} sample from {} \n estimated time {} h'.format(len(td), load_from_dir, len(td)*0.002))
-start = time.time()
+    #fsaved = doit.train_csv_load_file_train
+    #fname_saved = get_parent_path(fsaved)[1]
+    #fcsv = gfile(gdir(load_from_dir, 'mvt_param'), '.*csv') #should be order by sample not by ssim
 
-#fsaved = doit.train_csv_load_file
-#fname_saved = get_parent_path(fsaved)[1]
-#fcsv = gfile(gdir(load_from_dir, 'mvt_param'), '.*csv') #should be order by sample not by ssim
-
-plt.ioff()
-res_dir = load_from_dir
-resdir_fig = res_dir + '/fig/'
-resdir_mvt = res_dir + '/mvt_param/'
+    plt.ioff()
+    resdir_fig = res_dir + '/fig/'
+    resdir_mvt = res_dir + '/mvt_param/'
 
 
-print('printing volume figure')
-res, extra_info = pd.DataFrame(), dict()
+    print('printing volume figure')
+    res, extra_info = pd.DataFrame(), dict()
 
-for sample in tqdm(td):
-    ff = sample['mvt_csv']
-    fcsv_name = get_parent_path(ff)[1][0]
+    for sample in tqdm(td):
+        ff = sample['mvt_csv']
+        fcsv_name = get_parent_path(ff)[1][0]
 
-    if do_plot_mv:
-        mvt = pd.read_csv(ff[0], header=None)
-        fpars = np.asarray(mvt)
-        fname_mvt = fcsv_name[:-4]
+        if do_plot_mv:
+            mvt = pd.read_csv(ff[0], header=None)
+            fpars = np.asarray(mvt)
+            fname_mvt = fcsv_name[:-4]
 
-        fig = plt.figure(fname_mvt)
-        plt.plot(fpars.T)
-        plt.savefig(resdir_mvt + fname_mvt + '.png')
-        plt.close(fig)
+            fig = plt.figure(fname_mvt)
+            plt.plot(fpars.T)
+            plt.savefig(resdir_mvt + fname_mvt + '.png')
+            plt.close(fig)
 
-    if do_plot_fig:
-        image = sample['image']['data'][0][0].numpy()
-        affine = sample['image']['affine'][0]
-        nii = nib.Nifti1Image(image, affine)
-        fname = resdir_fig + fcsv_name[:-8] + '_fig.png'
+        if do_plot_fig:
+            image = sample['image']['data'][0][0].numpy()
+            affine = sample['image']['affine'][0]
+            nii = nib.Nifti1Image(image, affine)
+            fname = resdir_fig + fcsv_name[:-8] + '_fig.png'
 
-        di = plotting.plot_anat(nii, output_file=fname, annotate=False, draw_cross=False)
-    res = doit.add_motion_info(sample, res)
+            di = plotting.plot_anat(nii, output_file=fname, annotate=False, draw_cross=False)
+        extra_info = {'mvt_csv':ff}
+        res = doit.add_motion_info(sample, res, extra_info)
 
-fres = res_dir + '/res_motion.csv'
-res.to_csv(fres)
+    fres = res_dir + '/res_motion.csv'
+    res.to_csv(fres)
 
-print('saving {}'.format(fres))
-print('done in {}'.format((time.time()-start)/60/60))
+    print('saving {}'.format(fres))
+    print('done in {}'.format((time.time()-start)/60/60))
 
 test=False
 if test:
+
     td = doit.train_dataloader
     data = next(iter(td))
+
+    doit = do_training(res_dir, res_name, verbose)
+    doit.set_data_loader(train_csv_file, val_csv_file, None, batch_size, num_workers, load_from_dir = load_from_dir)
+
+    td = doit.train_dataloader
+    data = next(iter(td))
+    fs = doit.train_csv_load_file_train
+
+    for ff in tqdm(fs):
+        sample = torch.load(ff)
+        if type(sample) is tuple: #don't know why?
+            sample = sample[1]
+            print('RRRRR SAving {}'.format(ff))
+            torch.save(sample, ff)
+
+        else:
+            if 'image_orig' in sample:
+                sample.pop('image_orig')
+                print('saving {} type{}'.format(ff, type(sample)))
+                torch.save(sample, ff)
+

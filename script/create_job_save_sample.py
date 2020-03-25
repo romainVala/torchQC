@@ -3,47 +3,37 @@
 """
 script to generate jobs
 """
-
-import nibabel as nb
 import pandas as pd
-import sys, os
 from script.create_jobs import create_jobs
-from utils_file import gfile, gdir, get_parent_path
-def get_cati_sample():
-    fcsv='/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/CATI_datasets/all_cati.csv';
-    res = pd.read_csv(fcsv)
-
-    ser_dir = res.cenir_QC_path[res.globalQualitative>3].values
-    dcat = gdir(ser_dir, 'cat12')
-    fT1 = gfile(dcat, '^s.*nii')
-    fms = gfile(dcat, '^ms.*nii')
-    fs_brain = gfile(dcat, '^brain_s.*nii')
-    return fT1, fms, fs_brain
+from doit_train import get_train_and_val_csv
 
 # parameters
 
-name_list = [ 'mask_mvt_cati_T1', 'mask_mvt_cati_ms', 'mask_mvt_cati_brain_ms', 'mask_mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
 prefix = "/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/"
-data_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/'
-nb_motions_list = [20, 20, 20, 10, 10, 10]
+
+name_list = [ 'mask_mvt_cati_T1', 'mask_mvt_cati_ms', 'mask_mvt_cati_brain_ms', 'mask_mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
+name_list = [ 'mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
+name_list = [ 'mask_mvt_train_cati_T1', 'mask_mvt_train_cati_ms', 'mask_mvt_train_cati_brain',]
+name_list = [ 'mask_mvt_val_cati_T1', 'mask_mvt_val_cati_ms', 'mask_mvt_val_cati_brain',]
+
+nb_motions_list = [20, 20, 20, 10, 10, 10] #[5, 5, 5]
+nb_motions_list = [20, 20, 20]
 do_plotting = False
 
-fcsv =  [ data_path+ 'healthy_ms_train_hcp400.csv', data_path+ 'healthy_brain_ms_train_hcp400.csv', data_path+ 'Motion_T1_train_hcp400.csv']
-fincsv = [ pd.read_csv(ff).filename for ff in fcsv]
-#res=pd.read_csv(fcsv); fin=res.filename
+fin_list_train, fin_list_val = get_train_and_val_csv(name_list) #
 
-#fT1, fms, fs_brain = get_cati_sample()
-fout = list( get_cati_sample() )
-fin_list = fout + fincsv
+fin_choose = []
+for ii, nn in enumerate(name_list):
+    if 'train' in nn: fin_choose.append(fin_list_train[ii])
+    elif 'val' in nn: fin_choose.append(fin_list_val[ii])
 
-#name_list = [name_list[0], name_list[5]]
-#fin_list = [fin_list[0], fin_list[5]]
-#nb_motions_list = [nb_motions_list[0], nb_motions_list[5]]
+fin_list =  [ pd.read_csv(ff).filename for ff in fin_choose]
+
 
 for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
     resdir = prefix  + name + '/'
 
-    scriptsDir = '/network/lustre/iss01/cenir/software/irm/toolbox_python/romain/torchQC/'
+    scriptsDir = '/network/lustre/iss01/cenir/software/irm/toolbox_python/romain/torchQC'
 
     py_options = '--nb_sample={} --res_dir={}'.format(nb_motions, resdir)
 
@@ -53,10 +43,8 @@ for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
     params['scripts_to_copy'] = scriptsDir #+ '/*.py'
     params['output_results'] = resdir  # just to do the mkdir -p
 
-
     cmd_init = '\n'.join(["python " + scriptsDir + "/do_save_motion_sample.py " +py_options + " \\"] )
     jobs = []
-
 
     for ii, ff in enumerate(fin):
         index = ii*nb_motions

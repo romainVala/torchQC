@@ -47,7 +47,7 @@ def create_jobs( params_fname ) :
         os.system( command )
         command = ' '.join( [ 'mkdir', '-p',  scriptsCopyDir ] )
         os.system( command )
-        command = ' '.join( [ 'cp -pr', params['scripts_to_copy'],  scriptsCopyDir ] )
+        command = ' '.join( [ 'rsync -auxl --exclude=*pyc --exclude=*.git ', params['scripts_to_copy'],  scriptsCopyDir ] )
         os.system( command )
         # copy parameter file
         #command = ' '.join( [ 'cp', params_fname, scriptsCopyDir ] )
@@ -62,7 +62,7 @@ def create_jobs( params_fname ) :
 
     # write the jobs to be submitted
     fd_do_all_local = open( do_all_local_file, 'w' ) ;
-    fd_do_all_local.write( '# /export/data/opt/CENIR/bin/parallel -j 60 < ' + do_all_local_file + '\n' )
+    fd_do_all_local.write( '# parallel -j 12 < ' + do_all_local_file + '\n' )
 
     jobs = params['jobs']
     if 'job_pack' in params:
