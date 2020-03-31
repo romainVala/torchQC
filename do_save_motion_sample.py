@@ -45,8 +45,11 @@ if __name__ == '__main__':
 
     resdir_mvt = res_dir + '/mvt_param/'
     resdir_fig = res_dir + '/fig/'
-    if not os.path.isdir(resdir_mvt): os.mkdir(resdir_mvt)
-    if not os.path.isdir(resdir_fig): os.mkdir(resdir_fig)
+    try : #on cluster, all job are doing the mkdir at the same time ...
+        if not os.path.isdir(resdir_mvt): os.mkdir(resdir_mvt)
+        if not os.path.isdir(resdir_fig): os.mkdir(resdir_fig)
+    except:
+        pass
 
     transfo = get_motion_transform()
 
