@@ -1,5 +1,6 @@
 from utils import print_accuracy, print_accuracy_df, print_accuracy_all
 from utils_file import gfile, gdir, get_parent_path
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,46 +15,88 @@ import sys, os, logging
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchio.transforms import RandomMotionFromTimeCourse
+from torchvision.transforms import Compose
+
+from torchio.data.io import write_image, read_image
+from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad
+from torchio.transforms.preprocessing.spatial.center_crop_pad import CropOrPad
 from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL
 from utils_file import get_parent_path, gfile, gdir
 from doit_train import do_training, get_motion_transform
 
 
-d='/home/romain.valabregue/QCcnn/li'
-fres = gfile(d,'csv')
-ff = fres[-1]
-sujall = []
-for ff in fres[4:-1] :
-    res = pd.read_csv(ff)
-    res['diff'] = res.ssim - res.model_out
-    res = res.sort_values('diff', ascending=False)
 
-    sujn = get_parent_path(res.fpath[1:10].values,2)[1]
-    sujall.append(sujn)
+def get_ep_iter_from_res_name(resname, nbit, remove_ext=-7, batch_size=4):
+    ffn = [ff[ff.find('_ep') + 3:remove_ext] for ff in resname]
+    key_list = []
+    for fff, fffn in zip(ffn, resname):
+        if '_it' in fff:
+            ind = fff.find('_it')
+            ep = int(fff[0:ind])
+            it = int(fff[ind + 3:])*batch_size
+            it = 4 if it==0 else it #hack to avoit 2 identical point (as val is done for it 0 and las of previous ep
+        else:
+            ep = int(fff)
+            it = nbit
+        key_list.append([fffn, ep, it])
+    aa = np.array(sorted(key_list, key=lambda x: (x[1], x[2])))
+    name_sorted, ep_sorted, it_sorted = aa[:, 0], aa[:, 1], aa[:, 2]
+    ep_sorted = np.array([int(ee) for ee in ep_sorted])
+    it_sorted = np.array([int(ee) for ee in it_sorted])
+    return name_sorted, ep_sorted, it_sorted
 
-ss=np.hstack(sujall)
-len(ss)
-len(np.unique(ss))
+
+#Explore csv results
+dqc = ['/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion']
+dres = gdir(dqc,'nw0.*0001')
+resname = get_parent_path(dres)[1]
+#sresname = [rr[rr.find('hcp400_')+7: rr.find('hcp400_')+17] for rr in resname ]; sresname[2] += 'le-4'
+sresname = resname
+
+for ii, oneres in enumerate(dres):
+    fres=gfile(oneres,'res_val')
+    #fres = gfile(oneres,'train.*csv')
+
+    for ff in fres[9:]:
+        res=pd.read_csv(ff)
+        err = np.abs(res.ssim-res.model_out) #same as L1 loss
+        plt.figure(sresname[ii] + '2err'); plt.plot(err)
+        errcum = np.cumsum(err[50:-1])/range(1,len(err)-51+1)
+        #plt.figure(sresname[ii] + '2err_cum');        plt.plot(errcum)
+        N=50
+        err_slidin = np.convolve(err, np.ones((N,))/N, mode='valid')
+        plt.figure(sresname[ii] + '2err_slide'); plt.plot(err_slidin)
+        plt.figure(sresname[ii] + '2model_out'); plt.scatter(res.model_out, res.ssim)
+
+    legend_str = [str(ii+1) for ii in range(0,len(fres))]
+    plt.legend(legend_str)
+    plt.scatter(res.ssim, res.ssim)
+
+legend_str=[]
+col = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'w']
+for ii, oneres in enumerate(dres):
+    fresV=gfile(oneres,'res_val')
+    fresT = gfile(oneres,'train.*csv')
+    resT = [pd.read_csv(ff) for ff in fresT]
+    resV = [pd.read_csv(ff) for ff in fresV]
+
+    resname = get_parent_path(fresV)[1]
+    nbite = len(resT[0])
+    a, b, c = get_ep_iter_from_res_name(resname, nbite)
+    ite_tot = c+b*nbite
+    errorT = np.hstack( [ np.abs(rr.model_out.values - rr.ssim.values) for rr in resT] )
+    ite_tottt = np.hstack([0, ite_tot])
+    LmTrain = [ np.mean(errorT[ite_tottt[ii]:ite_tottt[ii+1]]) for ii in range(0,len(ite_tot)) ]
+
+    LmVal = [np.mean(np.abs(rr.model_out-rr.ssim)) for rr in resV]
+    #plt.figure(sresname[ii] + 'meanL1')
+    plt.figure('meanL1'); legend_str.append('V{}'.format(sresname[ii]));legend_str.append('T{}'.format(sresname[ii]))
+    plt.plot(ite_tot, LmVal,'--',color=col[ii])
+    plt.plot(ite_tot, LmTrain,color=col[ii])
+
+plt.legend(legend_str)
 
 
-f=gfile('/home/romain/QCcnn/li/','.*csv')
-for ff in f:
-    res=pd.read_csv(ff)
-    #plt.scatter(res.ssim,res.model_out)
-    #plt.plot(res.ssim, res.ssim,'k+')
-    err = np.abs(res.ssim-res.model_out) #same as L1 loss
-    plt.figure('err'); plt.plot(err)
-
-    errcum = np.cumsum(err[50:-1])/range(1,len(err)-51+1)
-    plt.figure('err_cum');        plt.plot(errcum)
-    N=50
-    err_slidin = np.convolve(err, np.ones((N,))/N, mode='valid')
-
-    plt.figure('err_slide'); plt.plot(err_slidin)
-plt.legend(('1','2','3','4','5'))
-
-import torch.nn as nn
 model = nn.Linear(10, 2)
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 steps = 10
@@ -76,13 +119,6 @@ for dd in td:
 td = doit.train_dataloader
 data = next(iter(td))
 
-
-from torchio.data.io import write_image, read_image
-from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad
-from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL
-from torchvision.transforms import Compose
-from nibabel.viewers import OrthoSlicer3D as ov
-from torchio.transforms.metrics import ssim3D
 
 tensor = data['image']['data'][0].squeeze(0)  # remove channels dim
 affine = data['image']['affine'].squeeze(0)
@@ -121,3 +157,44 @@ sell_col = [ 'L1', 'MSE', 'corr', 'ssim', 'ssim_all']
 for rr in res:
     rr=rr.loc[:,sell_col]
     sns.pairplot(rr)
+
+
+#test MOTION CATI
+
+suj = [[ Image('T1', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1.nii.gz', INTENSITY), ]]
+suj = [[ Image('T1', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1_float.nii.gz', INTENSITY), ]]
+suj = [[Image('T1', '/data/romain/HCPdata/suj_150423/T1w_1mm.nii.gz', INTENSITY), ]]
+dico_params = {"maxDisp": (1, 4), "maxRot": (1, 4), "noiseBasePars": (5, 20, 0.8),
+               "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 4),
+               "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 4),
+               "verbose": False, "keep_original": True, "proba_to_augment": 1,
+               "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
+               "oversampling_pct": 0, "correct_motion": True}
+
+fipar = pd.read_csv('/home/romain/QCcnn/mask_mvt_val_cati_T1/ssim_0.6956839561462402_sample00220_suj_cat12_s_S07_3DT1_mvt.csv', header=None)
+dico_params['fitpars'] = fipar.values
+t = RandomMotionFromTimeCourse(**dico_params)
+
+dataset = ImagesDataset(suj, transform=Compose((CenterCropOrPad(target_shape=(182, 218,182)),t)))
+dataset = ImagesDataset(suj, transform=Compose((CenterCropOrPad(target_shape=(176, 240, 256)),t)))
+dataset = ImagesDataset(suj, transform=Compose((CenterCropOrPad(target_shape=(182, 218, 256)),t)))
+dataset = ImagesDataset(suj, transform=Compose((t,)))
+s=dataset[0]
+dataset.save_sample(s, dict(T1='/home/romain/QCcnn//mask_mvt_val_cati_T1/mot_float.nii'))
+sample = torch.load('/home/romain/QCcnn/mask_mvt_val_cati_T1/sample00220_sample.pt')
+tensor = sample['image']['data'][0]  # remove channels dim
+affine = sample['image']['affine']
+write_image(tensor, affine, '/home/romain/QCcnn//mask_mvt_val_cati_T1/mot_li.nii')
+
+ff1 = t.fitpars_interp
+
+suj = [[ Image('image', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1_float.nii.gz', INTENSITY),
+         Image('maskk', '/home/romain/QCcnn/mask_mvt_val_cati_T1/niw_Mean_brain_mask5k.nii.gz',  LABEL),]]
+
+t = Compose(CenterCropOrPad(target_shape=(182, 218,182)),)
+t = CropOrPad(target_shape=(182, 218,182), mode='mask',mask_key='maskk')
+
+dataset = ImagesDataset(suj, transform=t)
+s=dataset[0]
+dataset.save_sample(s, dict(image='/home/romain/QCcnn//mask_mvt_val_cati_T1/center_cropM.nii'))
+
