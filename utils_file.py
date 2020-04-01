@@ -366,6 +366,11 @@ def gdir(dirs,regex,verbose=False):
 
 def get_parent_path(fin,level=1):
 
+    return_string=False
+    if isinstance(fin, str):
+        fin = [fin]
+        return_string=True
+
     path_name, file_name  = [], []
 
     for ff in fin:
@@ -374,7 +379,10 @@ def get_parent_path(fin,level=1):
         file_name.append(dd[ll-level])
         path_name.append('/'.join(dd[:ll-level]))
 
-    return path_name, file_name
+    if return_string:
+        return path_name[0], file_name[0]
+    else:
+        return path_name, file_name
 
 
 def gfile(dirs,regex,opts={"items":-1}):
