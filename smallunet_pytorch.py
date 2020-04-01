@@ -518,7 +518,7 @@ def load_existing_weights_if_exist(resdir, model, model_name='model', log=None, 
 
         ep_start = int(ep_sorted[index_mod])
         thelast = dir_mod[0] + '/' + name_sorted[index_mod]
-        log.info('resuming model from epoch {} weight loaded from {}'.format(ep_start, thelast))
+        log.info('RESUME model from epoch {} weight loaded from {}'.format(ep_start, thelast))
 
         tl = torch.load(thelast, map_location=device)
         if model_name not in tl:
