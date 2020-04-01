@@ -18,9 +18,9 @@ import torch.optim as optim
 from torchvision.transforms import Compose
 
 from torchio.data.io import write_image, read_image
-from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad
+from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad, RandomElasticDeformation
 from torchio.transforms.preprocessing.spatial.center_crop_pad import CropOrPad
-from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL
+from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL, Interpolation
 from utils_file import get_parent_path, gfile, gdir
 from doit_train import do_training, get_motion_transform
 
@@ -191,10 +191,19 @@ ff1 = t.fitpars_interp
 suj = [[ Image('image', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1_float.nii.gz', INTENSITY),
          Image('maskk', '/home/romain/QCcnn/mask_mvt_val_cati_T1/niw_Mean_brain_mask5k.nii.gz',  LABEL),]]
 
-t = Compose(CenterCropOrPad(target_shape=(182, 218,182)),)
-t = CropOrPad(target_shape=(182, 218,182), mode='mask',mask_key='maskk')
+tc = CenterCropOrPad(target_shape=(182, 218,212))
+tc = CropOrPad(target_shape=(182, 218,182), mode='mask',mask_key='maskk')
+
+dico_p = { 'num_control_points': 8, 'deformation_std': 30,
+           'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR }
+
+t = Compose([ RandomElasticDeformation(**dico_p), tc])
 
 dataset = ImagesDataset(suj, transform=t)
-s=dataset[0]
-dataset.save_sample(s, dict(image='/home/romain/QCcnn//mask_mvt_val_cati_T1/center_cropM.nii'))
+for i in range(1,5):
+    s=dataset[0]
+    dataset.save_sample(s, dict(image='/home/romain/QCcnn//mask_mvt_val_cati_T1/elastic8_30{}.nii'.format(i)))
 
+t = dataset.get_transform()
+type(t)
+isinstance(t,Compose)
