@@ -15,8 +15,8 @@ do_plot_mv, do_plot_fig = False, False
 batch_size, num_workers = 1, 0
 cuda, verbose = True, True
 
-name_list = [ 'mask_mvt_cati_T1', 'mask_mvt_cati_ms', 'mask_mvt_cati_brain_ms',
-              'mask_mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
+name_list = [ 'mvt_train_cati_T1', 'mvt_train_cati_ms', 'mvt_train_cati_brain',
+              'mvt_train_hcp400_ms', 'mvt_train_hcp400_brain_ms', 'mvt_train_hcp400_T1']
 
 dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/'
 #dir_cache = '/data/romain/CNN_cache/'
@@ -31,7 +31,7 @@ for data_name in name_list:
     doit.set_data_loader(None, None, None, batch_size, num_workers, load_from_dir=load_from_dir, shuffel_train=False)
 
     td = doit.train_dataloader
-    print('loading {} sample from {} \n estimated time {} h'.format(len(td), load_from_dir, len(td)*0.002))
+    print('loading {} sample from {} \n estimated time {} h'.format(len(td), load_from_dir, len(td)/(2*60*60)))
     start = time.time()
 
     #fsaved = doit.train_csv_load_file_train
