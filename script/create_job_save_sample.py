@@ -11,13 +11,14 @@ from doit_train import get_train_and_val_csv
 
 prefix = "/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/"
 
-name_list = [ 'mask_mvt_cati_T1', 'mask_mvt_cati_ms', 'mask_mvt_cati_brain_ms', 'mask_mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
-name_list = [ 'mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
-name_list = [ 'mask_mvt_train_cati_T1', 'mask_mvt_train_cati_ms', 'mask_mvt_train_cati_brain',]
-name_list = [ 'mask_mvt_val_cati_T1', 'mask_mvt_val_cati_ms', 'mask_mvt_val_cati_brain',]
+name_list = [ 'mvt_train_hcp400_ms', 'mvt_train_hcp400_brain_ms', 'mvt_train_hcp400_T1',
+              'mvt_val_hcp200_ms', 'mvt_val_hcp200_brain_ms', 'mvt_val_hcp200_T1']
+name_list = [ 'mvt_train_cati_T1', 'mvt_train_cati_ms', 'mvt_train_cati_brain',
+              'mvt_val_cati_T1', 'mvt_val_cati_ms', 'mvt_val_cati_brain',]
 
 nb_motions_list = [20, 20, 20, 10, 10, 10] #[5, 5, 5]
-nb_motions_list = [20, 20, 20]
+nb_motions_list = [50, 50, 50, 5, 5, 5]
+
 do_plotting = False
 
 fin_list_train, fin_list_val = get_train_and_val_csv(name_list) #
@@ -61,7 +62,7 @@ for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
     params['job_name'] = job_id
     params['cluster_queue'] = 'bigmem,normal'
     params['cpus_per_task'] = 1
-    params['mem'] = 12096
+    params['mem'] = 8000
     params['walltime'] = '12:00:00'
     params['job_pack'] = 1
 
