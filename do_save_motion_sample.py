@@ -14,6 +14,8 @@ from nilearn import plotting
 from torchio import Image, ImagesDataset, INTENSITY, LABEL
 from utils_file import get_parent_path, gfile, gdir
 from doit_train import get_motion_transform
+from torchvision.transforms import Compose
+from torchio.transforms import RandomMotionFromTimeCourse
 
 if __name__ == '__main__':
     from optparse import OptionParser
@@ -34,12 +36,17 @@ if __name__ == '__main__':
                                 help="number of sample to generate")
     parser.add_option("--plot_volume", action="store_true", dest="plot_volume", default=False,
                                 help="if spefifyed a 3 slice png of the transform volume wil be created ")
+    parser.add_option("--motion_type", action="store", dest="motion_type", default='motion1',
+                                help=" chose type of deformation  motion1 | elastic1_and_motion1  ")
+    parser.add_option("--keep_all ", action="store_true", dest="keep_all", default=False,
+                                help="if not specifie it will remove the imag_orig p1 and p2 from sample ")
 
     (options, args) = parser.parse_args()
 
     fin, seed, res_dir = options.image_in, np.int(options.seed), options.res_dir
     index, nb_sample = np.int(options.index_num),  np.int(options.nb_sample)
-    plot_volume = options.plot_volume
+    plot_volume, keep_all = options.plot_volume, options.keep_all
+    motion_type = options.motion_type
 
     import os
 
@@ -51,7 +58,7 @@ if __name__ == '__main__':
     except:
         pass
 
-    transfo = get_motion_transform()
+    transfo = get_motion_transform(type=motion_type)
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -91,16 +98,25 @@ if __name__ == '__main__':
 
         fname = resdir_mvt + 'ssim_{}_sample{:05d}_suj_{}_mvt.csv'.format(image_dict['metrics']['ssim'],
                                                     index, volume_name)
-        t=dataset.get_transform()
+
+        t = dataset.get_transform()
+        if isinstance(t, Compose):
+            tt = t.transforms
+            for ttt in tt:
+                if isinstance(ttt, RandomMotionFromTimeCourse):
+                    t = ttt
+                    break
+
         fitpars = t.fitpars
         np.savetxt(fname , fitpars, delimiter=',')
 
         sample['mvt_csv'] = fname
         fname_sample = res_dir + '/sample{:05d}'.format(index)
 
-        if 'image_orig' in sample: sample.pop('image_orig')
-        if 'p1' in sample: sample.pop('p1')
-        if 'p2' in sample: sample.pop('p2')
+        if keep_all is False:
+            if 'image_orig' in sample: sample.pop('image_orig')
+            if 'p1' in sample: sample.pop('p1')
+            if 'p2' in sample: sample.pop('p2')
 
         torch.save(sample, fname_sample + '_sample.pt')
 
