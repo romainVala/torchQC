@@ -3,8 +3,9 @@ from torchio import ImagesDataset, Queue
 from torchio.data import ImagesClassifDataset, get_subject_list_and_csv_info_from_data_prameters
 from torchio.data.sampler import ImageSampler
 from torchio.utils import is_image_dict
-from torchio import INTENSITY
-from torchio.transforms import RandomMotionFromTimeCourse
+from torchio import INTENSITY, LABEL, Interpolation
+
+from torchio.transforms import RandomMotionFromTimeCourse, RandomElasticDeformation
 
 from torch.utils.data import DataLoader
 import torch.nn as tnn
@@ -344,23 +345,32 @@ class do_training():
         res.to_csv(fres)
 
 def get_motion_transform(type='motion1'):
-
-    if type=='motion1':
-        dico_params = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
+    if 'motion1' in type:
+        dico_params_mot = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
                        "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 6),
                        "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 6),
                        "verbose": False, "keep_original": True, "proba_to_augment": 1,
                        "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
-                       "oversampling_pct": 0, "correct_motion": True}
+                       "oversampling_pct": 0, "correct_motion": False}
 
-        dico_params = {"maxDisp": (1, 4), "maxRot": (1, 4), "noiseBasePars": (5, 20, 0.8),
+        dico_params_mot = {"maxDisp": (1, 4), "maxRot": (1, 4), "noiseBasePars": (5, 20, 0.8),
                        "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 4),
                        "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 4),
                        "verbose": False, "keep_original": True, "proba_to_augment": 1,
                        "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
-                       "oversampling_pct": 0, "correct_motion": True}
+                       "oversampling_pct": 0, "correct_motion": False}
 
-    transforms = RandomMotionFromTimeCourse(**dico_params)
+    if 'elastic1' in type:
+        dico_elast = { 'num_control_points': 8, 'deformation_std': 30,
+           'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR }
+
+    if type == 'motion1':
+        transforms = RandomMotionFromTimeCourse(**dico_params_mot)
+
+    elif type=='elastic1_and_motion1':
+        transforms = Compose(( RandomElasticDeformation(**dico_elast),
+                               RandomMotionFromTimeCourse(**dico_params_mot) ))
+
     return transforms
 
 def get_cache_dir(root_fs = 'lustre'):
