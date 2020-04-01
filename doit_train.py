@@ -23,6 +23,8 @@ import numpy as np
 import pandas as pd
 import shutil
 import matplotlib.pyplot as plt
+import time, random
+
 
 #from collections import defaultdict
 
@@ -44,12 +46,17 @@ class do_training():
                         replicate_suj=0, shuffel_train=True ):
 
         if load_from_dir is not None :
+            if type(load_from_dir) == str:
+                load_from_dir = [load_from_dir, load_from_dir]
             fsample_train, fsample_val = gfile(load_from_dir[0], 'sample.*pt'), gfile(load_from_dir[1], 'sample.*pt')
+            random.shuffle(fsample_train)
+            #fsample_train = fsample_train[0:10000]
             self.log_string += '\nloading {} train sample from {}'.format(len(fsample_train), load_from_dir[0])
             self.log_string += '\nloading {} val   sample from {}'.format(len(fsample_val), load_from_dir[1])
-            train_dataset = ImagesDataset(fsample_train, load_from_dir=load_from_dir[0])
+            train_dataset = ImagesDataset(fsample_train, load_from_dir=load_from_dir[0], transform=Compose(transforms) if transforms is not None else None)
             self.train_csv_load_file_train = fsample_train
-            val_dataset = ImagesDataset(fsample_val, load_from_dir=load_from_dir[1])
+
+            val_dataset = ImagesDataset(fsample_val, load_from_dir=load_from_dir[1], transform=Compose(transforms) if transforms is not None else None)
             self.train_csv_load_file_train = fsample_val
 
         else :
@@ -163,14 +170,14 @@ class do_training():
 
 
     def train_regress_motion(self):
-
+        max_iteration = len(self.train_dataloader)
         for ep in range(self.ep_start, self.max_epochs + self.ep_start):
             self.model.train()
 
             # exp_lr_scheduler.step() #to change learning rate ... ?
             epoch_samples, epoch_loss, sliding_loss = 0, 0, 0
             res, extra_info = pd.DataFrame(), dict()
-
+            start = time.time()
             for iteration, data in enumerate(self.train_dataloader):
                 self.optimizer.zero_grad()
                 inputs = data['image']['data']
@@ -202,26 +209,39 @@ class do_training():
                 res = self.add_motion_info(data, res, extra_info)
 
                 if (iteration==10) :
-                    self.log.info("Ep: {} Iteration: {} Loss: {} mean10 {} mean {}".format(
+                    duration = (time.time() - start) / iteration * max_iteration / 60 / 60 #hours for on epochs
+                    self.log.info("train start Ep: {} It: {} Loss: {} mean10 {} mean {}".format(
                         ep, iteration, l_tmp.item(), sliding_loss/10, epoch_loss / epoch_samples))
+                    self.log.info(' estimate duration {:.2f} hours for one epoch '.format(duration))
 
-                if (iteration % 100 == 0) :
-                    self.log.info("Ep: {} Iteration: {} Loss: {} mean100 {} mean {}".format(
+
+                if (iteration % 100 == 0) and (iteration > 0) :
+                    self.log.info("Train Ep: {} It: {} Loss: {} mean100 {} mean {}".format(
                         ep, iteration, l_tmp.item(), sliding_loss/100 ,epoch_loss / epoch_samples))
                     sliding_loss = 0
+                    if (iteration == 100):
+                        duration = (time.time() - start) / iteration * max_iteration / 60 / 60 #hours for on epochs
+                        self.log.info(' estimate duration {:.2f} hours for one epoch '.format(duration))
 
-                if (iteration % 500 == 0) :
+                if (iteration % 500 == 0) and (iteration > 0):
+                    if (iteration == 500):
+                        duration = (time.time() - start) / iteration * max_iteration / 60 / 60 #hours for on epochs
+                        self.log.info(' estimate duration {:.2f} hours for one epoch '.format(duration))
                     self.save_model(ep, iteration, fct_eval=self.eval_regress_motion)
 
-            self.log.info("Ep: {} Iteration: {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
+            self.log.info("Train Ep: {} It {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
                                                                          epoch_loss / epoch_samples))
+
+            duration = (time.time() - start) / 60 / 60  # hours for on epochs
+            self.log.info(' performed duration {:.2f} hours for one epoch '.format(duration))
+
             fres = self.res_dir + '/res_train_ep{:02d}.csv'.format(ep)
             res.to_csv(fres)
 
             if ep % 4 == 0:
-                self.save_model(ep, fct_eval=self.eval_regress_motion)
+                self.save_model(ep, iteration, fct_eval=self.eval_regress_motion)
 
-        self.save_model(ep, fct_eval=self.eval_regress_motion)
+        self.save_model(ep, iteration, fct_eval=self.eval_regress_motion)
 
     def save_model(self, ep, iteration=None, fct_eval=None):
         if iteration is not None:
@@ -233,15 +253,14 @@ class do_training():
         self.log.info('saving model to %s' % (resname))
         self.last_model_saved = resname
         if fct_eval is not None:
-            fct_eval()
+            fct_eval(ep, iteration)
             self.model.train()
 
-    def eval_regress_motion(self):
-
+    def eval_regress_motion(self, epTrain, iterationTrain):
+        start = time.time()
         self.model.eval()
         epoch_samples, epoch_loss = 0, 0
         res, extra_info = pd.DataFrame(), dict()
-        ep = self.ep_start
 
         for iteration, data in enumerate(self.val_dataloader):
             inputs = data['image']['data']
@@ -268,13 +287,16 @@ class do_training():
             extra_info['model_out'] = outputs.squeeze().cpu().detach()
             res = self.add_motion_info(data, res, extra_info)
 
-            if (iteration % 100 == 0) or (iteration==10) :
-                self.log.info("VAL data Ep: {} Iteration: {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
+            if (iteration % 100 == 0) and (iteration > 0):
+                self.log.info("VAL data Ep_it: {}_{} It {} Loss: {} mean {}".format(epTrain, iterationTrain, iteration, l_tmp.item(),
                                                                         epoch_loss / epoch_samples))
 
-        self.log.info("VAL data Ep: {} Iteration: {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
-                                                                     epoch_loss / epoch_samples))
-        fres = self.res_dir + '/res_val_{}.csv'.format( self.last_model_saved)
+        self.log.info("VAL data Ep_it: {}_{} It {} Loss: {} mean {}".format(epTrain, iterationTrain, iteration, l_tmp.item(),
+                                                                epoch_loss / epoch_samples))
+        duration = (time.time() - start) / 60 / 60
+        self.log.info(' validation duration {:.2f} hours {:.2f} mn '.format(duration, duration*60))
+
+        fres = self.res_dir + '/res_val_{}.csv'.format(self.last_model_saved)
         res.to_csv(fres)
 
 
@@ -395,7 +417,7 @@ def get_train_and_val_csv(names='', root_fs = 'lustre'):
             print('can not guess which DATA from {}'.format(name))
             raise
 
-        print('data {}\nfor {} \t found {} {} in {}'.format(get_parent_path([file_train])[0], name, fname_train, fname_val))
+        print('data {}\nfor {} \t found {} {} '.format(get_parent_path([file_train])[0][0], name, fname_train, fname_val))
         fcsv_train.append(file_train)
         fcsv_val.append(file_val)
 
