@@ -1,6 +1,6 @@
 from doit_train import do_training, get_motion_transform, get_train_and_val_csv, get_cache_dir
 import torch
-from torchio.transforms import CenterCropOrPad
+from torchio.transforms import CropOrPad
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -14,18 +14,21 @@ name_list_train = ['mask_mvt_train_cati_T1', 'mask_mvt_train_cati_ms', 'mask_mvt
 name_list_val = ['mask_mvt_val_cati_T1', 'mask_mvt_val_cati_ms', 'mask_mvt_val_cati_brain_ms',
                  'mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
 #name_list_train = ['mask_mvt_train50_hcp400_ms', 'mask_mvt_train50_hcp400_brain_ms', 'mask_mvt_train50_hcp400_T1']
-name_list_train = [ 'mvt_train_cati_T1', 'mvt_train_cati_ms', 'mvt_train_cati_brain',
-              'mvt_train_hcp400_ms', 'mvt_train_hcp400_brain_ms', 'mvt_train_hcp400_T1']
-name_list_val = ['mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
+#name_list_val = ['mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
 
-data_name_train = name_list_train[3]
+name_list_train = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
+                    'ela1_train_hcp400_ms', 'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1']
+name_list_val = ['ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain_ms',
+                 'ela1_val_hcp200_ms', 'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1']
+
+data_name_train = name_list_train[0]
 data_name_val = name_list_val[0]
 
 res_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/'
-base_name = 'RegressMot_badVal'
+base_name = 'RegMotNew'
 
 root_fs = 'le70' #
-#root_fs = 'lustre'
+root_fs = 'lustre'
 
 par_model = {'network_name': 'ConvN',
              'losstype': 'L1',
@@ -66,8 +69,14 @@ elif test_sample:
         llog.info('{} max is {}'.format(i, np.max(dd)))
 
 else:
-    #t = None #(CenterCropOrPad(target_shape=tuple(in_size)),)
-    doit.set_data_loader(batch_size=batch_size, num_workers=num_workers, load_from_dir = load_from_dir)
+    if 'cati' in data_name_train:
+        target_shape, mask_key = (182, 218, 182), 'brain'
+        doit.log.info('adding a CropOrPad {} with mask key {}'.format(target_shape, mask_key))
+        tc = [CropOrPad(target_shape=target_shape, mode='mask', mask_key=mask_key), ]
+    else:
+        tc = None
+
+    doit.set_data_loader(batch_size=batch_size, num_workers=num_workers, load_from_dir=load_from_dir, transforms=tc)
     doit.set_model(par_model)
     doit.train_regress_motion()
 
