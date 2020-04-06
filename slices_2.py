@@ -8,8 +8,7 @@ import nibabel.processing as npi
 import matplotlib.cm as cm
 import os
 from PIL import Image, ImageDraw, ImageFont
-#import imutils
-#from imutils import build_montages
+import torchio
 
 # from scipy.ndimage import affine_transform
 # from PIL import Image
@@ -128,9 +127,153 @@ def get_slices(im, mask, acoreg, view, type_pos, pos, mask_cut_pix=-1): # Ajoute
                max(l_g - mask_cut_pix, 0):min(l_d + mask_cut_pix+1, matrix_slice.shape[1])], mask_slice
     return matrix_slice, mask_slice
 
-        
-    
-# %%
+
+def plot_view(im, mask, fref, acoreg, slices_infos, mask_info, display_order=None,
+              colormap=cm.Greys_r, colormap_noise=cm.hot, percentile_values=[0,99],
+              plot_single=True, figure_path=None, dpi=50, plt_ioff=False):
+
+    if len(slices_infos) != len(mask_info):
+        if len(mask_info)==1: #just duplicate
+            mask_info = [ mask_info[0] for i in range(0,len(slices_infos))]
+        else:
+            raise AssertionError("The 2 lists about the slices must have the same size")
+
+    use_reslice_mm = (np.array([slices_infos[k][1] for k in range(len(slices_infos))]) == "mm").any()
+    use_reslice_mni = (np.array([slices_infos[k][1] for k in range(len(slices_infos))]) == "mm_mni").any()
+
+    display_order = display_order[::-1]
+
+    if use_reslice_mm:
+        im_resliced_mm, _, _ = reslice_im(im, fref, acoreg, type_pos="mm")
+        mask_resliced_mm = reslice_mask(mask, fref, acoreg, type_pos="mm")
+
+    if use_reslice_mni:
+        im_resliced_mni, _, _ = reslice_im(im, fref, acoreg, type_pos="mm_mni")
+        mask_resliced_mni = reslice_mask(mask, fref, acoreg, type_pos="mm_mni")
+
+    list_matrix = []
+
+    for j, item2 in enumerate(slices_infos):
+        view, type_pos, pos = item2
+        scaling, mask_cut_pix = mask_info[j]
+        if mask is None and (scaling != "whole" or mask_cut_pix >= 0):
+            print("For a empty mask, the scaling must be whole and we must not do the cut!")
+            scaling = "whole"
+            mask_cut_pix = -1
+        if type_pos == "vox" or type_pos == "voxmm":
+            temp_im = im
+            temp_mask = mask
+        elif type_pos == "mm":
+            temp_im = im_resliced_mm
+            temp_mask = mask_resliced_mm
+        else:
+            temp_im = im_resliced_mni
+            temp_mask = mask_resliced_mni
+        if scaling not in ["whole", "mask", "mask_font"]:
+            raise ValueError("Scaling arguent not correct for value {}".format(j))
+        v_min, v_max, v_min_f, v_max_f = scaling_func(temp_im, temp_mask, scaling, percentile_values)
+        matrix_slice, mask_slice = get_slices(temp_im, temp_mask, acoreg, view,
+                                              type_pos, pos, mask_cut_pix)
+
+        list_matrix.append((matrix_slice, mask_slice, v_min, v_max, v_min_f, v_max_f))
+
+    abs_max = np.max([m[0].shape[1] for m in list_matrix])
+    ord_max = np.max([m[0].shape[0] for m in list_matrix])
+
+    matrix_fig = np.zeros((display_order[1] * abs_max, display_order[0] * ord_max, 4)).astype(np.uint8)
+    curseur_abs = 0
+    curseur_ord = 0
+    for j, item in enumerate(list_matrix):
+        matrix_slice, mask_slice, v_min, v_max, v_min_f, v_max_f = item
+        if mask_info[j][0] != "mask_font":
+            temp = (np.uint8(255 * (colormap(matrix_slice.T / (v_max - v_min))).astype(np.float64)))
+
+        else:
+            temp = (np.uint8(255 *
+                             (colormap_noise(
+                                 (matrix_slice.T / (v_max_f - v_min_f) * np.logical_not(mask_slice).T).astype(
+                                     np.float64))
+                              + (colormap((matrix_slice / (v_max - v_min) * mask_slice).T).astype(np.float64)))))
+
+        matrix_fig[curseur_abs: curseur_abs + temp.shape[0], curseur_ord:curseur_ord + temp.shape[1]] = np.flipud(temp)
+
+        if (j + 1) % display_order[1] == 0:
+            curseur_abs = 0
+            curseur_ord += ord_max
+        else:
+            curseur_abs += abs_max
+
+    if plot_single:
+        imgsize = (matrix_fig.shape[1] / dpi, matrix_fig.shape[0] / dpi)
+        fig, axs = plt.subplots(1, 1, figsize=imgsize, dpi=dpi)
+        plt.subplots_adjust(wspace=0, hspace=0, left=0.0, right=1.0, bottom=0.0, top=1.0)
+        axs.imshow(matrix_fig)  # , origin = "lower")
+        # for k in range(display_order[1]):
+        #    plt.plot((k*display_order[1], 0), (y1, y2), 'r-')
+        axs.axis("off")
+        fig.savefig( figure_path , facecolor="w", bbox_inches='tight')
+        print("Saving figure {}".format(figure_path))
+        if plt_ioff:
+            plt.close(fig)
+
+    return matrix_fig
+
+
+def plot_montages(image_list, montage_shape, fig_path=None, dpi=80):
+
+    if len(montage_shape) != 2:
+        raise Exception('montage shape must be list or tuple of length 2 (rows, cols)')
+
+    abs_max = np.max([m.shape[0] for m in image_list])
+    ord_max = np.max([m.shape[1] for m in image_list])
+    image_shape_max = [abs_max, ord_max]
+
+    channel = 1
+    if image_list[0].ndim>2:
+        channel = image_list[0].shape[2]
+
+    #print('image_max shape{}'.format(image_shape_max))
+
+    image_montages = []
+    montage_image = np.zeros(shape=(image_shape_max[0] * (montage_shape[0]), image_shape_max[1] * montage_shape[1], channel), dtype=np.uint8)
+    #print('motage shape {}'.format(montage_image.shape))
+
+    cursor_pos = [0, 0]
+    start_new_img = False
+    for img in image_list:
+
+        if type(img).__module__ != np.__name__:
+            raise Exception('input of type {} is not a valid numpy array'.format(type(img)))
+        start_new_img = False
+        #print('new img {} cursor {}'.format(img.shape, cursor_pos))
+
+        montage_image[cursor_pos[0]:cursor_pos[0] + img.shape[0], cursor_pos[1]:cursor_pos[1] + img.shape[1], : ] = img
+        cursor_pos[0] += image_shape_max[0]  # increment cursor x position
+        if cursor_pos[0] >= montage_shape[0] * image_shape_max[0]:
+            cursor_pos[1] += image_shape_max[1]  # increment cursor y position
+            cursor_pos[0] = 0
+            if cursor_pos[1] >= montage_shape[1] * image_shape_max[1]:
+                cursor_pos = [0, 0]
+                image_montages.append(montage_image)
+                # reset black canvas
+                montage_image[cursor_pos[0]:cursor_pos[0] + img.shape[0], cursor_pos[1]:cursor_pos[1] + img.shape[1], :] = img
+
+                start_new_img = True
+    if start_new_img is False:
+        image_montages.append(montage_image)  # add unfinished montage
+
+    for ii, img in enumerate(image_montages):
+        imgsize = (img.shape[1] / dpi, img.shape[0] / dpi)
+        fig, axs = plt.subplots(1, 1, figsize=imgsize, dpi=dpi)
+        plt.subplots_adjust(wspace=0, hspace=0, left=0.0, right=1.0, bottom=0.0, top=1.0)
+        axs.imshow(img)  # , origin = "lower")
+        axs.axis("off")
+        if fig_path is not None:
+            ff = fig_path +"_{}.png".format(ii)
+            fig.savefig(ff, facecolor="w", bbox_inches='tight')
+            print("Saving {}".format(ff))
+
+
 def scaling_func(im, mask, scaling, percentile_values):
     """
     This function takes as input the image (3D), the corresponding mask (can be None), the type of scaling and the saling values.
@@ -182,47 +325,17 @@ def my_get_image(im, ras=True):
         im = nb.as_closest_canonical(im)
     return im
 
-def generate_figures(l_in, slices_infos=None, mask_info=None, fref = None, display_order=None, ras = True, colormap = cm.Greys_r,
-                     colormap_noise=cm.hot, percentile_values = [0,99],
-                     plot_single=True, plot_histogram = False, out_dir=None,
+
+def do_figures_from_file(l_in, slices_infos=None, mask_info=None, fref = None, display_order=None, ras = True, colormap = cm.Greys_r,
+                     colormap_noise=cm.hot, percentile_values = [0,99], plot_single=True, out_dir=None,
                      montage_shape=None, dpi=50, plt_ioff=False):
-    """
-    Takes as inputs:
-        A list of tuples (the image, the associated mask, the associated acoreg)
-        A list of tuples (view, type_pos, pos)
-        A list giving the info about the scaling and the mask cut for each slice (if no mask_cut, put it to -1)
-        The template reference for the mm case
-        An array giving information about the disposition of the images
-        A parameter saying if we convert all the images to RAS format (True by default)
-        The colormap used for the different kinfd of scalings
-        The percentages used for the scaling
-        A size parameter
-        
-    And produces for each image as input an image (in png) composed of the differents views wanted (produced in the folder 
-    computed_images) and a histogram (in the file histogram) giving the repartition of the values on the mask 
-    """
+
     if plt_ioff: plt.ioff();
 
     dir_fig = '{}/figures/'.format(out_dir)
-    display_order = display_order[::-1]
     if not os.path.exists(dir_fig):  os.makedirs(dir_fig)
 
-    if isinstance(fref, str):
-        fref = nb.load(fref)
-    elif (isinstance(fref, nb.nifti1.Nifti1Image) or fref is None):
-        fref = fref
-    else:
-        raise TypeError("fref of incorrect type")
-    
-    if len(slices_infos) != len(mask_info):
-        raise AssertionError("The 2 lists about the slices must have the same size")
-    
-    if ras and fref is not None and nb.aff2axcodes(fref.affine) != ('R', 'A', 'S'):
-        print('changing fref affine to canonical because {}... '.format( nb.aff2axcodes(fref.affine)))
-        fref = nb.as_closest_canonical(fref)
-        
-    use_reslice_mm = (np.array([slices_infos[k][1] for k in range(len(slices_infos))]) == "mm").any()
-    use_reslice_mni = (np.array([slices_infos[k][1] for k in range(len(slices_infos))]) == "mm_mni").any()
+    fref = my_get_image(fref)
 
     matrix_all=[]
     for i, item in enumerate(l_in):
@@ -230,151 +343,88 @@ def generate_figures(l_in, slices_infos=None, mask_info=None, fref = None, displ
 
         im = my_get_image(im, ras=ras)
         mask = my_get_image(mask, ras=ras)
-        ##rrr should had a test to check dimention of mask and images is matching
         acoreg = get_acoreg(acoreg)
 
-        if use_reslice_mm:
-            im_resliced_mm, _, _ = reslice_im(im, fref, acoreg, type_pos="mm")
-            mask_resliced_mm = reslice_mask(mask, fref, acoreg, type_pos="mm")
-        
-        if use_reslice_mni:
-            im_resliced_mni, _, _ = reslice_im(im, fref, acoreg, type_pos="mm_mni")
-            mask_resliced_mni = reslice_mask(mask, fref, acoreg, type_pos="mm_mni")
-
-        if plot_histogram:
-            dir_histo = '{}/histo/'.format(dir_fig)
-            if not os.path.exists(dir_histo):
-                os.makedirs(dir_histo)
-
-            if mask is not None:
-                plt.hist(im.get_fdata()[mask.get_fdata().astype(bool)].ravel(), bins = 200)
-                plt.savefig(dir_histo + "histogramme_"+str(i)+".png")
-            else :
-                plt.hist(im.get_fdata().ravel(), bins = 200)
-                plt.savefig(dir_histo + "histo_all_"+str(i)+".png")
-
-        list_matrix = []
-        
-        for j, item2 in enumerate(slices_infos):
-            view, type_pos, pos = item2
-            scaling, mask_cut_pix = mask_info[j]
-            if mask is None and (scaling != "whole" or mask_cut_pix >=0):
-                print("For a empty mask, the scaling must be whole and we must not do the cut!")
-                scaling = "whole"
-                mask_cut_pix = -1
-            if type_pos == "vox" or type_pos == "voxmm":
-                temp_im = im
-                temp_mask = mask
-            elif type_pos == "mm":
-                temp_im = im_resliced_mm
-                temp_mask = mask_resliced_mm
-            else:
-                temp_im = im_resliced_mni
-                temp_mask = mask_resliced_mni
-            if scaling not in ["whole", "mask", "mask_font"]:
-                raise ValueError("Scaling arguent not correct for value {}".format(j))
-            v_min, v_max, v_min_f, v_max_f = scaling_func(temp_im, temp_mask, scaling, percentile_values)
-            matrix_slice, mask_slice = get_slices(temp_im, temp_mask, acoreg, view,
-                                                  type_pos, pos, mask_cut_pix)
-
-            list_matrix.append((matrix_slice, mask_slice,v_min, v_max, v_min_f, v_max_f))
-            
-        #tab_abs = np.array([[list_matrix[i*display_order[1]+k][0].shape[1] for k in range(display_order[1]) ] for i in range(display_order[0])])
-        #tab_ord = np.array([[list_matrix[i*display_order[1]+k][0].shape[0] for k in range(display_order[1]) ] for i in range(display_order[0])])
-        #abs_max= np.max(np.sum(tab_abs, axis = 1))
-        #ord_max = np.max(np.sum(tab_ord, axis = 0))
-        
-        abs_max= np.max([m[0].shape[1] for m in list_matrix])
-        ord_max= np.max([m[0].shape[0] for m in list_matrix])
-
-        matrix_fig = np.zeros((display_order[1]*abs_max, display_order[0]*ord_max, 4)).astype(np.uint8)
-        curseur_abs = 0
-        curseur_ord=0
-        for j, item in enumerate(list_matrix):
-            matrix_slice, mask_slice, v_min, v_max, v_min_f, v_max_f = item
-            if mask_info[j][0] != "mask_font":
-                temp = (np.uint8(255*(colormap(matrix_slice.T/(v_max - v_min))).astype(np.float64)))
-
-            else:
-                temp = (np.uint8(255*
-                     (colormap_noise((matrix_slice.T/(v_max_f - v_min_f) * np.logical_not(mask_slice).T).astype(np.float64))
-                     +(colormap((matrix_slice/(v_max - v_min) * mask_slice).T).astype(np.float64)))))
-
-            matrix_fig[curseur_abs: curseur_abs+temp.shape[0],curseur_ord:curseur_ord+temp.shape[1]] = np.flipud(temp)
-
-            if (j+1)%display_order[1] == 0:
-                curseur_abs = 0
-                curseur_ord += ord_max
-            else:
-                curseur_abs += abs_max
+        fig_path = dir_fig + "/fig_" + str(i) + ".png"
+        matrix_fig = plot_view(im, mask, fref, acoreg, slices_infos, mask_info, display_order=display_order,
+                               colormap=colormap,colormap_noise=colormap_noise, percentile_values=percentile_values,
+                               figure_path=fig_path, plot_single=plot_single, dpi=dpi)
 
         if montage_shape is not None:
             matrix_all.append(matrix_fig)
 
-        if plot_single:
-            imgsize = (matrix_fig.shape[1] / dpi, matrix_fig.shape[0] / dpi)
-            fig, axs = plt.subplots(1, 1, figsize=imgsize, dpi=dpi)
-            plt.subplots_adjust(wspace=0, hspace=0, left=0.0, right=1.0, bottom=0.0, top=1.0)
-            axs.imshow(matrix_fig)#, origin = "lower")
-            #for k in range(display_order[1]):
-            #    plt.plot((k*display_order[1], 0), (y1, y2), 'r-')
-            #axs.axis("off")
-            fig.savefig( dir_fig + "/fig_"+str(i)+".png", facecolor ="w", bbox_inches='tight')
-            print("Done for figure "+str(i))
 
     if montage_shape is not None:
-        bb = get_montages(matrix_all, montage_shape)
-
-        for img in bb:
-            imgsize = (img.shape[1]/dpi, img.shape[0]/dpi)
-            fig, axs = plt.subplots(1, 1, figsize=imgsize, dpi=dpi)
-            plt.subplots_adjust(wspace=0, hspace=0, left=0.0, right=1.0, bottom=0.0, top=1.0)
-            axs.imshow(img)  # , origin = "lower")
-            axs.axis("off")
-            fig.savefig(dir_fig + "/m_fig_" + str(i) + ".png", facecolor="w", bbox_inches='tight')
-        print("Done for figure " + str(i))
+        fig_path = dir_fig + "/m_fig_"
+        plot_montages(matrix_all, montage_shape, fig_path=fig_path, dpi=dpi)
 
     #return matrix_all
     #build_montages(matrix_all)
 
+def get_nibabel_from_sample_dict(img_dict):
 
-def get_montages(image_list, montage_shape):
+    data = img_dict['data']
+    if data.ndim==5:
+        image = data[0][0].numpy()
+        affine = img_dict['affine'][0]
+    elif data.ndim==4:
+        image = data[0].numpy()
+        affine = img_dict['affine']
 
-    if len(montage_shape) != 2:
-        raise Exception('montage shape must be list or tuple of length 2 (rows, cols)')
+    nii = nb.Nifti1Image(image, affine)
+    return nii
 
-    image_shape = (image_list[0].shape[1],image_list[0].shape[0])
-    channel = 1
-    if image_list[0].ndim>2:
-        channel = image_list[0].shape[2]
 
-    image_montages = []
-    # start with black canvas to draw images onto
-    montage_image = np.zeros(shape=(image_shape[1] * (montage_shape[1]), image_shape[0] * montage_shape[0],
-                                    channel), dtype=np.uint8)
-    cursor_pos = [0, 0]
-    start_new_img = False
-    for img in image_list:
-        if type(img).__module__ != np.__name__:
-            raise Exception('input of type {} is not a valid numpy array'.format(type(img)))
-        start_new_img = False
-        #img = cv2.resize(img, image_shape)
-        # draw image to black canvas
-        montage_image[cursor_pos[1]:cursor_pos[1] + image_shape[1], cursor_pos[0]:cursor_pos[0] + image_shape[0]] = img
-        cursor_pos[0] += image_shape[0]  # increment cursor x position
-        if cursor_pos[0] >= montage_shape[0] * image_shape[0]:
-            cursor_pos[1] += image_shape[1]  # increment cursor y position
-            cursor_pos[0] = 0
-            if cursor_pos[1] >= montage_shape[1] * image_shape[1]:
-                cursor_pos = [0, 0]
-                image_montages.append(montage_image)
-                # reset black canvas
-                montage_image = np.zeros(shape=(image_shape[1] * (montage_shape[1]), image_shape[0] * montage_shape[0], 3),
-                                      dtype=np.uint8)
-                start_new_img = True
-    if start_new_img is False:
-        image_montages.append(montage_image)  # add unfinished montage
-    return image_montages
+def do_figure_from_dataset(td, select_indices= None, name_fig=None, mask_key=None,
+                           slices_infos=None, mask_info=None, fref = None, display_order=None, ras=True,
+                           colormap = cm.Greys_r, colormap_noise=cm.hot, percentile_values = [0,99],
+                           plot_single=True, out_dir=None, montage_shape=None, dpi=50, plt_ioff=True, montage_basename='m_fig'
+                           ):
+
+    if plt_ioff: plt.ioff();
+
+    if select_indices is None:
+        select_indices = range(0, len(td)) #plot all
+
+    dir_fig = '{}/fig/'.format(out_dir)
+    if not os.path.exists(dir_fig):  os.makedirs(dir_fig)
+
+    fref = my_get_image(fref)
+
+    matrix_all=[]
+    for ind, ind_sel in enumerate(select_indices.tolist()):
+
+        s = td[ind_sel]
+
+        im = get_nibabel_from_sample_dict(s['image'])
+        mask = None
+        if mask_key is not None:
+            if mask_key in s:
+                mask = get_nibabel_from_sample_dict(s[mask_key])
+            else:
+                print('WARNING no mask for {}'.format(ind_sel))
+
+        acoreg = None
+
+        if name_fig is not None:
+            fig_path = dir_fig + "/" + name_fig[ind] + ".png"
+        else:
+            fig_path = dir_fig + "/fig_" + str(ind) + ".png"
+
+        matrix_fig = plot_view(im, mask, fref, acoreg, slices_infos, mask_info, display_order=display_order,
+                               colormap=colormap,colormap_noise=colormap_noise, percentile_values=percentile_values,
+                               figure_path=fig_path, plot_single=plot_single, dpi=dpi, plt_ioff = plt_ioff)
+
+        if montage_shape is not None:
+            matrix_all.append(matrix_fig)
+
+
+    if montage_shape is not None:
+        fig_path = dir_fig + "/{}".format(montage_basename)
+        plot_montages(matrix_all, montage_shape, fig_path=fig_path, dpi=dpi)
+
+    #return matrix_all
+    #build_montages(matrix_all)
 
 
 # %%
@@ -421,16 +471,20 @@ if __name__ == "__main__":
     mask_info = [("mask_font", -1) for i in range(0,3,1)] #overlay with colormap jet in the background
     mask_info = [("mask", 1) for i in range(0, 3, 1)]  # cut around the mask (at the slice level)
     mask_info = [("mask", -1) for i in range(0, 3, 1)]  # min max within the mask
-    mask_info = [("whole", -1) for i in range(0, 3, 1)]  # min max within the mask
+    mask_info = [("mask", 1) ]  # min max within the mask
 
     l_in = uf.concatenate_list([fin, fmask, faff])
+    l_in.append(l_in[0])
+    l_in.append(l_in[0])
+    l_in.append(l_in[0])
+    l_in.append(l_in[0])
     l_in.append(l_in[0])
     l_in.append(l_in[0])
 
 
     t0 = time()
-    fig = generate_figures(l_in, slices_infos=l_view, mask_info=mask_info, display_order=display_order,
-                           fref=fref,out_dir=d, plot_single=True, montage_shape=(2,2), plt_ioff=False )
+    fig = do_figures_from_file(l_in, slices_infos=l_view, mask_info=mask_info, display_order=display_order,
+                           fref=fref,out_dir=d, plot_single=True, montage_shape=(2,3), plt_ioff=False )
 
     print("Il a fallu {} secondes".format(np.round(time()-t0, 2)))
 
