@@ -18,12 +18,12 @@ name_list = [ 'mvt_train_cati_T1', 'mvt_train_cati_ms', 'mvt_train_cati_brain',
 name_list = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
               'ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain',]
 
-#name_list = [ 'ela1_train_hcp400_ms', 'ela1_val_hcp200_ms' ]
+name_list = [ 'ela1_train200_hcp400_ms' ]
 
 nb_motions_list = [20, 20, 20, 10, 10, 10] #[5, 5, 5]
 nb_motions_list = [50, 50, 50, 5, 5, 5]
 nb_motions_list = [50, 50, 50, 20, 20, 20]
-#nb_motions_list = [50, 5]
+nb_motions_list = [200]
 
 
 do_plotting = False
@@ -73,7 +73,7 @@ for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
     params['job_name'] = job_id
     params['cluster_queue'] = 'bigmem,normal'
     params['cpus_per_task'] = 1
-    params['mem'] = 8000
+    params['mem'] = 6000
     params['walltime'] = '12:00:00'
     params['job_pack'] = 1
 
