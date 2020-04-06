@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import nibabel as nib
 import torch
 from nilearn import plotting
-from torchio import Image, ImagesDataset, INTENSITY, LABEL
+from torchio import Image, ImagesDataset, INTENSITY, LABEL, Subject
 from utils_file import get_parent_path, gfile, gdir
 from doit_train import get_motion_transform
 from torchvision.transforms import Compose
@@ -81,9 +81,10 @@ if __name__ == '__main__':
     if len(fp2) == 1:
         one_suj.append(Image('p2', fp2[0], LABEL))
 
-    subject = [ one_suj for i in range(0,nb_sample) ]
+    subject = [ Subject(one_suj[0]) for i in range(0,nb_sample) ]
+    #subject = [ one_suj for i in range(0,nb_sample) ]
     print('input list is duplicated {} '.format(len(subject)))
-
+    #subject = Subject(subject)
     dataset = ImagesDataset(subject, transform=transfo)
 
     for i in range(0, nb_sample):
@@ -94,7 +95,7 @@ if __name__ == '__main__':
         volume_path = image_dict['path']
         dd = volume_path.split('/')
         volume_name = dd[len(dd)-2] + '_' + image_dict['stem']
-        nb_saved = image_dict['index']
+        #nb_saved = image_dict['index'] #
 
         fname = resdir_mvt + 'ssim_{}_sample{:05d}_suj_{}_mvt.csv'.format(image_dict['metrics']['ssim'],
                                                     index, volume_name)
@@ -117,6 +118,7 @@ if __name__ == '__main__':
             if 'image_orig' in sample: sample.pop('image_orig')
             if 'p1' in sample: sample.pop('p1')
             if 'p2' in sample: sample.pop('p2')
+            if 'brain' in sample: sample.pop('brain')
 
         torch.save(sample, fname_sample + '_sample.pt')
 
