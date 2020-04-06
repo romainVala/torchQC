@@ -17,12 +17,14 @@ name_list_val = ['mask_mvt_val_cati_T1', 'mask_mvt_val_cati_ms', 'mask_mvt_val_c
 #name_list_val = ['mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
 
 name_list_train = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
-                    'ela1_train_hcp400_ms', 'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1']
+                    'ela1_train_hcp400_ms', 'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1',
+                'ela1_train200_hcp400_ms']                                                                                                                                
 name_list_val = ['ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain_ms',
-                 'ela1_val_hcp200_ms', 'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1']
+                 'ela1_val_hcp200_ms', 'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1',
+		'ela1_train200_hcp400_ms']
 
-data_name_train = name_list_train[0]
-data_name_val = name_list_val[0]
+data_name_train = name_list_train[6]
+data_name_val = name_list_val[3]
 
 res_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/'
 base_name = 'RegMotNew'
@@ -32,7 +34,7 @@ root_fs = 'lustre'
 
 par_model = {'network_name': 'ConvN',
              'losstype': 'L1',
-             'lr': 1e-4,
+             'lr': 1e-3,
               'conv_block': [16, 32, 64, 128, 256], 'linear_block': [40, 50],
              'in_size': in_size,
              'cuda': cuda, 'max_epochs': max_epochs}
@@ -71,7 +73,7 @@ elif test_sample:
 else:
     if 'cati' in data_name_train:
         target_shape, mask_key = (182, 218, 182), 'brain'
-        doit.log.info('adding a CropOrPad {} with mask key {}'.format(target_shape, mask_key))
+        print('adding a CropOrPad {} with mask key {}'.format(target_shape, mask_key))
         tc = [CropOrPad(target_shape=target_shape, mode='mask', mask_key=mask_key), ]
     else:
         tc = None
