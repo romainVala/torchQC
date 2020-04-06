@@ -18,7 +18,7 @@ import torch.optim as optim
 from torchvision.transforms import Compose
 
 from torchio.data.io import write_image, read_image
-from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad, RandomElasticDeformation
+from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad, RandomElasticDeformation, RandomElasticDeformation
 from torchio.transforms.preprocessing.spatial.center_crop_pad import CropOrPad
 from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL, Interpolation
 from utils_file import get_parent_path, gfile, gdir
@@ -49,24 +49,25 @@ def get_ep_iter_from_res_name(resname, nbit, remove_ext=-7, batch_size=4):
 #Explore csv results
 dqc = ['/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion']
 dres = gdir(dqc,'nw0.*0001')
+dres = gdir(dqc,'RegMotNew.*0001')
 resname = get_parent_path(dres)[1]
 #sresname = [rr[rr.find('hcp400_')+7: rr.find('hcp400_')+17] for rr in resname ]; sresname[2] += 'le-4'
 sresname = resname
 
-for ii, oneres in enumerate(dres):
+for ii, oneres in enumerate([dres[2]]):
     fres=gfile(oneres,'res_val')
     #fres = gfile(oneres,'train.*csv')
 
-    for ff in fres[9:]:
+    for ff in fres[29:39]:
         res=pd.read_csv(ff)
         err = np.abs(res.ssim-res.model_out) #same as L1 loss
-        plt.figure(sresname[ii] + '2err'); plt.plot(err)
+        plt.figure(sresname[ii] + '22err'); plt.plot(err)
         errcum = np.cumsum(err[50:-1])/range(1,len(err)-51+1)
         #plt.figure(sresname[ii] + '2err_cum');        plt.plot(errcum)
         N=50
         err_slidin = np.convolve(err, np.ones((N,))/N, mode='valid')
-        plt.figure(sresname[ii] + '2err_slide'); plt.plot(err_slidin)
-        plt.figure(sresname[ii] + '2model_out'); plt.scatter(res.model_out, res.ssim)
+        plt.figure(sresname[ii] + '22err_slide'); plt.plot(err_slidin)
+        plt.figure(sresname[ii] + '22model_out'); plt.scatter(res.model_out, res.ssim)
 
     legend_str = [str(ii+1) for ii in range(0,len(fres))]
     plt.legend(legend_str)
@@ -94,7 +95,7 @@ for ii, oneres in enumerate(dres):
     plt.plot(ite_tot, LmVal,'--',color=col[ii])
     plt.plot(ite_tot, LmTrain,color=col[ii])
 
-plt.legend(legend_str)
+plt.legend(legend_str); plt.grid()
 
 
 model = nn.Linear(10, 2)
@@ -193,17 +194,27 @@ suj = [[ Image('image', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1_floa
 
 tc = CenterCropOrPad(target_shape=(182, 218,212))
 tc = CropOrPad(target_shape=(182, 218,182), mode='mask',mask_key='maskk')
+#dico_elast = {'num_control_points': 6, 'deformation_std': (30, 30, 30), 'max_displacement': (4, 4, 4),
+#              'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR}
+#tc = RandomElasticDeformation(**dico_elast)
 
-dico_p = { 'num_control_points': 8, 'deformation_std': 30,
+dico_p = {'num_control_points': 8, 'deformation_std': (20, 20, 20), 'max_displacement': (4, 4, 4),
+              'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR}
+dico_p = { 'num_control_points': 6,
+           #'max_displacement': (20, 20, 20),
+           'max_displacement': (30, 30, 30),
            'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR }
 
 t = Compose([ RandomElasticDeformation(**dico_p), tc])
 
 dataset = ImagesDataset(suj, transform=t)
-for i in range(1,5):
+s = dataset[0]
+
+for i in range(1,10):
     s=dataset[0]
     dataset.save_sample(s, dict(image='/home/romain/QCcnn//mask_mvt_val_cati_T1/elastic8_30{}.nii'.format(i)))
 
 t = dataset.get_transform()
 type(t)
-isinstance(t,Compose)
+isinstance(t, Compose)
+
