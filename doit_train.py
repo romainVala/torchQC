@@ -50,7 +50,7 @@ class do_training():
             if type(load_from_dir) == str:
                 load_from_dir = [load_from_dir, load_from_dir]
             fsample_train, fsample_val = gfile(load_from_dir[0], 'sample.*pt'), gfile(load_from_dir[1], 'sample.*pt')
-            random.shuffle(fsample_train)
+            #random.shuffle(fsample_train)
             #fsample_train = fsample_train[0:10000]
             self.log_string += '\nloading {} train sample from {}'.format(len(fsample_train), load_from_dir[0])
             self.log_string += '\nloading {} val   sample from {}'.format(len(fsample_val), load_from_dir[1])
@@ -103,6 +103,7 @@ class do_training():
 
         else:
             self.patch = False
+            self.train_dataset = train_dataset
             self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffel_train, num_workers=num_workers)
             self.val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
@@ -361,15 +362,15 @@ def get_motion_transform(type='motion1'):
                        "oversampling_pct": 0, "correct_motion": False}
 
     if 'elastic1' in type:
-        dico_elast = { 'num_control_points': 8, 'deformation_std': 30,
+        dico_elast = { 'num_control_points': 6, 'max_displacement': (30, 30, 30),
            'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR }
 
     if type == 'motion1':
         transforms = RandomMotionFromTimeCourse(**dico_params_mot)
 
     elif type=='elastic1_and_motion1':
-        transforms = Compose(( RandomElasticDeformation(**dico_elast),
-                               RandomMotionFromTimeCourse(**dico_params_mot) ))
+        transforms = Compose([ RandomElasticDeformation(**dico_elast),
+                               RandomMotionFromTimeCourse(**dico_params_mot) ] )
 
     return transforms
 
