@@ -45,7 +45,7 @@ for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
 
     py_options = '--motion_type elastic1_and_motion1 --nb_sample={} --res_dir={}'.format(nb_motions, resdir)
 
-    job_id = name
+    job_id = name +'_redo'
     params = dict()
     params['output_directory'] = prefix + '/jobs/' + job_id
     params['scripts_to_copy'] = scriptsDir #+ '/*.py'
@@ -58,16 +58,19 @@ for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
                           py_options + " \\"] )
     jobs = []
 
+    if fin_redo not in locals():
+        fin_redo = fin
     for ii, ff in enumerate(fin):
-        index = ii*nb_motions
-        job = '\n'.join([cmd_init,
-                         ' -i ' + ff + ' \\',
-                         ' --seed={} '.format(ii) + ' \\',
-                         ' --index_num={} '.format(index) ])
-        if do_plotting:
-            job += ' --plot_volume '
+        if ff in fin_redo:
+            index = ii*nb_motions
+            job = '\n'.join([cmd_init,
+                             ' -i ' + ff + ' \\',
+                             ' --seed={} '.format(ii) + ' \\',
+                             ' --index_num={} '.format(index) ])
+            if do_plotting:
+                job += ' --plot_volume '
 
-        jobs.append(job)
+            jobs.append(job)
 
     params['jobs'] = jobs
     params['job_name'] = job_id
