@@ -13,8 +13,10 @@ import torch
 import torch.optim as optim
 from torch.optim import lr_scheduler
 from torchvision.transforms import Compose
+import torchvision
 
 from utils_file import get_log_file, gfile, get_parent_path, gdir
+from utils import apply_conditions_on_dataset
 
 from torchio.transforms.metrics import SSIM3D, ssim3D
 from smallunet_pytorch import ConvN_FC3, SmallUnet, load_existing_weights_if_exist, summary
@@ -44,7 +46,11 @@ class do_training():
     def set_data_loader(self, train_csv_file='', val_csv_file='', transforms=None,
                         batch_size=1, num_workers=0,
                         par_queue=None, save_to_dir=None, load_from_dir=None,
-                        replicate_suj=0, shuffel_train=True ):
+                        replicate_suj=0, shuffel_train=True,
+                        get_condition_csv=None, get_condition_field='', get_condition_nb_wanted=1/4 ):
+
+        if not isinstance(transforms, torchvision.transforms.transforms.Compose) and transforms is not None:
+            transforms = Compose(transforms)
 
         if load_from_dir is not None :
             if type(load_from_dir) == str:
@@ -52,12 +58,40 @@ class do_training():
             fsample_train, fsample_val = gfile(load_from_dir[0], 'sample.*pt'), gfile(load_from_dir[1], 'sample.*pt')
             #random.shuffle(fsample_train)
             #fsample_train = fsample_train[0:10000]
+
+            if get_condition_csv is not None:
+                res = pd.read_csv(load_from_dir[0]+'/'+get_condition_csv)
+                cond_val = res[get_condition_field].values
+
+                y = np.linspace(np.min(cond_val), np.max(cond_val), 101)
+                nb_wanted_per_interval = int(np.round(len(cond_val) * get_condition_nb_wanted / 100))
+                y_select = []
+                for i in range(len(y)-1):
+                    indsel = np.where((cond_val > y[i]) & (cond_val < y[i+1]))[0]
+                    nb_select = len(indsel)
+                    if nb_select < nb_wanted_per_interval:
+                        print(' only {} / {} for interval {} {:,.3f} |  {:,.3f} '.format(nb_select, nb_wanted_per_interval, i, y[i], y[i+1]))
+                        y_select.append(indsel)
+                    else:
+                        pind = np.random.permutation(range(0,nb_select))
+                        y_select.append(indsel[pind[0:nb_wanted_per_interval]])
+                        #print('{} selecting {}'.format(i, len(y_select[-1])))
+                ind_select = np.hstack(y_select)
+                y = cond_val[ind_select]
+                fsample_train = [fsample_train[ii] for ii in ind_select]
+                self.log_string += '\nfinal selection {} soit {:,.3f} % instead of {:,.3f} %'.format(
+                    len(y), len(y)/len(cond_val)*100, get_condition_nb_wanted*100)
+
+                #conditions = [("MSE", ">", 0.0028),]
+                #select_ind = apply_conditions_on_dataset(res,conditions)
+                #fsel = [fsample_train[ii] for ii,jj in enumerate(select_ind) if jj]
+
             self.log_string += '\nloading {} train sample from {}'.format(len(fsample_train), load_from_dir[0])
             self.log_string += '\nloading {} val   sample from {}'.format(len(fsample_val), load_from_dir[1])
-            train_dataset = ImagesDataset(fsample_train, load_from_dir=load_from_dir[0], transform=Compose(transforms) if transforms is not None else None)
+            train_dataset = ImagesDataset(fsample_train, load_from_dir=load_from_dir[0], transform=transforms )
             self.train_csv_load_file_train = fsample_train
 
-            val_dataset = ImagesDataset(fsample_val, load_from_dir=load_from_dir[1], transform=Compose(transforms) if transforms is not None else None)
+            val_dataset = ImagesDataset(fsample_val, load_from_dir=load_from_dir[1], transform=transforms )
             self.train_csv_load_file_train = fsample_val
 
         else :
@@ -75,8 +109,8 @@ class do_training():
                 paths_dict = lll
                 self.log_string += 'Replicating train dataSet {} times, new length is {}'.format(replicate_suj,len(lll))
 
-            train_dataset = ImagesDataset(paths_dict, transform=Compose(transforms), save_to_dir=save_to_dir)
-            val_dataset = ImagesDataset(paths_dict_val, transform=Compose(transforms), save_to_dir=save_to_dir)
+            train_dataset = ImagesDataset(paths_dict, transform=transforms, save_to_dir=save_to_dir)
+            val_dataset = ImagesDataset(paths_dict_val, transform=transforms, save_to_dir=save_to_dir)
 
         self.res_name += '_B{}_nw{}'.format(batch_size, num_workers)
 
@@ -366,7 +400,7 @@ def get_motion_transform(type='motion1'):
            'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR }
 
     if type == 'motion1':
-        transforms = RandomMotionFromTimeCourse(**dico_params_mot)
+        transforms = Compose([ RandomMotionFromTimeCourse(**dico_params_mot),])
 
     elif type=='elastic1_and_motion1':
         transforms = Compose([ RandomElasticDeformation(**dico_elast),
@@ -384,9 +418,11 @@ def get_cache_dir(root_fs = 'lustre'):
 def get_train_and_val_csv(names='', root_fs = 'lustre'):
 
     return_list = True
-    if names is str:
+    if isinstance(names, str):
         names = [names]
         return_list = False
+
+    print('name is {}'.format(type(names)))
 
     if root_fs == 'lustre':
         data_path_hcp = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/'
