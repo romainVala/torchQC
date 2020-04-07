@@ -74,14 +74,14 @@ if __name__ == '__main__':
         #fp1 = gfile(dir_cat, '^p1', {"items": 1})
         #fp2 = gfile(dir_cat, '^p2', {"items": 1})
 
-    one_suj = [ Image('image', fin, INTENSITY),
-                Image('brain', fm[0], LABEL), ]
+    one_suj = { 'image':Image(fin, INTENSITY),
+                'brain':Image(fm[0], LABEL)}
     if len(fp1)==1:
-        one_suj.append(Image('p1', fp1[0], LABEL))
+        one_suj['p1'] = Image(fp1[0], LABEL)
     if len(fp2) == 1:
-        one_suj.append(Image('p2', fp2[0], LABEL))
+        one_suj['p2'] = Image(fp2[0], LABEL)
 
-    subject = [Subject(*one_suj) for i in range(0, nb_sample) ]
+    subject = [Subject(one_suj) for i in range(0, nb_sample) ]
     #subject = [ one_suj for i in range(0,nb_sample) ]
     print('input list is duplicated {} '.format(len(subject)))
     #subject = Subject(subject)
