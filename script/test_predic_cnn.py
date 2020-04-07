@@ -18,9 +18,9 @@ import torch.optim as optim
 from torchvision.transforms import Compose
 
 from torchio.data.io import write_image, read_image
-from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad, RandomElasticDeformation, RandomElasticDeformation
-from torchio.transforms.preprocessing.spatial.center_crop_pad import CropOrPad
-from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL, Interpolation
+from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, \
+    CenterCropOrPad, RandomElasticDeformation, RandomElasticDeformation, CropOrPad
+from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL, Interpolation, Subject
 from utils_file import get_parent_path, gfile, gdir
 from doit_train import do_training, get_motion_transform
 
@@ -54,11 +54,12 @@ resname = get_parent_path(dres)[1]
 #sresname = [rr[rr.find('hcp400_')+7: rr.find('hcp400_')+17] for rr in resname ]; sresname[2] += 'le-4'
 sresname = resname
 
-for ii, oneres in enumerate([dres[2]]):
+#for ii, oneres in enumerate([dres[2]]):
+for ii, oneres in enumerate(dres):
     fres=gfile(oneres,'res_val')
     #fres = gfile(oneres,'train.*csv')
 
-    for ff in fres[29:39]:
+    for ff in fres:
         res=pd.read_csv(ff)
         err = np.abs(res.ssim-res.model_out) #same as L1 loss
         plt.figure(sresname[ii] + '22err'); plt.plot(err)
@@ -78,22 +79,25 @@ col = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'w']
 for ii, oneres in enumerate(dres):
     fresV=gfile(oneres,'res_val')
     fresT = gfile(oneres,'train.*csv')
-    resT = [pd.read_csv(ff) for ff in fresT]
+    is_train = False if len(fresT)==0 else True
+    if is_train: resT = [pd.read_csv(ff) for ff in fresT]
     resV = [pd.read_csv(ff) for ff in fresV]
 
     resname = get_parent_path(fresV)[1]
-    nbite = len(resT[0])
+    nbite = len(resT[0]) if is_train else 80000
     a, b, c = get_ep_iter_from_res_name(resname, nbite)
     ite_tot = c+b*nbite
-    errorT = np.hstack( [ np.abs(rr.model_out.values - rr.ssim.values) for rr in resT] )
-    ite_tottt = np.hstack([0, ite_tot])
-    LmTrain = [ np.mean(errorT[ite_tottt[ii]:ite_tottt[ii+1]]) for ii in range(0,len(ite_tot)) ]
+    if is_train:
+        errorT = np.hstack( [ np.abs(rr.model_out.values - rr.ssim.values) for rr in resT] )
+        ite_tottt = np.hstack([0, ite_tot])
+        LmTrain = [ np.mean(errorT[ite_tottt[ii]:ite_tottt[ii+1]]) for ii in range(0,len(ite_tot)) ]
 
     LmVal = [np.mean(np.abs(rr.model_out-rr.ssim)) for rr in resV]
-    #plt.figure(sresname[ii] + 'meanL1')
-    plt.figure('meanL1'); legend_str.append('V{}'.format(sresname[ii]));legend_str.append('T{}'.format(sresname[ii]))
+    if is_train: plt.figure(sresname[ii] + 'meanL1')
+    plt.figure('meanL1'); legend_str.append('V{}'.format(sresname[ii]));
+    if is_train: legend_str.append('T{}'.format(sresname[ii]))
     plt.plot(ite_tot, LmVal,'--',color=col[ii])
-    plt.plot(ite_tot, LmTrain,color=col[ii])
+    if is_train: plt.plot(ite_tot, LmTrain,color=col[ii])
 
 plt.legend(legend_str); plt.grid()
 
@@ -162,9 +166,16 @@ for rr in res:
 
 #test MOTION CATI
 
-suj = [[ Image('T1', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1.nii.gz', INTENSITY), ]]
+ss = [ Image('T1', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1.nii.gz', INTENSITY),
+         Image('T3', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1.nii.gz', INTENSITY),]
+
 suj = [[ Image('T1', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1_float.nii.gz', INTENSITY), ]]
 suj = [[Image('T1', '/data/romain/HCPdata/suj_150423/T1w_1mm.nii.gz', INTENSITY), ]]
+
+ss = [Subject(Image('T1', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1.nii.gz', INTENSITY) ) ]
+
+suj = [Subject(ss) for ss in suj]
+
 dico_params = {"maxDisp": (1, 4), "maxRot": (1, 4), "noiseBasePars": (5, 20, 0.8),
                "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 4),
                "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 4),
