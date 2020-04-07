@@ -81,7 +81,7 @@ if __name__ == '__main__':
     if len(fp2) == 1:
         one_suj.append(Image('p2', fp2[0], LABEL))
 
-    subject = [ Subject(one_suj[0]) for i in range(0,nb_sample) ]
+    subject = [Subject(*one_suj) for i in range(0, nb_sample) ]
     #subject = [ one_suj for i in range(0,nb_sample) ]
     print('input list is duplicated {} '.format(len(subject)))
     #subject = Subject(subject)
