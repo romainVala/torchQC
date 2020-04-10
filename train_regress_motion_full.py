@@ -6,9 +6,9 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 do_save, do_eval, test_sample = False, False, False
 make_uniform = False
-batch_size, num_workers, max_epochs = 4, 0, 10
+batch_size, num_workers, max_epochs = 4, 0, 50
 cuda, verbose = True, True
-in_size=[182, 218, 182]
+in_size = [182, 218, 182]
 
 name_list_train = ['mask_mvt_train_cati_T1', 'mask_mvt_train_cati_ms', 'mask_mvt_cati_train_brain_ms',
                    'mask_mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
@@ -31,13 +31,14 @@ res_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn
 base_name = 'RegMotNew'
 if make_uniform : base_name += '_uniform'
 
-root_fs = 'le70' #
-root_fs = 'lustre'
+root_fs = 'le70'
+#root_fs = 'lustre'
 
 par_model = {'network_name': 'ConvN',
              'losstype': 'L1',
              'lr': 1e-4,
               'conv_block': [16, 32, 64, 128, 256], 'linear_block': [40, 50],
+             'dropout': 0, 'batch_norm': True,
              'in_size': in_size,
              'cuda': cuda, 'max_epochs': max_epochs}
 #'conv_block':[8, 16, 32, 64, 128]
@@ -82,7 +83,7 @@ else:
     if 'cati' in data_name_train:
         target_shape, mask_key = (182, 218, 182), 'brain'
         print('adding a CropOrPad {} with mask key {}'.format(target_shape, mask_key))
-        tc = [CropOrPad(target_shape=target_shape, mode='mask', mask_key=mask_key), ]
+        tc = [CropOrPad(target_shape=target_shape, mask_name=mask_key), ]
     else:
         tc = None
     if make_uniform:
