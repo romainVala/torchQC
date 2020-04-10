@@ -587,3 +587,53 @@ def print_accuracy_all(res, resname, ytrue, prediction_name='ymean', inverse_pre
                 plt.ylim([0, 1])
                 plt.ylabel('True Positive Rate')
                 plt.xlabel('False Positive Rate')
+
+
+def get_ep_iter_from_res_name(resname, nbit, remove_ext=-7, batch_size=4):
+    ffn = [ff[ff.find('_ep') + 3:remove_ext] for ff in resname]
+    key_list = []
+    for fff, fffn in zip(ffn, resname):
+        if '_it' in fff:
+            ind = fff.find('_it')
+            ep = int(fff[0:ind])
+            it = int(fff[ind + 3:])*batch_size
+            it = 4 if it==0 else it #hack to avoit 2 identical point (as val is done for it 0 and las of previous ep
+        else:
+            ep = int(fff)
+            it = nbit
+        key_list.append([fffn, ep, it])
+    aa = np.array(sorted(key_list, key=lambda x: (x[1], x[2])))
+    name_sorted, ep_sorted, it_sorted = aa[:, 0], aa[:, 1], aa[:, 2]
+    ep_sorted = np.array([int(ee) for ee in ep_sorted])
+    it_sorted = np.array([int(ee) for ee in it_sorted])
+    return name_sorted, ep_sorted, it_sorted
+
+
+from functools import reduce
+
+
+def getcommonletters(strlist):
+    return ''.join([x[0] for x in zip(*strlist) \
+                    if reduce(lambda a, b: (a == b) and a or None, x)])
+
+
+def findcommonstart(strlist):
+    strlist = strlist[:]
+    prev = None
+    while True:
+        common = getcommonletters(strlist)
+        if common == prev:
+            break
+        strlist.append(common)
+        prev = common
+
+    return getcommonletters(strlist)
+
+
+def reduce_name_list(strlist):
+    strcommon = findcommonstart(strlist.copy())
+    res = [i for i in range(len(strcommon)) if strcommon.startswith('_', i)]
+
+    keep = [ss[res[-1] + 1:] for ss in strlist]
+
+    return strcommon, keep
