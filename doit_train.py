@@ -5,7 +5,7 @@ from torchio.data.sampler import ImageSampler
 from torchio.utils import is_image_dict
 from torchio import INTENSITY, LABEL, Interpolation
 
-from torchio.transforms import RandomMotionFromTimeCourse, RandomElasticDeformation
+from torchio.transforms import RandomMotionFromTimeCourse, RandomElasticDeformation, RandomNoise
 
 from torch.utils.data import DataLoader
 import torch.nn as tnn
@@ -27,6 +27,7 @@ import pandas as pd
 import shutil
 import matplotlib.pyplot as plt
 import time, random
+import socket
 
 
 #from collections import defaultdict
@@ -39,7 +40,8 @@ class do_training():
         if not os.path.isdir(res_dir): os.mkdir(res_dir)
         self.verbose = verbose
         #self.log_file = self.res_dir + '/training.log'
-        self.log_string = ''
+        myHostName = socket.gethostname()
+        self.log_string = '\n working on {} \n'.format(myHostName)
         #self.log = get_log_file(self.log_file)
 
 
@@ -163,12 +165,16 @@ class do_training():
 
         elif network_name == 'ConvN':
             conv_block = par_model['conv_block']
+            dropout, batch_norm = par_model['dropout'], par_model['batch_norm']
             linear_block = par_model['linear_block']
             output_fnc = par_model['output_fnc'] if 'output_fnc' in par_model else None
-            self.model = ConvN_FC3(in_size=in_size, conv_block=conv_block, linear_block=linear_block, output_fnc=output_fnc)
-            network_name += '_C{}_{}_Lin{}_{}'.format(np.abs(conv_block[0]), conv_block[-1], linear_block[0], linear_block[-1])
+            self.model = ConvN_FC3(in_size=in_size, conv_block=conv_block, linear_block=linear_block,
+                                   dropout=dropout, batch_norm=batch_norm, output_fnc=output_fnc)
+            network_name += '_C{}_{}_Lin{}_{}_D{}'.format(np.abs(conv_block[0]), conv_block[-1], linear_block[0], linear_block[-1], dropout)
             if output_fnc is not None:
                 network_name += '_fnc_{}'.format(output_fnc)
+            if batch_norm:
+                network_name += '_BN'
 
         self.res_name += '_Size{}_{}_Loss_{}_lr{}'.format(in_size[0], network_name, losstype, lr)
 
@@ -205,7 +211,7 @@ class do_training():
         #exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=25, gamma=0.1)
 
 
-    def train_regress_motion(self):
+    def train_regress_motion(self, target='ssim'):
         max_iteration = len(self.train_dataloader)
         for ep in range(self.ep_start, self.max_epochs + self.ep_start):
             self.model.train()
@@ -227,7 +233,10 @@ class do_training():
                     extra_info['ssim_patch'] = labels.squeeze().cpu().detach()
 
                 else:
-                    labels = data['image']['metrics']['ssim'].unsqueeze(1)
+                    if target == 'ssim':
+                        labels = data['image']['metrics']['ssim'].unsqueeze(1)
+                    elif target == 'random_noise':
+                        labels = data['random_noise'].unsqueeze(1).float() * 10
                     if self.cuda:
                         inputs, labels = inputs.cuda(), labels.cuda()
 
@@ -263,7 +272,7 @@ class do_training():
                     if (iteration == 500):
                         duration = (time.time() - start) / iteration * max_iteration / 60 / 60 #hours for on epochs
                         self.log.info(' estimate duration {:.2f} hours for one epoch '.format(duration))
-                    self.save_model(ep, iteration, fct_eval=self.eval_regress_motion)
+                    self.save_model(ep, iteration, fct_eval=self.eval_regress_motion, target=target)
 
             self.log.info("Train Ep: {} It {} Loss: {} mean {}".format(ep, iteration, l_tmp.item(),
                                                                          epoch_loss / epoch_samples))
@@ -275,11 +284,11 @@ class do_training():
             res.to_csv(fres)
 
             if ep % 4 == 0:
-                self.save_model(ep, iteration, fct_eval=self.eval_regress_motion)
+                self.save_model(ep, iteration, fct_eval=self.eval_regress_motion, target=target)
 
-        self.save_model(ep, iteration, fct_eval=self.eval_regress_motion)
+        self.save_model(ep, iteration, fct_eval=self.eval_regress_motion, target=target)
 
-    def save_model(self, ep, iteration=None, fct_eval=None):
+    def save_model(self, ep, iteration=None, fct_eval=None, target='ssim'):
         if iteration is not None:
             resname = "model_ep{}_it{}.pt".format(ep, iteration)
         else:
@@ -289,10 +298,10 @@ class do_training():
         self.log.info('saving model to %s' % (resname))
         self.last_model_saved = resname
         if fct_eval is not None:
-            fct_eval(ep, iteration)
+            fct_eval(ep, iteration, target=target)
             self.model.train()
 
-    def eval_regress_motion(self, epTrain, iterationTrain):
+    def eval_regress_motion(self, epTrain, iterationTrain, target='ssim', basename='res_val'):
         start = time.time()
         self.model.eval()
         epoch_samples, epoch_loss = 0, 0
@@ -310,7 +319,11 @@ class do_training():
                 extra_info['ssim_patch'] = labels.squeeze().cpu().detach()
 
             else:
-                labels = data['image']['metrics']['ssim'].unsqueeze(1)
+                if target == 'ssim':
+                    labels = data['image']['metrics']['ssim'].unsqueeze(1)
+                elif target == 'random_noise':
+                    labels = data['random_noise'].unsqueeze(1).float() * 10
+
                 if self.cuda:
                     inputs, labels = inputs.cuda(), labels.cuda()
 
@@ -330,23 +343,30 @@ class do_training():
         self.log.info("VAL data Ep_it: {}_{} It {} Loss: {} mean {}".format(epTrain, iterationTrain, iteration, l_tmp.item(),
                                                                 epoch_loss / epoch_samples))
         duration = (time.time() - start) / 60 / 60
-        self.log.info(' validation duration {:.2f} hours {:.2f} mn '.format(duration, duration*60))
+        self.log.info(' validation duration for {} iter {:.2f} hours {:.2f} mn '.format(iteration,duration, duration*60))
 
-        fres = self.res_dir + '/res_val_{}.csv'.format(self.last_model_saved)
+        fres = self.res_dir + '/{}_{}.csv'.format(basename, self.last_model_saved)
         res.to_csv(fres)
 
 
     def add_motion_info(self, data, res, extra_info=None):
 
         batch_size = data['image']['data'].size(0)
-        dicm = data['image']['metrics']
-        dics = data['image']['simu_param']
-        dicm.update(dics)
+        if 'metrics' in data['image']:
+            dicm = data['image']['metrics']
+            dics = data['image']['simu_param']
+            dicm.update(dics)
+
+        if 'random_noise' in data:
+            dicm = {}
+            dicm['random_noise'] = data['random_noise']
+
         if extra_info is not None:
             for k, v in extra_info.items():
                 dicm[k] = v
 
         if 'index_ini' in data: dicm['index_patch'] = data['index_ini']
+        if 'mvt_csv' in data: dicm['mvt_csv'] = data['mvt_csv']
         dicm['fpath'] = data['image']['path']
 
         for nb_batch in range(0, batch_size):
@@ -402,9 +422,11 @@ def get_motion_transform(type='motion1'):
     if type == 'motion1':
         transforms = Compose([ RandomMotionFromTimeCourse(**dico_params_mot),])
 
-    elif type=='elastic1_and_motion1':
+    elif type == 'elastic1_and_motion1':
         transforms = Compose([ RandomElasticDeformation(**dico_elast),
                                RandomMotionFromTimeCourse(**dico_params_mot) ] )
+    if type == 'random_noise_1':
+        transforms = Compose([RandomNoise(std=(0.020, 0.2))])
 
     return transforms
 
