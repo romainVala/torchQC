@@ -19,60 +19,27 @@ from torchvision.transforms import Compose
 
 from torchio.data.io import write_image, read_image
 from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, \
-    CenterCropOrPad, RandomElasticDeformation, RandomElasticDeformation, CropOrPad
+    CenterCropOrPad, RandomElasticDeformation, RandomElasticDeformation, CropOrPad, RandomNoise
 from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL, Interpolation, Subject
 from utils_file import get_parent_path, gfile, gdir
 from doit_train import do_training, get_motion_transform
-
-
-
-def get_ep_iter_from_res_name(resname, nbit, remove_ext=-7, batch_size=4):
-    ffn = [ff[ff.find('_ep') + 3:remove_ext] for ff in resname]
-    key_list = []
-    for fff, fffn in zip(ffn, resname):
-        if '_it' in fff:
-            ind = fff.find('_it')
-            ep = int(fff[0:ind])
-            it = int(fff[ind + 3:])*batch_size
-            it = 4 if it==0 else it #hack to avoit 2 identical point (as val is done for it 0 and las of previous ep
-        else:
-            ep = int(fff)
-            it = nbit
-        key_list.append([fffn, ep, it])
-    aa = np.array(sorted(key_list, key=lambda x: (x[1], x[2])))
-    name_sorted, ep_sorted, it_sorted = aa[:, 0], aa[:, 1], aa[:, 2]
-    ep_sorted = np.array([int(ee) for ee in ep_sorted])
-    it_sorted = np.array([int(ee) for ee in it_sorted])
-    return name_sorted, ep_sorted, it_sorted
+from slices_2 import do_figures_from_file
+from utils import reduce_name_list, get_ep_iter_from_res_name
 
 
 #Explore csv results
 dqc = ['/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion']
-dres = gdir(dqc,'nw0.*0001')
-dres = gdir(dqc,'RegMotNew.*0001')
+dres = gdir(dqc,'train.*_hcp')
+dres = gdir(dqc,'RegMotNew.*train_hcp400_ms.*0001')
+dres = gdir(dqc,'RegMotNew.*hcp400_ms.*B4.*L1.*0001')
 resname = get_parent_path(dres)[1]
 #sresname = [rr[rr.find('hcp400_')+7: rr.find('hcp400_')+17] for rr in resname ]; sresname[2] += 'le-4'
 sresname = resname
+commonstr, sresname = reduce_name_list(sresname)
+print('common str {}'.format(commonstr))
 
-#for ii, oneres in enumerate([dres[2]]):
-for ii, oneres in enumerate(dres):
-    fres=gfile(oneres,'res_val')
-    #fres = gfile(oneres,'train.*csv')
-
-    for ff in fres:
-        res=pd.read_csv(ff)
-        err = np.abs(res.ssim-res.model_out) #same as L1 loss
-        plt.figure(sresname[ii] + '22err'); plt.plot(err)
-        errcum = np.cumsum(err[50:-1])/range(1,len(err)-51+1)
-        #plt.figure(sresname[ii] + '2err_cum');        plt.plot(errcum)
-        N=50
-        err_slidin = np.convolve(err, np.ones((N,))/N, mode='valid')
-        plt.figure(sresname[ii] + '22err_slide'); plt.plot(err_slidin)
-        plt.figure(sresname[ii] + '22model_out'); plt.scatter(res.model_out, res.ssim)
-
-    legend_str = [str(ii+1) for ii in range(0,len(fres))]
-    plt.legend(legend_str)
-    plt.scatter(res.ssim, res.ssim)
+target='ssim'; target_scale=1
+#target='random_noise'; target_scale=10
 
 legend_str=[]
 col = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'w']
@@ -88,18 +55,65 @@ for ii, oneres in enumerate(dres):
     a, b, c = get_ep_iter_from_res_name(resname, nbite)
     ite_tot = c+b*nbite
     if is_train:
-        errorT = np.hstack( [ np.abs(rr.model_out.values - rr.ssim.values) for rr in resT] )
+        errorT = np.hstack( [ np.abs(rr.model_out.values - rr.loc[:,target].values*target_scale) for rr in resT] )
         ite_tottt = np.hstack([0, ite_tot])
         LmTrain = [ np.mean(errorT[ite_tottt[ii]:ite_tottt[ii+1]]) for ii in range(0,len(ite_tot)) ]
 
-    LmVal = [np.mean(np.abs(rr.model_out-rr.ssim)) for rr in resV]
-    if is_train: plt.figure(sresname[ii] + 'meanL1')
-    plt.figure('meanL1'); legend_str.append('V{}'.format(sresname[ii]));
+    LmVal = [np.mean(np.abs(rr.model_out-rr.loc[:,target].values*target_scale)) for rr in resV]
+    plt.figure('meanL11'); legend_str.append('V{}'.format(sresname[ii]));
     if is_train: legend_str.append('T{}'.format(sresname[ii]))
     plt.plot(ite_tot, LmVal,'--',color=col[ii])
     if is_train: plt.plot(ite_tot, LmTrain,color=col[ii])
 
 plt.legend(legend_str); plt.grid()
+
+#for ii, oneres in enumerate([dres[0]]):
+for ii, oneres in enumerate(dres):
+    fres=gfile(oneres,'res_val')
+    #fres = gfile(oneres,'train.*csv')
+    if len(fres)>0:
+        nb_fig = len(fres)//10 +1
+        for nbf in range(0, nb_fig):
+            for ff in fres[nbf*10:(nbf+1)*10]:
+                #print(get_parent_path(ff)[1])
+                res = pd.read_csv(ff)
+                err = np.abs(res.loc[:,target]*target_scale-res.model_out) #same as L1 loss
+                plt.figure('F{}_err'.format(nbf) + sresname[ii]); plt.plot(err)
+                errcum = np.cumsum(err[50:-1])/range(1,len(err)-51+1)
+                plt.figure(sresname[ii] + '2err_cum');        plt.plot(errcum)
+                N = 50
+                err_slidin = np.convolve(err, np.ones((N,))/N, mode='valid')
+                #plt.figure('F{}_err_slide'.format(nbf) + sresname[ii]); plt.plot(err_slidin)
+                plt.figure('F{}_model_out'.format(nbf) + sresname[ii]); plt.scatter(res.model_out, res.loc[:,target]*target_scale)
+
+            legend_str = [str(ii+1) for ii in range(nbf*10, (nbf+1)*10)]
+            plt.legend(legend_str)
+            plt.scatter(res.loc[:, target]*target_scale, res.loc[:, target]*target_scale, c='k'); plt.grid()
+
+
+
+
+ind_sel = (res.model_out < 0.7) & (res.ssim > 0.9)
+ff=res.fpath[ind_sel].values
+sujn = get_parent_path(ff,2)[1]
+sujn_all = get_parent_path(res.fpath,2)[1]
+print('{} suj affect over {}'.format(len(np.unique(sujn)),len(np.unique(sujn_all))))
+
+plt.scatter(res.model_out[ind_sel], res.ssim[ind_sel])
+
+d = '/home/romain.valabregue/datal/QCcnn/figure/bad_train'
+fref = None
+l_view = [("sag", "vox", 0.4), ("cor", "vox", 0.6), ("ax", "vox", 0.5), ]
+display_order = np.array([1, 3])  # row and column of the montage
+mask_info = [("whole", 1)]  # min max within the mask
+
+#l_in = uf.concatenate_list([fin, fmask, faff])
+l_in = ff
+fig = do_figures_from_file(l_in, slices_infos=l_view, mask_info=mask_info, display_order=display_order,
+                           fref=fref, out_dir=d, plot_single=True, montage_shape=(5,3), plt_ioff=True)
+
+
+
 
 
 model = nn.Linear(10, 2)
@@ -200,8 +214,8 @@ write_image(tensor, affine, '/home/romain/QCcnn//mask_mvt_val_cati_T1/mot_li.nii
 
 ff1 = t.fitpars_interp
 
-suj = [[ Image('image', '/home/romain/QCcnn/mask_mvt_val_cati_T1/s_S07_3DT1_float.nii.gz', INTENSITY),
-         Image('maskk', '/home/romain/QCcnn/mask_mvt_val_cati_T1/niw_Mean_brain_mask5k.nii.gz',  LABEL),]]
+suj = [Subject(image=Image('/data/romain/HCPdata/suj_150423/mT1w_1mm.nii', INTENSITY),
+         maskk=Image('/data/romain/HCPdata/suj_150423/mask_brain.nii',  LABEL))]
 
 tc = CenterCropOrPad(target_shape=(182, 218,212))
 tc = CropOrPad(target_shape=(182, 218,182), mode='mask',mask_key='maskk')
@@ -217,13 +231,16 @@ dico_p = { 'num_control_points': 6,
            'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR }
 
 t = Compose([ RandomElasticDeformation(**dico_p), tc])
+t = Compose([RandomNoise(std=(0.020,0.2)) ])
+
 
 dataset = ImagesDataset(suj, transform=t)
 s = dataset[0]
+ov(s['image']['data'][0])
 
-for i in range(1,10):
+for i in range(1,50):
     s=dataset[0]
-    dataset.save_sample(s, dict(image='/home/romain/QCcnn//mask_mvt_val_cati_T1/elastic8_30{}.nii'.format(i)))
+    dataset.save_sample(s, dict(image='/home/romain/QCcnn/random_motion/random{:.2}.nii'.format(100*s['random_noise'])))
 
 t = dataset.get_transform()
 type(t)
