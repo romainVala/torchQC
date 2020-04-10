@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch import nn
 from util_affine import apply_affine_to_data
 from collections import OrderedDict
-
+import os
 
 ########################################################################################################################
 
@@ -501,12 +501,16 @@ def summary(model, input_size, batch_size=-1, device="cuda"):
 # return summary
     return txt
 
-def load_existing_weights_if_exist(resdir, model, model_name='model', log=None, device='cuda', index_mod=-1):
+def load_existing_weights_if_exist(resdir, model, model_name='model', log=None, device='cuda',
+                                   index_mod=-1, res_model_file=None):
     from utils_file import  gfile, get_parent_path
 
     ep_start = 0
+    if res_model_file is None:
+        resume_mod = gfile(resdir, '.*pt$')
+    else:
+        resume_mod = [res_model_file]
 
-    resume_mod = gfile(resdir, '.*pt$')
     if len(resume_mod) > 0:
         dir_mod, fn = get_parent_path(resume_mod)
         ffn = [ff[ff.find('_ep')+3:-3] for ff in fn]

@@ -3,7 +3,7 @@ from torchio import ImagesDataset, Queue
 from torchio.data import ImagesClassifDataset, get_subject_list_and_csv_info_from_data_prameters
 from torchio.data.sampler import ImageSampler
 from torchio.utils import is_image_dict
-from torchio import INTENSITY, LABEL, Interpolation
+from torchio import INTENSITY, LABEL, Interpolation, Image, Subject
 
 from torchio.transforms import RandomMotionFromTimeCourse, RandomElasticDeformation, RandomNoise
 
@@ -43,7 +43,22 @@ class do_training():
         myHostName = socket.gethostname()
         self.log_string = '\n working on {} \n'.format(myHostName)
         #self.log = get_log_file(self.log_file)
+        self.patch = False
 
+    def set_data_loader_from_file_list(self, fin, transforms=None, mask_key=None, mask_regex=None,
+                                       batch_size=1, num_workers=0, shuffel=True):
+
+        suj_list = get_subject_list_from_file_list(fin, mask_regex=mask_regex, mask_key=mask_key)
+
+        if not isinstance(transforms, torchvision.transforms.transforms.Compose) and transforms is not None:
+            transforms = Compose(transforms)
+
+        train_dataset = ImagesDataset(suj_list, transform=transforms)
+
+        self.train_dataset = train_dataset
+        self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffel,
+                                           num_workers=num_workers)
+        self.val_dataloader = self.train_dataloader
 
     def set_data_loader(self, train_csv_file='', val_csv_file='', transforms=None,
                         batch_size=1, num_workers=0,
@@ -138,13 +153,50 @@ class do_training():
             self.val_dataloader = DataLoader(val_queue, batch_size=batch_size, shuffle=False)
 
         else:
-            self.patch = False
             self.train_dataset = train_dataset
             self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffel_train, num_workers=num_workers)
             self.val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 
-    def set_model(self, par_model):
+    def set_model_from_file(self, file_name, cuda):
+
+        resdir_name = get_parent_path(file_name, 2)[1]
+        print('loading {} \nfrom dir {}'.format( get_parent_path(file_name)[1], resdir_name) )
+        if 'ConvN_C16_256_Lin40_50' in resdir_name:
+            conv_block, linear_block = [16, 32, 64, 128, 256], [40, 50]
+            network_name = 'ConvN'
+        else:
+            raise('did not recognise model type')
+
+        if 'L1' in resdir_name:
+            losstype = 'L1'
+        elif 'MSE' in resdir_name:
+            losstype = 'MSE'
+
+        if '_Size182' in resdir_name:
+            in_size = [182, 218, 182]
+
+        batch_norm = True if '_BN_' in resdir_name else False
+
+        ind_drop = resdir_name.find('_D')
+        substr = resdir_name[ind_drop+2:]
+        ii = substr.find('_')
+        dropout = float(substr[:ii])
+
+        ind_lr = resdir_name.find('_lr')
+        lr = float(resdir_name[ind_lr+3:])
+
+        par_model = {'network_name': network_name,
+                     'losstype': losstype,
+                     'lr': lr,
+                     'conv_block': conv_block, 'linear_block': linear_block,
+                     'dropout': dropout, 'batch_norm': batch_norm,
+                     'in_size': in_size,
+                     'cuda': cuda, 'max_epochs': 1}
+        self.set_model(par_model, res_model_file=file_name, verbose=False)
+
+
+    def set_model(self, par_model, res_model_file=None, verbose=True):
 
         network_name = par_model['network_name']
         losstype = par_model['losstype']
@@ -179,6 +231,10 @@ class do_training():
         self.res_name += '_Size{}_{}_Loss_{}_lr{}'.format(in_size[0], network_name, losstype, lr)
 
         self.res_dir += self.res_name + '/'
+
+        if res_model_file is not None:  #to avoid handeling batch size and num worker used for model training
+            self.res_dir, self.res_name = get_parent_path(res_model_file)
+
         if not os.path.isdir(self.res_dir): os.mkdir(self.res_dir)
 
         self.log = get_log_file(self.res_dir + '/training.log')
@@ -203,9 +259,11 @@ class do_training():
             device = "cuda"
         else: device = 'cpu'
 
-        self.log.info(summary(self.model, (1, in_size[0], in_size[1], in_size[2]), device=device, batch_size=1))
+        if verbose:
+            self.log.info(summary(self.model, (1, in_size[0], in_size[1], in_size[2]), device=device, batch_size=1))
 
-        self.ep_start, self.last_model_saved = load_existing_weights_if_exist(self.res_dir, self.model, log=self.log, device=device)
+        self.ep_start, self.last_model_saved = load_existing_weights_if_exist(self.res_dir, self.model, log=self.log,
+                                                                              device=device, res_model_file=res_model_file)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         #exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=25, gamma=0.1)
@@ -301,7 +359,8 @@ class do_training():
             fct_eval(ep, iteration, target=target)
             self.model.train()
 
-    def eval_regress_motion(self, epTrain, iterationTrain, target='ssim', basename='res_val'):
+    def eval_regress_motion(self, epTrain, iterationTrain, target='ssim',
+                            basename='res_val', subdir=None):
         start = time.time()
         self.model.eval()
         epoch_samples, epoch_loss = 0, 0
@@ -323,12 +382,17 @@ class do_training():
                     labels = data['image']['metrics']['ssim'].unsqueeze(1)
                 elif target == 'random_noise':
                     labels = data['random_noise'].unsqueeze(1).float() * 10
+                elif target is None:
+                    labels = None
 
                 if self.cuda:
                     inputs, labels = inputs.cuda(), labels.cuda()
 
             with torch.no_grad():
                 outputs = self.model(inputs)
+                if labels is None:
+                    labels = outputs
+
                 l_tmp = self.loss(outputs, labels)
                 epoch_samples += 1  # inputs.size(0)
                 epoch_loss += l_tmp.item()
@@ -345,20 +409,25 @@ class do_training():
         duration = (time.time() - start) / 60 / 60
         self.log.info(' validation duration for {} iter {:.2f} hours {:.2f} mn '.format(iteration,duration, duration*60))
 
-        fres = self.res_dir + '/{}_{}.csv'.format(basename, self.last_model_saved)
+        fres = self.res_dir + '/{}_{}.csv'.format(basename, self.last_model_saved[:-3])
+        if subdir is not None:
+            fres = self.res_dir + '/' + subdir
+            if not os.path.isdir(fres): os.mkdir(fres)
+            fres += '/{}_{}.csv'.format(basename, self.last_model_saved)
+
         res.to_csv(fres)
 
 
     def add_motion_info(self, data, res, extra_info=None):
 
         batch_size = data['image']['data'].size(0)
+        dicm = {}
         if 'metrics' in data['image']:
             dicm = data['image']['metrics']
             dics = data['image']['simu_param']
             dicm.update(dics)
 
         if 'random_noise' in data:
-            dicm = {}
             dicm['random_noise'] = data['random_noise']
 
         if extra_info is not None:
@@ -372,7 +441,11 @@ class do_training():
         for nb_batch in range(0, batch_size):
             one_dict = dict()
             for key, vals in dicm.items():
-                val = vals[nb_batch]
+                if isinstance(vals, list):
+                    val = vals[nb_batch]
+                else:
+                    val = vals[nb_batch] if len(vals.size()) > 0 else vals
+
                 if type(val) is list:
                     one_dict[key] = [x.numpy() for x in val]
                 elif type(val) is str:
@@ -501,6 +574,7 @@ def write_cati_csv():
     fcsv = data_path + 'all_cati.csv';
     res = pd.read_csv(fcsv)
 
+    ser_dir = res.cenir_QC_path
     ser_dir = res.cenir_QC_path[res.globalQualitative > 3].values
     dcat = gdir(ser_dir, 'cat12')
     fT1 = gfile(dcat, '^s.*nii')
@@ -527,3 +601,24 @@ def write_cati_csv():
     dd.loc[ival, :].to_csv(data_path + 'cati_cenir_QC4_val_brain.csv', index=False)
     dd.loc[itrain, :].to_csv(data_path + 'cati_cenir_QC4_train_brain.csv', index=False)
 
+
+    dd = pd.DataFrame({'filename': fT1})
+    dd.to_csv(data_path + 'cati_cenir_all_T1.csv', index=False)
+    dd = pd.DataFrame({'filename': fms})
+    dd.to_csv(data_path + 'cati_cenir_all_ms.csv', index=False)
+    dd = pd.DataFrame({'filename': fs_brain})
+    dd.to_csv(data_path + 'cati_cenir_all_brain.csv', index=False)
+
+
+def get_subject_list_from_file_list(fin, mask_regex=None, mask_key='brain'):
+    subjects_list=[]
+    for ff in fin:
+        one_suj = {'image': Image(ff, INTENSITY)}
+        if mask_regex is not None:
+            dir_file = get_parent_path(ff)[0]
+            fmask = gfile(dir_file, mask_regex, {"items": 1})
+            one_suj['brain'] = Image(fmask[0], LABEL)
+
+        subjects_list.append(Subject(one_suj))
+
+    return subjects_list
