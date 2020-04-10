@@ -202,7 +202,8 @@ class PadMaxPool3d(nn.Module):
 class ConvN_FC3(nn.Module):
 
     def __init__(self, dropout=0.5, n_classes=1, in_size=[182,218,182],
-                 conv_block = [15, 25, 50, 50], linear_block = [50, 40], output_fnc=None):
+                 conv_block = [15, 25, 50, 50], linear_block = [50, 40],
+                 output_fnc=None, batch_norm=True):
 
         super(ConvN_FC3, self).__init__()
 
@@ -214,11 +215,17 @@ class ConvN_FC3(nn.Module):
             else :
                 out_size = np.ceil((out_size - 2) / 2)
 
-            one_conv = nn.Sequential(
-                nn.Conv3d(nb_in, nb_layer, 3),
-                nn.BatchNorm3d(nb_layer),
-                nn.ReLU(),
-                PadMaxPool3d(2, 2) )
+            if batch_norm:
+                one_conv = nn.Sequential(
+                    nn.Conv3d(nb_in, nb_layer, 3),
+                    nn.BatchNorm3d(nb_layer),
+                    nn.ReLU(),
+                    PadMaxPool3d(2, 2) )
+            else:
+                one_conv = nn.Sequential(
+                    nn.Conv3d(nb_in, nb_layer, 3),
+                    nn.ReLU(),
+                    PadMaxPool3d(2, 2))
 
             self.encoding_blocks.append(one_conv)
             nb_in = nb_layer
