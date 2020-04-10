@@ -254,7 +254,7 @@ def plot_montages(image_list, montage_shape, fig_path=None, dpi=80):
             cursor_pos[0] = 0
             if cursor_pos[1] >= montage_shape[1] * image_shape_max[1]:
                 cursor_pos = [0, 0]
-                image_montages.append(montage_image)
+                image_montages.append(montage_image.copy())
                 # reset black canvas
                 montage_image[cursor_pos[0]:cursor_pos[0] + img.shape[0], cursor_pos[1]:cursor_pos[1] + img.shape[1], :] = img
 
@@ -339,7 +339,14 @@ def do_figures_from_file(l_in, slices_infos=None, mask_info=None, fref = None, d
 
     matrix_all=[]
     for i, item in enumerate(l_in):
-        im, mask, acoreg = item
+        if isinstance(item,list) :
+            if len(item) == 3:
+                im, mask, acoreg = item
+            elif len(item) == 2:
+                im, mask, acoreg = item, None
+        else :
+            im, mask, acoreg = item, None, None
+        print('im is {} {}'.format(type(im),im))
 
         im = my_get_image(im, ras=ras)
         mask = my_get_image(mask, ras=ras)
