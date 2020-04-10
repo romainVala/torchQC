@@ -40,12 +40,14 @@ if __name__ == '__main__':
                                 help=" chose type of deformation  motion1 | elastic1_and_motion1  ")
     parser.add_option("--keep_all ", action="store_true", dest="keep_all", default=False,
                                 help="if not specifie it will remove the imag_orig p1 and p2 from sample ")
+    parser.add_option("--keep_brain ", action="store_true", dest="keep_brain", default=False,
+                                help="if not specifie it will remove the brain from sample ")
 
     (options, args) = parser.parse_args()
 
     fin, seed, res_dir = options.image_in, np.int(options.seed), options.res_dir
     index, nb_sample = np.int(options.index_num),  np.int(options.nb_sample)
-    plot_volume, keep_all = options.plot_volume, options.keep_all
+    plot_volume, keep_all, keep_brain = options.plot_volume, options.keep_all, options.keep_brain
     motion_type = options.motion_type
 
     import os
@@ -118,6 +120,7 @@ if __name__ == '__main__':
             if 'image_orig' in sample: sample.pop('image_orig')
             if 'p1' in sample: sample.pop('p1')
             if 'p2' in sample: sample.pop('p2')
+        if keep_brain is False:
             if 'brain' in sample: sample.pop('brain')
 
         torch.save(sample, fname_sample + '_sample.pt')
