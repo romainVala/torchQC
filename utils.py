@@ -588,9 +588,21 @@ def print_accuracy_all(res, resname, ytrue, prediction_name='ymean', inverse_pre
                 plt.ylabel('True Positive Rate')
                 plt.xlabel('False Positive Rate')
 
+def remove_extension(str_in):
+    return_str = False
+    if isinstance(str_in, str):
+        str_in = [str_in];
+        return_str = True
+    #remove up to 2 extension
+    res = [os.path.splitext(os.path.splitext(ss)[0])[0] for ss in str_in]
+    #ss = os.path.splitext(ss)[0]
 
-def get_ep_iter_from_res_name(resname, nbit, remove_ext=-7, batch_size=4):
-    ffn = [ff[ff.find('_ep') + 3:remove_ext] for ff in resname]
+    return res[0] if return_str else res
+
+
+def get_ep_iter_from_res_name(resname, nbit, batch_size=4):
+    resname = remove_extension(resname)
+    ffn = [ff[ff.find('_ep') + 3:] for ff in resname]
     key_list = []
     for fff, fffn in zip(ffn, resname):
         if '_it' in fff:
