@@ -443,6 +443,8 @@ class do_training():
             for key, vals in dicm.items():
                 if isinstance(vals, list):
                     val = vals[nb_batch]
+                elif isinstance(vals, str):
+                    val = vals
                 else:
                     val = vals[nb_batch] if len(vals.size()) > 0 else vals
 
