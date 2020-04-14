@@ -31,9 +31,24 @@ name_list_val = ['ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain_ms
                  'ela1_val_hcp200_ms', 'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1']
 name_list_train = ['ela1_train200_hcp400_ms', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
                     'ela1_train_hcp400_ms', 'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1']
+name_list_val = ['ela1_val_cati_T1', 'ela1_val_cati_ms',
+                 'ela1_val_hcp200_ms']
+name_list_train = ['ela1_train_cati_T1', 'ela1_train_cati_ms',
+                    'ela1_train_hcp400_ms', 'ela1_train200_hcp400_ms']
+# ela1_train200_hcp400_ms
+# ela1_train_hcp400_ms
+# ela1_val_hcp200_ms
+#
+# ela1_train_cati_T1
+# ela1_train_cati_ms
+# ela1_train_cati_brain
+# ela1_val_cati_T1
+# ela1_val_cati_ms
+# ela1_val_cati_brain
+
 
 name_list = name_list_train# [ name_list_train[3], name_list_val[3]]
-name_list = ['ela1_train200_hcp400_ms']
+name_list = name_list_val + name_list_train #['ela1_train200_hcp400_ms']
 
 dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/'
 #dir_cache = '/data/romain/CNN_cache/'
@@ -82,9 +97,9 @@ for data_name in name_list:
         p0 = np.percentile(pind, 10) #first 10
         pm1, pm2 = np.percentile(pind, 40), np.percentile(pind, 60)
         pl1, pl2 = np.percentile(pind,90), len(pind)
-        indsel_list = [pind[np.random.choice(range(0,p0), size=nb_val, replace=False)],
-                       pind[np.random.choice(range(pm1,p2), size=nb_val, replace=False)],
-                       pind[np.random.choice(range(pl1,pl2), size=nb_val, replace=False)] ]
+        indsel_list = [pind[np.random.choice(range(0,int(p0)), size=nb_val, replace=False)],
+                       pind[np.random.choice(range(int(pm1),int(pm2)), size=nb_val, replace=False)],
+                       pind[np.random.choice(range(int(pl1),int(pl2)), size=nb_val, replace=False)] ]
 
         param_fig = {'slices_infos': [("sag", "vox", 0.4), ("cor", "vox", 0.6), ("ax", "vox", 0.5), ],
                      'mask_info': [("mask", -1)],
