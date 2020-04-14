@@ -11,20 +11,20 @@ cuda, verbose = True, True
 in_size = [182, 218, 182]
 
 name_list_train = ['mask_mvt_train_cati_T1', 'mask_mvt_train_cati_ms', 'mask_mvt_cati_train_brain_ms',
-                   'mask_mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
+                   'mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
 name_list_val = ['mask_mvt_val_cati_T1', 'mask_mvt_val_cati_ms', 'mask_mvt_val_cati_brain_ms',
-                 'mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
+                 'mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
 #name_list_train = ['mask_mvt_train50_hcp400_ms', 'mask_mvt_train50_hcp400_brain_ms', 'mask_mvt_train50_hcp400_T1']
 #name_list_val = ['mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
 
-name_list_train = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
-                    'ela1_train_hcp400_ms', 'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1',
-                'ela1_train200_hcp400_ms']                                                                                                                                
-name_list_val = ['ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain_ms',
-                 'ela1_val_hcp200_ms', 'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1',
-		'ela1_train200_hcp400_ms']
+#name_list_train = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
+#                    'ela1_train_hcp400_ms', 'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1',
+#                'ela1_train200_hcp400_ms']
+#name_list_val = ['ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain_ms',
+#                 'ela1_val_hcp200_ms', 'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1',
+#		'ela1_train200_hcp400_ms']
 
-data_name_train = name_list_train[6]
+data_name_train = name_list_train[3]
 data_name_val = name_list_val[3]
 
 res_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/'
