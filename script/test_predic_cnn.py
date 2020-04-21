@@ -29,9 +29,9 @@ from utils import reduce_name_list, get_ep_iter_from_res_name
 
 #Explore csv results
 dqc = ['/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion']
-dres = gdir(dqc,'train.*_hcp')
 dres = gdir(dqc,'RegMotNew.*train_hcp400_ms.*0001')
 dres = gdir(dqc,'RegMotNew.*hcp400_ms.*B4.*L1.*0001')
+dres = gdir(dqc,'R.*')
 resname = get_parent_path(dres)[1]
 #sresname = [rr[rr.find('hcp400_')+7: rr.find('hcp400_')+17] for rr in resname ]; sresname[2] += 'le-4'
 sresname = resname
@@ -60,10 +60,10 @@ for ii, oneres in enumerate(dres):
         LmTrain = [ np.mean(errorT[ite_tottt[ii]:ite_tottt[ii+1]]) for ii in range(0,len(ite_tot)) ]
 
     LmVal = [np.mean(np.abs(rr.model_out-rr.loc[:,target].values*target_scale)) for rr in resV]
-    plt.figure('meanL11'); legend_str.append('V{}'.format(sresname[ii]));
+    plt.figure('meanL1'); legend_str.append('V{}'.format(sresname[ii]));
     if is_train: legend_str.append('T{}'.format(sresname[ii]))
     plt.plot(ite_tot, LmVal,'--',color=col[ii])
-    if is_train: plt.plot(ite_tot, LmTrain,color=col[ii])
+    if is_train: plt.plot(ite_tot, LmTrain,color=col[ii], linewidth=6)
 
 plt.legend(legend_str); plt.grid()
 
@@ -78,17 +78,63 @@ for ii, oneres in enumerate(dres):
                 #print(get_parent_path(ff)[1])
                 res = pd.read_csv(ff)
                 err = np.abs(res.loc[:,target]*target_scale-res.model_out) #same as L1 loss
-                plt.figure('F{}_err'.format(nbf) + sresname[ii]); plt.plot(err)
+                #plt.figure('F{}_err'.format(nbf) + sresname[ii]); plt.plot(err)
                 errcum = np.cumsum(err[50:-1])/range(1,len(err)-51+1)
                 plt.figure(sresname[ii] + '2err_cum');        plt.plot(errcum)
                 N = 50
                 err_slidin = np.convolve(err, np.ones((N,))/N, mode='valid')
                 #plt.figure('F{}_err_slide'.format(nbf) + sresname[ii]); plt.plot(err_slidin)
-                plt.figure('F{}_model_out'.format(nbf) + sresname[ii]); plt.scatter(res.model_out, res.loc[:,target]*target_scale)
+                figname = 'F{}_model_out'.format(nbf) + sresname[ii]
+                plt.figure(figname); plt.scatter(res.model_out, res.loc[:,target]*target_scale)
+                print('fig {} {}'.format(figname,get_parent_path(ff)[1] ))
+                plt.xlabel('model prediction'); plt.ylabel('ssimm simulated motion / original image')
 
             legend_str = [str(ii+1) for ii in range(nbf*10, (nbf+1)*10)]
             plt.legend(legend_str)
             plt.scatter(res.loc[:, target]*target_scale, res.loc[:, target]*target_scale, c='k'); plt.grid()
+
+
+
+#results eval
+prefix = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/'
+# CATI label
+# rlabel  = pd.read_csv(prefix+'/CATI_datasets/all_cati_mriqc_pred.csv')
+rlabel = pd.read_csv(prefix + '/CATI_datasets/all_cati.csv')
+rlabel.index = get_parent_path( rlabel.cenir_QC_path.values, -3)[1]
+rlabel = rlabel.sort_index()
+
+pd.set_option('display.max_rows', None, 'display.max_columns', None, 'display.max_colwidth', -1, 'display.width', 400)
+
+dres = gdir(dqc,('R.*','eva'))
+sresname = get_parent_path(dres)[1]
+fres = gfile(dres,'res')
+
+resl=[]
+for ff in fres:
+    res = pd.read_csv(ff, header=None)
+    res_filename = res.loc[:,1]
+    res.index = get_parent_path(get_parent_path(res_filename,2)[0],level=-3)[1]
+    res = res.sort_index()  # alphabetic order
+    if len(set(res.index).difference(set(rlabel.index))) >0 : print('ERROR missing lines')
+    ind_sel = res.loc[:, 2] < 10
+    res = res.loc[ind_sel, :]
+    resl.append(res)
+
+plt.scatter(resl[0].loc[:,2], resl[1].loc[:,2])
+res.loc[res.loc[:,2]>10,1]
+
+rlabel = rlabel.loc[ind_sel,:]
+isel = rlabel.globalQualitative==0
+
+for ii,res in enumerate(resl):
+    plt.figure('hist' + sresname[ii])
+    plt.hist(res.loc[:,2], bins=100)
+    plt.hist(res.loc[isel,2])
+    plt.figure('Pred' + sresname[ii])
+    plt.scatter(res.loc[:,2],rlabel.globalQualitative); plt.grid()
+    plt.xlabel('model predictions'); plt.ylabel('note QC du CATI')
+
+
 
 
 
