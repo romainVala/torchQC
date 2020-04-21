@@ -54,7 +54,8 @@ class ConvBlock3D(Module):
 
     def forward(self, x):
         output = self.conv(x)
-        output = self.activation(output)
+        if self.activation is not None:
+            output = self.activation(output)
         if self.pooling:
             output = self.pooling(output)
         if self.same_padding:
@@ -116,8 +117,11 @@ class SmallUnet(Module):
                                            activation=ReLU(inplace=True))
         #### FINAL LAYER ####
 
+        #self.conv5 = ConvBlock3D(in_channels=4 + 16, out_channels=out_channels, same_padding=True, kernel_size=3,
+        #                         pooling=None, activation=Softmax() if out_channels > 2 else Sigmoid())
+
         self.conv5 = ConvBlock3D(in_channels=4 + 16, out_channels=out_channels, same_padding=True, kernel_size=3,
-                                 pooling=None, activation=Softmax() if out_channels > 2 else Sigmoid())
+                                 pooling=None, activation=None)
 
         #self.conv5.register_backward_hook(lambda z, x, y: print("Grad in {}\n Grad out:{}".format(x, y)))
 
@@ -719,8 +723,9 @@ def jaccard_loss(true, logits, eps=1e-7):
 
 def calc_loss(pred, target, loss, metrics, bce_weight=0.5):
     bce_logits = F.binary_cross_entropy_with_logits(pred, target) #sigmoid done in the model
-    bce = F.binary_cross_entropy(pred, target)
     #pred = F.sigmoid(pred)
+    #bce = F.binary_cross_entropy(pred, target) #it is equivalent
+
     dice = dice_loss_fonction(pred, target)
 
     labels = (target > 0.5).float()
@@ -730,7 +735,7 @@ def calc_loss(pred, target, loss, metrics, bce_weight=0.5):
 
     #loss = bce * bce_weight + dice * (1 - bce_weight)
 
-    metrics['bce'] += bce.data.cpu().numpy() * target.size(0)
+    #metrics['bce'] += bce.data.cpu().numpy() * target.size(0)
     metrics['bce_lgits'] += bce_logits.data.cpu().numpy() * target.size(0)
     metrics['dice'] += dice.data.cpu().numpy() * target.size(0)
     metrics['d_binlab'] += dice_binlab.data.cpu().numpy() * target.size(0)
