@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from typing import Sequence
 from functools import reduce
 from itertools import product
+from torch.utils.data import Dataset
 
 
 vox_views = [['sag', 'vox', 50], ['ax', 'vox', 50], ['cor', 'vox', 50]]
@@ -77,7 +78,10 @@ class PlotDataset:
             return len(self.views), 1
 
     def parse_subject_idx(self, subject_idx):
-        data_len = len(self.dataset)
+        if isinstance(self.dataset, Dataset):
+            data_len = len(self.dataset)
+        else:
+            data_len = len(self.dataset[self.key]['affine'])
         if isinstance(subject_idx, Sequence):
             valid = reduce(lambda acc, val: acc and 0 <= val < data_len, subject_idx, True)
             if not valid:
@@ -207,8 +211,12 @@ class PlotDataset:
 
     def get_image_and_affine(self, subject):
         if subject not in self.cached_images_and_affines.keys():
-            obj = self.dataset[int(subject)][self.key]
-            self.cached_images_and_affines[subject] = (obj['data'].numpy()[0], obj['affine'])
+            if isinstance(self.dataset, Dataset):
+                obj = self.dataset[int(subject)][self.key]
+                self.cached_images_and_affines[subject] = (obj['data'].numpy()[0], obj['affine'])
+            else:
+                obj = self.dataset[self.key]
+                self.cached_images_and_affines[subject] = (obj['data'].numpy()[subject][0], obj['affine'][subject])
         return self.cached_images_and_affines[subject]
 
     @staticmethod
