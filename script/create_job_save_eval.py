@@ -8,24 +8,31 @@ from script.create_jobs import create_jobs
 from utils_file import get_parent_path
 
 # parameters
-name = 'cati_all_ms'
-model = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/RegMotNew_ela1_train200_hcp400_ms_B4_nw0_Size182_ConvN_C16_256_Lin40_50_D0_BN_Loss_L1_lr0.0001/model_ep1_it7000.pt'
+root_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/'
+prefix = "/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/job/job_eval/"
 
-prefix = "/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/job/job_eval"
+name = 'cati_all_ms_ela1_train200'
+name = 'cati_all_ms_train_cati_ms'
+name = 'cati_all_T1_train_cati_T1'
+
+model = root_dir+'RegMotNew_ela1_train200_hcp400_ms_B4_nw0_Size182_ConvN_C16_256_Lin40_50_D0_BN_Loss_L1_lr0.0001/model_ep3_it9500.pt'
+model = root_dir+'RegMotNew_ela1_train_cati_ms_B4_nw0_Size182_ConvN_C16_256_Lin40_50_D0_BN_Loss_L1_lr0.0001/model_ep8_it1249.pt'
+model = root_dir+'RegMotNew_ela1_train_cati_T1_B4_nw0_Size182_ConvN_C16_256_Lin40_50_D0_BN_Loss_L1_lr0.0001/model_ep8_it1249.pt'
 
 split = 10
 
-
 model_name = get_parent_path(model)[1][:-3]
-res = pd.read_csv('/home/romain.valabregue/datal/QCcnn/CATI_datasets/cati_cenir_all_ms.csv')
-fin_all = res.filename
-nb_jobs = len(fin_all)//split + 1
+if 'cati_all_ms' in name:
+    res = pd.read_csv('/home/romain.valabregue/datal/QCcnn/CATI_datasets/cati_cenir_all_ms.csv')
+elif 'cati_all_T1' in name:
+    res = pd.read_csv('/home/romain.valabregue/datal/QCcnn/CATI_datasets/cati_cenir_all_T1.csv')
 
+fin_all = res.filename
+
+nb_jobs = len(fin_all)//split + 1
 jobs = []
 for njob in range(0, nb_jobs):
     fin = fin_all[njob*split:(njob+1)*split]
-
-    resdir = prefix + name + '_' + model + '/'
 
     scriptsDir = '/network/lustre/iss01/cenir/software/irm/toolbox_python/romain/torchQC'
 
@@ -35,10 +42,9 @@ for njob in range(0, nb_jobs):
     params = dict()
     params['output_directory'] = prefix + '/jobs/' + job_id
     params['scripts_to_copy'] = scriptsDir #+ '/*.py'
-    params['output_results'] = resdir  # just to do the mkdir -p
 
-    cmd_init = '\n'.join(["source /network/lustre/iss01/cenir/software/irm/bin/python_path3.6",
-                          "source activate pytorch1.2",
+    cmd_init = '\n'.join(["#source /network/lustre/iss01/cenir/software/irm/bin/python_path3.6",
+                          "#source activate pytorch1.2",
                           "python " + scriptsDir + "/do_eval_model.py \\",
                           py_options + " \\"] )
 

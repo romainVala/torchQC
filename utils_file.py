@@ -372,11 +372,19 @@ def get_parent_path(fin,level=1):
         return_string=True
 
     path_name, file_name  = [], []
+    concat = False
+    if level <0:
+        level = -level
+        concat = True
 
     for ff in fin:
         dd = ff.split('/')
         ll = len(dd)
-        file_name.append(dd[ll-level])
+        if concat:
+            ss='_'.join(dd[ll-level:])
+            file_name.append(ss)
+        else:
+            file_name.append(dd[ll-level])
         path_name.append('/'.join(dd[:ll-level]))
 
     if return_string:

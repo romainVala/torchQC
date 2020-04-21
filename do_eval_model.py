@@ -36,6 +36,8 @@ if __name__ == '__main__':
     #                            help="full path to the image to test ")
     parser.add_option("-i", "--image_in", action="callback", dest="image_in", default='', callback=get_comma_separated_args,
                                 type='string', help="full path to the image to test, list separate path by , ")
+    parser.add_option("--sample_dir", action="store", dest="sample_dir", default='',
+                                type='string', help="instead of -i specify dir of saved sample ")
     parser.add_option("-n", "--out_name", action="store", dest="out_name", default='',
                                 help="name to be append to the results ")
     parser.add_option("--val_number", action="store", dest="val_number", default='1',
@@ -66,21 +68,29 @@ if __name__ == '__main__':
     batch_size, num_workers = 2, 0
 
     fin = options.image_in
-    print('type {} len {}'.format(type(fin),len(fin)))
-    for ff in fin:
-        print(ff)
+    dir_sample = options.sample_dir
 
-    out_name = 'eval_num_{:04d}'.format(int(val_number))
-    subdir = 'eval_{}_{}'.format(name, get_parent_path(saved_model)[1][:-3])
 
     target_shape, mask_key = (182, 218, 182), 'brain'
     tc = [CropOrPad(target_shape=target_shape, mask_name=mask_key), ]
 
     doit = do_training('/tmp/', 'not_use', verbose=True)
 
-    doit.set_data_loader_from_file_list(fin, transforms=tc,
-                                        batch_size=batch_size, num_workers=num_workers,
-                                        mask_key=mask_key, mask_regex='^mask')
+    if len(dir_sample) > 0:
+        print('loading from {}'.format(dir_sample))
+        doit.set_data_loader(batch_size=batch_size, num_workers=num_workers, load_from_dir=dir_sample, transforms=tc)
+        name += '_' + get_parent_path(dir_sample)[1]
+    else :
+        print('working on ')
+        for ff in fin:
+            print(ff)
+
+        doit.set_data_loader_from_file_list(fin, transforms=tc,
+                                            batch_size=batch_size, num_workers=num_workers,
+                                            mask_key=mask_key, mask_regex='^mask')
+
+    out_name = 'eval_num_{:04d}'.format(int(val_number))
+    subdir = 'eval_{}_{}'.format(name, get_parent_path(saved_model)[1][:-3])
 
     doit.set_model_from_file(saved_model, cuda=cuda)
 

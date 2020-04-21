@@ -438,23 +438,26 @@ class do_training():
         if 'mvt_csv' in data: dicm['mvt_csv'] = data['mvt_csv']
         dicm['fpath'] = data['image']['path']
 
-        for nb_batch in range(0, batch_size):
-            one_dict = dict()
-            for key, vals in dicm.items():
-                if isinstance(vals, list):
-                    val = vals[nb_batch]
-                elif isinstance(vals, str):
-                    val = vals
-                else:
-                    val = vals[nb_batch] if len(vals.size()) > 0 else vals
+        if data['image']['data'].ndim == 4: #no batch
+            res = res.append(dicm, ignore_index=True)
+        else:
+            for nb_batch in range(0, batch_size):
+                one_dict = dict()
+                for key, vals in dicm.items():
+                    if isinstance(vals, list):
+                        val = vals[nb_batch]
+                    elif isinstance(vals, str):
+                        val = vals
+                    else:
+                        val = vals[nb_batch] if len(vals.size()) > 0 else vals
 
-                if type(val) is list:
-                    one_dict[key] = [x.numpy() for x in val]
-                elif type(val) is str:
-                    one_dict[key] = val
-                else:
-                    one_dict[key] = val.numpy()
-            res = res.append(one_dict, ignore_index=True)
+                    if type(val) is list:
+                        one_dict[key] = [x.numpy() for x in val]
+                    elif type(val) is str:
+                        one_dict[key] = val
+                    else:
+                        one_dict[key] = val.numpy()
+                res = res.append(one_dict, ignore_index=True)
 
         return res
 
@@ -619,7 +622,7 @@ def get_subject_list_from_file_list(fin, mask_regex=None, mask_key='brain'):
         if mask_regex is not None:
             dir_file = get_parent_path(ff)[0]
             fmask = gfile(dir_file, mask_regex, {"items": 1})
-            one_suj['brain'] = Image(fmask[0], LABEL)
+            one_suj[mask_key] = Image(fmask[0], LABEL)
 
         subjects_list.append(Subject(one_suj))
 
