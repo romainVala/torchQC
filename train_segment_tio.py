@@ -28,8 +28,8 @@ queue_length, samples_per_volume = 1600,  160
 batch_size, num_workers, max_epochs = 4, 10, 100
 bin_label = None# 0.5
 cuda = True
-losstype = 'BCE'
-lr = 1e-5
+losstype = 'BCElogit'
+lr = 1e-4
 
 model_name = 'model_unet'
 if bin_label: model_name += '_labelBin{}'.format(bin_label)
