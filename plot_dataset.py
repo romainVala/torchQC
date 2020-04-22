@@ -189,7 +189,7 @@ class PlotDataset:
         axis = self.imgs[img_key]['axis']
         text = self.get_legend(subject, view_type, coordinate_system, position)
         if init:
-            axis.text(0.5, -0.1, text, size=10, ha="center", transform=axis.transAxes)
+            axis.text(0.5, -0.1, text, size=8, ha="center", transform=axis.transAxes)
             self.imgs[img_key]['img'] = axis.imshow(view_slice, cmap='gray')
         else:
             if self.update_all_on_scroll:
