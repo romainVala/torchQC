@@ -8,7 +8,6 @@ from torch.utils.data import Dataset
 
 
 vox_views = [['sag', 'vox', 50], ['ax', 'vox', 50], ['cor', 'vox', 50]]
-mm_views = [['sag', 'mm', 0], ['ax', 'mm', 0], ['cor', 'mm', 0]]
 
 
 class PlotDataset:
@@ -21,28 +20,29 @@ class PlotDataset:
             view_type is one among "sag", "ax" and "cor" which corresponds to sagittal, axial and coronal slices;
             coordinate_system is one among "vox" or "mm" and is responsible for placing the slice using position
             in term of voxel number or number of millimeters;
-            position is either a number between 0 and 1 if coordinate_system is "vox" or an integer otherwise.
+            position is either an integer between 0 and 100 if coordinate_system is "vox" or a float otherwise.
             If no value is provided, the default views are used:
-            [['sag', 'vox', 50], ['ax', 'vox', 50], ['cor', 'vox', 50]] or
-            [['sag', 'mm', 0], ['ax', 'mm', 0], ['cor', 'mm', 0]] if coordinate_system is 'vox' or 'mm'.
-        coordinate_system: a string that define the views to use in case no value is given.
+            [['sag', 'vox', 50], ['ax', 'vox', 50], ['cor', 'vox', 50]].
         view_org: None or a sequence of length 2, responsible for the organisation of views in subplots.
-        key: a string that gives the key of the volume of interest in the dataset's samples.
+            Default is (len(views), 1)
+        image_key_name: a string that gives the key of the volume of interest in the dataset's samples.
         subject_idx: None, an integer or a sequence of integers. Defines which subjects are plotted.
             If subject_idx is a sequence of integers, it is directly used as the list of indexes,
             if subject_idx is an integer, subjects_idx subjects are taken at random in the dataset.
-            Finally, if subject_idx is None, it is equivalent to the integer case with subject_idx = 5.
+            Finally, if subject_idx is None, all subjects are taken.
+            Default value is 5.
         subject_org: None or a sequence of length 2, responsible for the organisation of subjects in subplots.
+            Default is (1, len(subject_idx))
         figsize: Sequence of length 2, size of the figure.
         update_all_on_scroll: bool, if True all views with the same view_type and coordinate_system are updated
             when scrolling on one of them. Doing so supposes that they all have the same shape. Default is False.
     """
-    def __init__(self, dataset, views=None, coordinate_system='mm', view_org=None, key='t1', subject_idx=None,
-                 subject_org=None, figsize=(16, 9), update_all_on_scroll=False):
+    def __init__(self, dataset, views=None, view_org=None, image_key_name='t1',
+                 subject_idx=5, subject_org=None, figsize=(16, 9), update_all_on_scroll=False):
         self.dataset = dataset
-        self.views = self.parse_views(views, coordinate_system)
+        self.views = views if views is not None else vox_views
         self.view_org = self.parse_view_org(view_org)
-        self.key = key
+        self.image_key_name = image_key_name
         self.subject_idx = self.parse_subject_idx(subject_idx)
         self.subject_org = self.parse_subject_org(subject_org)
         self.figsize = figsize
@@ -61,16 +61,6 @@ class PlotDataset:
         self.init_plot()
         self.scrolling = False
 
-    @staticmethod
-    def parse_views(views, coordinate_system):
-        if views is None:
-            if coordinate_system == 'vox':
-                return vox_views
-            else:
-                return mm_views
-        else:
-            return views
-
     def parse_view_org(self, view_org):
         if isinstance(view_org, Sequence) and len(view_org) == 2:
             return view_org
@@ -81,7 +71,7 @@ class PlotDataset:
         if isinstance(self.dataset, Dataset):
             data_len = len(self.dataset)
         else:
-            data_len = len(self.dataset[self.key]['affine'])
+            data_len = len(self.dataset[self.image_key_name]['affine'])
         if isinstance(subject_idx, Sequence):
             valid = reduce(lambda acc, val: acc and 0 <= val < data_len, subject_idx, True)
             if not valid:
@@ -90,13 +80,13 @@ class PlotDataset:
         elif isinstance(subject_idx, int):
             return np.random.choice(range(data_len), min(data_len, subject_idx), replace=False).astype(int)
         else:
-            return np.random.choice(range(data_len), min(data_len, 5), replace=False).astype(int)
+            return list(range(data_len))
 
     def parse_subject_org(self, subject_org):
         if isinstance(subject_org, Sequence) and len(subject_org) == 2:
             return subject_org
         else:
-            return 1, min(5, len(self.subject_idx))
+            return 1, len(self.subject_idx)
 
     @staticmethod
     def view2slice(view_idx, idx, img):
@@ -212,10 +202,10 @@ class PlotDataset:
     def get_image_and_affine(self, subject):
         if subject not in self.cached_images_and_affines.keys():
             if isinstance(self.dataset, Dataset):
-                obj = self.dataset[int(subject)][self.key]
+                obj = self.dataset[int(subject)][self.image_key_name]
                 self.cached_images_and_affines[subject] = (obj['data'].numpy()[0], obj['affine'])
             else:
-                obj = self.dataset[self.key]
+                obj = self.dataset[self.image_key_name]
                 self.cached_images_and_affines[subject] = (obj['data'].numpy()[subject][0], obj['affine'][subject])
         return self.cached_images_and_affines[subject]
 
