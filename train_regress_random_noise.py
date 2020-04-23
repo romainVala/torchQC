@@ -44,7 +44,7 @@ par_model = {'network_name': 'ConvN',
              'losstype': 'L1',
              'lr': 1e-5,
              'conv_block': [16, 32, 64, 128, 256], 'linear_block': [40, 50],
-             'dropout':0,
+             'dropout': 0, 'batch_norm': True,
              'in_size': in_size,
              'cuda': cuda, 'max_epochs': max_epochs}
 #'conv_block':[8, 16, 32, 64, 128]
@@ -71,7 +71,8 @@ if do_eval:
 
 doit.set_data_loader(train_csv_file=train_csv_file, val_csv_file=val_csv_file, transforms=transforms,
                      batch_size=batch_size, num_workers=num_workers,
-                     save_to_dir=load_from_dir[0], replicate_suj=nb_replicate)
+                     save_to_dir=load_from_dir[0], replicate_suj=nb_replicate,
+                     collate_fn=lambda x: x)
 
 doit.set_model(par_model)
 if do_eval:

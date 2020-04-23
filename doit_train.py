@@ -2,7 +2,6 @@ import os
 from torchio import ImagesDataset, Queue
 from torchio.data import ImagesClassifDataset, get_subject_list_and_csv_info_from_data_prameters
 from torchio.data.sampler import ImageSampler
-from torchio.utils import is_image_dict
 from torchio import INTENSITY, LABEL, Interpolation, Image, Subject
 
 from torchio.transforms import RandomMotionFromTimeCourse, RandomElasticDeformation, RandomNoise
@@ -64,7 +63,8 @@ class do_training():
                         batch_size=1, num_workers=0,
                         par_queue=None, save_to_dir=None, load_from_dir=None,
                         replicate_suj=0, shuffel_train=True,
-                        get_condition_csv=None, get_condition_field='', get_condition_nb_wanted=1/4 ):
+                        get_condition_csv=None, get_condition_field='', get_condition_nb_wanted=1/4,
+                        collate_fn=None):
 
         if not isinstance(transforms, torchvision.transforms.transforms.Compose) and transforms is not None:
             transforms = Compose(transforms)
@@ -149,13 +149,15 @@ class do_training():
                               shuffle_subjects=False, shuffle_patches=False, verbose=self.verbose)
             self.res_name += '_spv{}'.format(par_queue['samples_per_volume'])
 
-            self.train_dataloader = DataLoader(train_queue, batch_size=batch_size, shuffle=shuffel_train)
-            self.val_dataloader = DataLoader(val_queue, batch_size=batch_size, shuffle=False)
+            self.train_dataloader = DataLoader(train_queue, batch_size=batch_size, shuffle=shuffel_train, collate_fn=collate_fn)
+            self.val_dataloader = DataLoader(val_queue, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
 
         else:
             self.train_dataset = train_dataset
-            self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffel_train, num_workers=num_workers)
-            self.val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+            self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffel_train,
+                                               num_workers=num_workers, collate_fn=collate_fn)
+            self.val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,
+                                             num_workers=num_workers, collate_fn=collate_fn)
 
 
     def set_model_from_file(self, file_name, cuda):
@@ -268,6 +270,37 @@ class do_training():
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         #exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=25, gamma=0.1)
 
+    def get_inputs_labels_from_sample(self, data, target):
+
+        if isinstance(data, list):  # case where callate_fn is used
+            inputs = torch.cat([sample['image']['data'].unsqueeze(0) for sample in data])
+        else:
+            inputs = data['image']['data']
+
+        if self.patch:  # compute ssim for the patch
+            inputs_orig = data['image_orig']['data']
+            if self.cuda:
+                inputs, inputs_orig = inputs.cuda(), inputs_orig.cuda()
+            labels = ssim3D(inputs, inputs_orig, verbose=self.verbose)
+            labels = labels.unsqueeze(1)
+
+        else:
+            if target == 'ssim':
+                labels = data['image']['metrics']['ssim'].unsqueeze(1)
+            elif target == 'random_noise':
+                lab=[]
+                for sample in data:
+                    historys = sample.history
+                    for hh in historys: #len depend of number of transform
+                        if 'RandomNoise' in hh:
+                            lab.append( torch.tensor(hh[1]['image']['std']).unsqueeze(0) * 10  )
+                labels = torch.cat(lab).unsqueeze(1)  #data['random_noise'].unsqueeze(1).float() * 10
+
+            if self.cuda:
+                inputs, labels = inputs.cuda(), labels.cuda()
+
+        return inputs, labels
+
 
     def train_regress_motion(self, target='ssim'):
         max_iteration = len(self.train_dataloader)
@@ -280,23 +313,11 @@ class do_training():
             start = time.time()
             for iteration, data in enumerate(self.train_dataloader):
                 self.optimizer.zero_grad()
-                inputs = data['image']['data']
 
-                if self.patch: #compute ssim for the patch
-                    inputs_orig = data['image_orig']['data']
-                    if self.cuda:
-                        inputs, inputs_orig = inputs.cuda(), inputs_orig.cuda()
-                    labels = ssim3D(inputs, inputs_orig, verbose=self.verbose)
-                    labels = labels.unsqueeze(1)
+                inputs, labels = self.get_inputs_labels_from_sample(data, target)
+
+                if self.patch:  # compute ssim for the patch
                     extra_info['ssim_patch'] = labels.squeeze().cpu().detach()
-
-                else:
-                    if target == 'ssim':
-                        labels = data['image']['metrics']['ssim'].unsqueeze(1)
-                    elif target == 'random_noise':
-                        labels = data['random_noise'].unsqueeze(1).float() * 10
-                    if self.cuda:
-                        inputs, labels = inputs.cuda(), labels.cuda()
 
                 with torch.set_grad_enabled(True):
                     outputs = self.model(inputs)
@@ -367,26 +388,8 @@ class do_training():
         res, extra_info = pd.DataFrame(), dict()
 
         for iteration, data in enumerate(self.val_dataloader):
-            inputs = data['image']['data']
 
-            if self.patch: #compute ssim for the patch
-                inputs_orig = data['image_orig']['data']
-                if self.cuda:
-                    inputs, inputs_orig = inputs.cuda(), inputs_orig.cuda()
-                labels = ssim3D(inputs, inputs_orig, verbose=self.verbose)
-                labels = labels.unsqueeze(1)
-                extra_info['ssim_patch'] = labels.squeeze().cpu().detach()
-
-            else:
-                if target == 'ssim':
-                    labels = data['image']['metrics']['ssim'].unsqueeze(1)
-                elif target == 'random_noise':
-                    labels = data['random_noise'].unsqueeze(1).float() * 10
-                elif target is None:
-                    labels = None
-
-                if self.cuda:
-                    inputs, labels = inputs.cuda(), labels.cuda()
+            inputs, labels = self.get_inputs_labels_from_sample(data, target)
 
             with torch.no_grad():
                 outputs = self.model(inputs)
@@ -420,44 +423,66 @@ class do_training():
 
     def add_motion_info(self, data, res, extra_info=None):
 
-        batch_size = data['image']['data'].size(0)
-        dicm = {}
-        if 'metrics' in data['image']:
-            dicm = data['image']['metrics']
-            dics = data['image']['simu_param']
-            dicm.update(dics)
+        if isinstance(data, list):  # case where callate_fn is used
+            batch_size = len(data)
 
-        if 'random_noise' in data:
-            dicm['random_noise'] = data['random_noise']
-
-        if extra_info is not None:
-            for k, v in extra_info.items():
-                dicm[k] = v
-
-        if 'index_ini' in data: dicm['index_patch'] = data['index_ini']
-        if 'mvt_csv' in data: dicm['mvt_csv'] = data['mvt_csv']
-        dicm['fpath'] = data['image']['path']
-
-        if data['image']['data'].ndim == 4: #no batch
-            res = res.append(dicm, ignore_index=True)
-        else:
-            for nb_batch in range(0, batch_size):
+            for ii, sample in enumerate(data):
                 one_dict = dict()
-                for key, vals in dicm.items():
-                    if isinstance(vals, list):
-                        val = vals[nb_batch]
-                    elif isinstance(vals, str):
-                        val = vals
-                    else:
-                        val = vals[nb_batch] if len(vals.size()) > 0 else vals
+                historys = sample.history
+                for hh in historys: #len depend of number of transform
+                    if 'RandomNoise' in hh:
+                        one_dict['random_noise'] = hh[1]['image']['std']
 
-                    if type(val) is list:
-                        one_dict[key] = [x.numpy() for x in val]
-                    elif type(val) is str:
-                        one_dict[key] = val
-                    else:
-                        one_dict[key] = val.numpy()
-                res = res.append(one_dict, ignore_index=True)
+                if extra_info is not None:
+                    for k, v in extra_info.items():
+                        one_dict[k] = v[ii]
+
+                one_dict['fpath'] = sample['image']['path']
+
+
+        else:
+            if data['image']['data'].ndim == 4:  # no batch
+                batch_size = 0
+            else:
+                batch_size = data['image']['data'].size(0)
+
+            dicm = {}
+            if 'metrics' in data['image']:
+                dicm = data['image']['metrics']
+                dics = data['image']['simu_param']
+                dicm.update(dics)
+
+            if 'random_noise' in data:
+                dicm['random_noise'] = data['random_noise']
+
+            if extra_info is not None:
+                for k, v in extra_info.items():
+                    dicm[k] = v
+
+            if 'index_ini' in data: dicm['index_patch'] = data['index_ini']
+            if 'mvt_csv' in data: dicm['mvt_csv'] = data['mvt_csv']
+            dicm['fpath'] = data['image']['path']
+
+            if batch_size == 0:
+                res = res.append(dicm, ignore_index=True)
+            else:
+                for nb_batch in range(0, batch_size):
+                    one_dict = dict()
+                    for key, vals in dicm.items():
+                        if isinstance(vals, list):
+                            val = vals[nb_batch]
+                        elif isinstance(vals, str):
+                            val = vals
+                        else:
+                            val = vals[nb_batch] if len(vals.size()) > 0 else vals
+
+                        if type(val) is list:
+                            one_dict[key] = [x.numpy() for x in val]
+                        elif type(val) is str:
+                            one_dict[key] = val
+                        else:
+                            one_dict[key] = val.numpy()
+                    res = res.append(one_dict, ignore_index=True)
 
         return res
 
