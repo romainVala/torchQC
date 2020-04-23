@@ -178,12 +178,7 @@ class PlotDataset:
 
         # Update image
         img_key = (subject, view_type, coordinate_system)
-        self.imgs[img_key] = {
-            **self.imgs[img_key],
-            'position': position,
-            'mapped_position': mapped_position,
-            'view_idx': view_idx,
-        }
+        self.imgs[img_key]['position'] = position
 
         # Show or update image
         axis = self.imgs[img_key]['axis']
@@ -235,17 +230,18 @@ class PlotDataset:
 
     def on_scroll(self, event):
         if not self.scrolling:
-            self.scrolling = True
-            # Get relevant axis
-            subject, view_type, coordinate_system = self.axes2view[event.inaxes]
-            position = self.imgs[(subject, view_type, coordinate_system)]['position']
+            img_key = self.axes2view.get(event.inaxes)
+            if img_key is not None:
+                self.scrolling = True
+                subject, view_type, coordinate_system = img_key
+                position = self.imgs[img_key]['position']
 
-            if event.button == 'down':
-                view = (view_type, coordinate_system, position - 1)
-            else:
-                view = (view_type, coordinate_system, position + 1)
+                if event.button == 'down':
+                    view = (view_type, coordinate_system, position - 1)
+                else:
+                    view = (view_type, coordinate_system, position + 1)
 
-            self.render_view(subject, view)
+                self.render_view(subject, view)
 
     def update_img(self, img_idx, view_slice):
         img_dict = self.imgs[img_idx]
@@ -259,6 +255,7 @@ class PlotDataset:
         fig_to_update = []
         for key in img_keys:
             img_dict = self.imgs[key]
+            img_dict['position'] = position
 
             axis = img_dict['axis']
             text = self.get_legend(key[0], view_type, coordinate_system, position)
