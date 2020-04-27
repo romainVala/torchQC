@@ -1,5 +1,6 @@
 from smallunet_pytorch import SmallUnet, dice_loss, dice_coef_loss, print_metrics, calc_loss, \
-    load_existing_weights_if_exist, summary
+    load_existing_weights_if_exist
+from torch_summary import summary
 import torch.nn as tnn
 import torch, os, logging, sys
 import torch.optim as optim
