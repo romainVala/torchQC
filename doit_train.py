@@ -18,7 +18,8 @@ from utils_file import get_log_file, gfile, get_parent_path, gdir
 from utils import apply_conditions_on_dataset
 
 from torchio.transforms.metrics import SSIM3D, ssim3D
-from smallunet_pytorch import ConvN_FC3, SmallUnet, load_existing_weights_if_exist, summary
+from smallunet_pytorch import ConvN_FC3, SmallUnet, load_existing_weights_if_exist
+from torch_summary import summary
 from unet import UNet, UNet3D
 
 import numpy as np
@@ -435,10 +436,10 @@ class do_training():
 
                 if extra_info is not None:
                     for k, v in extra_info.items():
-                        one_dict[k] = v[ii]
+                        one_dict[k] = v[ii].numpy() if torch.is_tensor(v[ii]) else v[ii]
 
                 one_dict['fpath'] = sample['image']['path']
-
+                res = res.append(one_dict, ignore_index=True)
 
         else:
             if data['image']['data'].ndim == 4:  # no batch
@@ -520,7 +521,7 @@ def get_motion_transform(type='motion1'):
 
     if 'elastic1' in type:
         dico_elast = { 'num_control_points': 6, 'max_displacement': (30, 30, 30),
-           'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR }
+           'p': 1, 'image_interpolation': Interpolation.LINEAR }
 
     if type == 'motion1':
         transforms = Compose([ RandomMotionFromTimeCourse(**dico_params_mot),])
@@ -535,7 +536,8 @@ def get_motion_transform(type='motion1'):
 
 def get_cache_dir(root_fs = 'lustre'):
     if root_fs == 'lustre':
-        dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/'
+        #dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/'
+        dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache_new/'
     elif root_fs == 'le70':
         dir_cache = '/data/romain/CNN_cache/'
     return dir_cache
