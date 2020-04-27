@@ -9,7 +9,7 @@ from doit_train import get_train_and_val_csv
 
 # parameters
 
-prefix = "/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache/"
+prefix = "/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache_new/"
 
 name_list = [ 'mvt_train_hcp400_ms', 'mvt_train_hcp400_brain_ms', 'mvt_train_hcp400_T1',
               'mvt_val_hcp200_ms', 'mvt_val_hcp200_brain_ms', 'mvt_val_hcp200_T1']
@@ -17,13 +17,14 @@ name_list = [ 'mvt_train_cati_T1', 'mvt_train_cati_ms', 'mvt_train_cati_brain',
               'mvt_val_cati_T1', 'mvt_val_cati_ms', 'mvt_val_cati_brain',]
 name_list = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
               'ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain',]
-
 name_list =[  'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1',
               'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1']
+name_list = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms',
+              'ela1_val_cati_T1', 'ela1_val_cati_ms',]
 
 nb_motions_list = [20, 20, 20, 10, 10, 10] #[5, 5, 5]
 nb_motions_list = [50, 50, 50, 5, 5, 5]
-#nb_motions_list = [50, 50, 50, 20, 20, 20]
+nb_motions_list = [50, 50, 50, 20, 20, 20]
 #nb_motions_list = [200]
 
 
@@ -52,9 +53,9 @@ for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
     params['scripts_to_copy'] = scriptsDir #+ '/*.py'
     params['output_results'] = resdir  # just to do the mkdir -p
 
-    cmd_init = '\n'.join(["source /network/lustre/iss01/cenir/software/irm/bin/python_path3.6",
-                          "source activate pytorch1.2",
-                          "module load fftw/3.3.8-g7jugkl ",
+    cmd_init = '\n'.join(["#source /network/lustre/iss01/cenir/software/irm/bin/python_path3.6",
+                          "#source activate pytorch1.2",
+                          "#module load fftw/3.3.8-g7jugkl ",
                           "python " + scriptsDir + "/do_save_motion_sample.py \\",
                           py_options + " \\"] )
     jobs = []
