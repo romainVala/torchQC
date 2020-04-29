@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from torch.nn import Conv3d, ConvTranspose3d, ReLU, LeakyReLU, MaxPool3d, Module, Sigmoid, Softmax
+from torch.nn import Conv3d, ConvTranspose3d, ReLU, LeakyReLU, MaxPool3d, Module, Sigmoid, Softmax, Dropout3d
 from torch.nn.functional import pad
 import torch.nn.functional as F
 from torch import nn
@@ -205,7 +205,7 @@ class PadMaxPool3d(nn.Module):
 
 class ConvN_FC3(nn.Module):
 
-    def __init__(self, dropout=0.5, n_classes=1, in_size=[182,218,182],
+    def __init__(self, dropout=0, drop_conv=0 , n_classes=1, in_size=[182,218,182],
                  conv_block = [15, 25, 50, 50], linear_block = [50, 40],
                  output_fnc=None, batch_norm=True):
 
@@ -219,18 +219,46 @@ class ConvN_FC3(nn.Module):
             else :
                 out_size = np.ceil((out_size - 2) / 2)
 
+            # block = nn.ModuleList()
+            # block.append(nn.Conv3d(nb_in, nb_layer, 3))
+            #
+            # if batch_norm:
+            #     block.append(nn.BatchNorm3d(nb_layer))
+            #
+            # block.append(nn.ReLU())
+            #
+            # if drop_conv:
+            #     block.append(Dropout3d(p=drop_conv))
+            #
+            # block.append(block.append(PadMaxPool3d(2, 2)))
+            #
+            # one_conv = nn.Sequential(*block)
             if batch_norm:
-                one_conv = nn.Sequential(
-                    nn.Conv3d(nb_in, nb_layer, 3),
-                    nn.BatchNorm3d(nb_layer),
-                    nn.ReLU(),
-                    PadMaxPool3d(2, 2) )
+                if drop_conv:
+                    one_conv = nn.Sequential(
+                        nn.Conv3d(nb_in, nb_layer, 3),
+                        nn.BatchNorm3d(nb_layer),
+                        nn.ReLU(),
+                        Dropout3d(p=drop_conv),
+                        PadMaxPool3d(2, 2))
+                else:
+                    one_conv = nn.Sequential(
+                        nn.Conv3d(nb_in, nb_layer, 3),
+                        nn.BatchNorm3d(nb_layer),
+                        nn.ReLU(),
+                        PadMaxPool3d(2, 2) )
             else:
-                one_conv = nn.Sequential(
-                    nn.Conv3d(nb_in, nb_layer, 3),
-                    nn.ReLU(),
-                    PadMaxPool3d(2, 2))
-
+                if drop_conv:
+                    one_conv = nn.Sequential(
+                        nn.Conv3d(nb_in, nb_layer, 3),
+                        nn.ReLU(),
+                        Dropout3d(p=drop_conv),
+                        PadMaxPool3d(2, 2))
+                else:
+                    one_conv = nn.Sequential(
+                        nn.Conv3d(nb_in, nb_layer, 3),
+                        nn.ReLU(),
+                        PadMaxPool3d(2, 2))
             self.encoding_blocks.append(one_conv)
             nb_in = nb_layer
         self.encoding_blocks = nn.Sequential(*self.encoding_blocks)
