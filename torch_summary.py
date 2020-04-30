@@ -132,3 +132,44 @@ def summary_string(model, input_size, batch_size=-1, device=torch.device('cuda:0
     summary_str += "----------------------------------------------------------------" + "\n"
 
     return summary_str, (total_params, trainable_params)
+
+
+def print_FOV(model, input_size, device=torch.device('cuda:0'), dtypes=None, upsample_list=None):
+    if dtypes == None:
+        dtypes = [torch.FloatTensor]*len(input_size)
+    if upsample_list is None:
+        upsample_list = ['ConvTranspose', 'Upsample']
+
+    def hook(module, input, output):
+        if res['keep_going'] and hasattr(module, 'kernel_size'):
+            if any(map(lambda e: e in str(module.__class__), upsample_list)):
+                res['keep_going'] = False
+                return
+            k = np.array(module.kernel_size)
+            s = np.array(module.stride)
+            res['r'] += (k - 1) * res['j']
+            res['j'] *= s
+
+    # multiple inputs to the network
+    if isinstance(input_size, tuple):
+        input_size = [input_size]
+
+    # batch_size of 2 for batchnorm
+    x = [torch.rand(2, *in_size).type(dtype).to(device=device)
+         for in_size, dtype in zip(input_size, dtypes)]
+
+    # create properties
+    res = {'j': 1, 'r': 1, 'keep_going': True}
+    hooks = []
+
+    # register hooks
+    model.apply(lambda module: hooks.append(module.register_forward_hook(hook)))
+
+    # make a forward pass
+    model(*x)
+
+    # remove these hooks
+    for h in hooks:
+        h.remove()
+
+    print('Receptive field of the network:', res['r'])
