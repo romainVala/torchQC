@@ -36,10 +36,13 @@ class PlotDataset:
         figsize: Sequence of length 2, size of the figure.
         update_all_on_scroll: bool, if True all views with the same view_type and coordinate_system are updated
             when scrolling on one of them. Doing so supposes that they all have the same shape. Default is False.
+        add_text: Boolean to choose if you want the axis legend to be printed default True
     """
     def __init__(self, dataset, views=None, view_org=None, image_key_name='t1',
-                 subject_idx=5, subject_org=None, figsize=(16, 9), update_all_on_scroll=False):
+                 subject_idx=5, subject_org=None, figsize=(16, 9), update_all_on_scroll=False,
+                 add_text=True):
         self.dataset = dataset
+        self.add_text = add_text
         self.views = views if views is not None else vox_views
         self.view_org = self.parse_view_org(view_org)
         self.image_key_name = image_key_name
@@ -136,6 +139,8 @@ class PlotDataset:
             # Remove axis for all subplots
             for axis in axes.ravel():
                 axis.axis('off')
+        #no space between subplot !
+        plt.subplots_adjust( left=0, right=1, bottom=0, top=1, wspace=0, hspace=0)
 
         # Assign each view to its figure and axis
         for i, subject in enumerate(self.subject_idx):
@@ -184,14 +189,16 @@ class PlotDataset:
         axis = self.imgs[img_key]['axis']
         text = self.get_legend(subject, view_type, coordinate_system, position)
         if init:
-            axis.text(0.5, -0.1, text, size=8, ha="center", transform=axis.transAxes)
+            if self.add_text:
+                axis.text(0.5, -0.1, text, size=8, ha="center", transform=axis.transAxes)
             self.imgs[img_key]['img'] = axis.imshow(view_slice, cmap='gray')
         else:
             if self.update_all_on_scroll:
                 self.update_imgs(view_type, coordinate_system, position, mapped_position, view_idx)
             else:
-                text_box = axis.texts[0]
-                text_box.set_text(text)
+                if self.add_text:
+                    text_box = axis.texts[0]
+                    text_box.set_text(text)
                 self.update_img(img_key, view_slice)
 
     def get_image_and_affine(self, subject):
@@ -258,9 +265,10 @@ class PlotDataset:
             img_dict['position'] = position
 
             axis = img_dict['axis']
-            text = self.get_legend(key[0], view_type, coordinate_system, position)
-            text_box = axis.texts[0]
-            text_box.set_text(text)
+            if self.add_text:
+                text = self.get_legend(key[0], view_type, coordinate_system, position)
+                text_box = axis.texts[0]
+                text_box.set_text(text)
 
             img, _ = self.get_image_and_affine(key[0])
             view_slice = self.view2slice(view_idx, mapped_position, img)
