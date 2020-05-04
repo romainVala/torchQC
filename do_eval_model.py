@@ -38,14 +38,16 @@ if __name__ == '__main__':
                                 type='string', help="full path to the image to test, list separate path by , ")
     parser.add_option("--sample_dir", action="store", dest="sample_dir", default='',
                                 type='string', help="instead of -i specify dir of saved sample ")
-    parser.add_option("-n", "--out_name", action="store", dest="out_name", default='',
+    parser.add_option("-n", "--out_name", action="store", dest="out_name", default='res_val',
                                 help="name to be append to the results ")
-    parser.add_option("--val_number", action="store", dest="val_number", default='1',
+    parser.add_option("--val_number", action="store", dest="val_number", default='-1', type="int",
                                 help="number to be prepend to out name default 1 ")
     parser.add_option("-w", "--saved_model", action="store", dest="saved_model", default='',
                                 help="full path of the model's weights file ")
     parser.add_option("--use_gpu", action="store", dest="use_gpu", default=0, type="int",
                                 help="0 means no gpu 1 to 4 means gpu device (0) ")
+    parser.add_option("--add_cut_mask", action="store", dest="add_cut_mask", default=1, type="int",
+                                help=">0 means a cut mask transform is added default 1")
 
     (options, args) = parser.parse_args()
 
@@ -60,9 +62,8 @@ if __name__ == '__main__':
 
     name, val_number = options.out_name, options.val_number
     saved_model = options.saved_model
-    gpu = options.use_gpu
-    #let's force absolute path if not (weights[0] == '/') : weights1 = prefix + weights
-    cuda = True if gpu > 0 else False
+
+    cuda = True if options.use_gpu > 0 else False
 
     #fixed param
     batch_size, num_workers = 2, 0
@@ -70,16 +71,21 @@ if __name__ == '__main__':
     fin = options.image_in
     dir_sample = options.sample_dir
 
-
-    target_shape, mask_key = (182, 218, 182), 'brain'
-    tc = [CropOrPad(target_shape=target_shape, mask_name=mask_key), ]
+    if options.add_cut_mask > 0:
+        target_shape, mask_key = (182, 218, 182), 'brain'
+        tc = [CropOrPad(target_shape=target_shape, mask_name=mask_key), ]
+    else:
+        tc = None
 
     doit = do_training('/tmp/', 'not_use', verbose=True)
+
+    target = None
 
     if len(dir_sample) > 0:
         print('loading from {}'.format(dir_sample))
         doit.set_data_loader(batch_size=batch_size, num_workers=num_workers, load_from_dir=dir_sample, transforms=tc)
-        name += '_' + get_parent_path(dir_sample)[1]
+        name += 'On_' + get_parent_path(dir_sample)[1]
+        target='ssim' #suppose that if from sample, it should be simulation so set target
     else :
         print('working on ')
         for ff in fin:
@@ -89,9 +95,14 @@ if __name__ == '__main__':
                                             batch_size=batch_size, num_workers=num_workers,
                                             mask_key=mask_key, mask_regex='^mask')
 
-    out_name = 'eval_num_{:04d}'.format(int(val_number))
-    subdir = 'eval_{}_{}'.format(name, get_parent_path(saved_model)[1][:-3])
+    if val_number<0:
+        out_name = name
+        subdir = None #'eval_rrr__{}_{}'.format(name)
+
+    else:
+        out_name = 'eval_num_{:04d}'.format(val_number)
+        subdir = 'eval_{}_{}'.format(name, get_parent_path(saved_model)[1][:-3])
 
     doit.set_model_from_file(saved_model, cuda=cuda)
 
-    doit.eval_regress_motion(999, 99, basename=out_name, subdir=subdir, target=None)
+    doit.eval_regress_motion(999, 99, basename=out_name, subdir=subdir, target=target)
