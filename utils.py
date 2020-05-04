@@ -601,8 +601,8 @@ def remove_extension(str_in):
 
 
 def get_ep_iter_from_res_name(resname, nbit, batch_size=4):
-    resname = remove_extension(resname)
-    ffn = [ff[ff.find('_ep') + 3:] for ff in resname]
+    resname_no_ext = remove_extension(resname)
+    ffn = [ff[ff.find('_ep') + 3:] for ff in resname_no_ext]
     key_list = []
     for fff, fffn in zip(ffn, resname):
         if '_it' in fff:
