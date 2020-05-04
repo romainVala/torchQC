@@ -147,7 +147,8 @@ def print_FOV(model, input_size, device=torch.device('cuda:0'), dtypes=None, ups
                 return
             k = np.array(module.kernel_size)
             s = np.array(module.stride)
-            res['r'] += (k - 1) * res['j']
+            d = np.array(module.dilation)
+            res['r'] += (k - 1) * res['j'] * d
             res['j'] *= s
 
     # multiple inputs to the network
