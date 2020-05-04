@@ -186,6 +186,13 @@ class do_training():
         ii = substr.find('_')
         dropout = float(substr[:ii])
 
+        drop_conv = 0
+        if '_DC' in resdir_name:
+            ind_drop = resdir_name.find('_DC')
+            substr = resdir_name[ind_drop+3:]
+            ii = substr.find('_')
+            drop_conv = float(substr[:ii])
+
         ind_lr = resdir_name.find('_lr')
         lr = float(resdir_name[ind_lr+3:])
 
@@ -193,20 +200,21 @@ class do_training():
                      'losstype': losstype,
                      'lr': lr,
                      'conv_block': conv_block, 'linear_block': linear_block,
-                     'dropout': dropout, 'batch_norm': batch_norm,
+                     'dropout': dropout, 'drop_conv': drop_conv, 'batch_norm': batch_norm,
                      'in_size': in_size,
                      'cuda': cuda, 'max_epochs': 1}
-        self.set_model(par_model, res_model_file=file_name, verbose=False)
+        self.set_model(par_model, res_model_file=file_name, verbose=False, log_filename='eval.log')
 
 
-    def set_model(self, par_model, res_model_file=None, verbose=True):
+    def set_model(self, par_model, res_model_file=None, verbose=True, log_filename='training.log'):
 
         network_name = par_model['network_name']
         losstype = par_model['losstype']
         lr = par_model['lr']
         in_size = par_model['in_size']
         self.cuda = par_model['cuda']
-        self.max_epochs = par_model['max_epochs' ]
+        self.max_epochs = par_model['max_epochs']
+        optim_name = par_model['optim'] if 'optim' in par_model else 'Adam'
 
         if network_name == 'unet_f':
             self.model = UNet(in_channels=1, dimensions=3, out_classes=1, num_encoding_blocks=3, out_channels_first_layer=16,
@@ -220,18 +228,21 @@ class do_training():
 
         elif network_name == 'ConvN':
             conv_block = par_model['conv_block']
-            dropout, batch_norm = par_model['dropout'], par_model['batch_norm']
+            dropout, drop_conv, batch_norm = par_model['dropout'], par_model['drop_conv'], par_model['batch_norm']
             linear_block = par_model['linear_block']
             output_fnc = par_model['output_fnc'] if 'output_fnc' in par_model else None
             self.model = ConvN_FC3(in_size=in_size, conv_block=conv_block, linear_block=linear_block,
-                                   dropout=dropout, batch_norm=batch_norm, output_fnc=output_fnc)
-            network_name += '_C{}_{}_Lin{}_{}_D{}'.format(np.abs(conv_block[0]), conv_block[-1], linear_block[0], linear_block[-1], dropout)
+                                   dropout=dropout, drop_conv=drop_conv, batch_norm=batch_norm, output_fnc=output_fnc)
+            network_name += '_C{}_{}_Lin{}_{}_D{}_DC{}'.format(np.abs(conv_block[0]), conv_block[-1], linear_block[0],
+                                                             linear_block[-1], dropout, drop_conv)
             if output_fnc is not None:
                 network_name += '_fnc_{}'.format(output_fnc)
             if batch_norm:
                 network_name += '_BN'
 
         self.res_name += '_Size{}_{}_Loss_{}_lr{}'.format(in_size[0], network_name, losstype, lr)
+        if 'Adam' not in optim_name: #only write if not default Adam
+            self.res_name += '_{}'.format(optim_name)
 
         self.res_dir += self.res_name + '/'
 
@@ -240,7 +251,7 @@ class do_training():
 
         if not os.path.isdir(self.res_dir): os.mkdir(self.res_dir)
 
-        self.log = get_log_file(self.res_dir + '/training.log')
+        self.log = get_log_file(self.res_dir + '/' + log_filename)
         self.log.info(self.log_string)
 
         if losstype == 'MSE':
@@ -267,8 +278,11 @@ class do_training():
 
         self.ep_start, self.last_model_saved = load_existing_weights_if_exist(self.res_dir, self.model, log=self.log,
                                                                               device=device, res_model_file=res_model_file)
+        if "Adam" in optim_name:
+            self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        elif "SGD" in optim_name:
+            self.optimizer = optim.SGD(self.model.parameters(), lr=lr, momentum=0.5)
 
-        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         #exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=25, gamma=0.1)
 
     def get_inputs_labels_from_sample(self, data, target):
