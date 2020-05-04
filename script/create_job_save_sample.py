@@ -19,14 +19,15 @@ name_list = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain
               'ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain',]
 name_list =[  'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1',
               'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1']
-# name_list = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms',
-#               'ela1_val_cati_T1', 'ela1_val_cati_ms',]
+name_list = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms','ela1_val_cati_T1', 'ela1_val_cati_ms',];
+nb_motions_list = [50, 50, 20, 20] #[5, 5, 5]
+
 name_list = ['mvt_train_hcp400_ms', 'mvt_val_hcp200_ms', 'mvt_val_hcp200_T1', 'mvt_val_cati_T1', 'mvt_val_cati_ms',
              'mvt_train_cati_T1', 'mvt_train_cati_ms']
 nb_motions_list = [20, 5, 5, 10, 10, 5, 5]
 
 nb_motions_list = [20, 20, 20, 10, 10, 10] #[5, 5, 5]
-nb_motions_list = [50, 50, 50, 5, 5, 5]
+#nb_motions_list = [50, 50, 50, 5, 5, 5]
 #nb_motions_list = [50, 50, 50, 20, 20, 20]
 #nb_motions_list = [200]
 nb_motions_list = [20, 5, 5, 10, 10, 5,5]
@@ -49,7 +50,13 @@ for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
 
     scriptsDir = '/network/lustre/iss01/cenir/software/irm/toolbox_python/romain/torchQC'
 
-    py_options = '--motion_type elastic1_and_motion1 --nb_sample={} --res_dir={}'.format(nb_motions, resdir)
+    if 'mvt' in name:
+        motion_type = 'motion1'
+    elif 'ela1' in name:
+        motion_type = 'elastic1_and_motion1'
+
+    keep_brain = ' --keep_brain ' if 'cati' in name else ''
+    py_options = '{} --motion_type {} --nb_sample={} --res_dir={}'.format(keep_brain, motion_type, nb_motions, resdir)
 
     job_id = name #+'_redo'
     params = dict()
