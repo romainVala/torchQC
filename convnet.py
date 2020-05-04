@@ -2,9 +2,10 @@ from typing import Optional
 import torch.nn as nn
 import numpy as np
 from unet.encoding import Encoder
+from unet.base_net import BaseNet, clean_locals
 
 
-class ConvNet(nn.Module):
+class ConvNet(BaseNet):
     def __init__(
             self,
             in_size: tuple,
@@ -27,7 +28,7 @@ class ConvNet(nn.Module):
             monte_carlo_dropout: float = 0,
             final_activation: Optional[str] = None,
     ):
-        super().__init__()
+        super().__init__(**clean_locals(**locals()))
 
         if encoder_out_channel_lists is None:
             encoder_out_channel_lists = []
@@ -45,7 +46,7 @@ class ConvNet(nn.Module):
         if linear_out_size_list is None:
             linear_out_size_list = []
 
-        linear_out_size_list.append(out_classes)
+        linear_out_size_list = linear_out_size_list + [out_classes]
 
         # Force padding if residual blocks
         if residual:
