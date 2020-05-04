@@ -32,6 +32,7 @@ dqc = ['/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN
 dres = gdir(dqc,'RegMotNew.*train_hcp400_ms.*0001')
 dres = gdir(dqc,'RegMotNew.*hcp400_ms.*B4.*L1.*0001')
 dres = gdir(dqc,'R.*')
+
 resname = get_parent_path(dres)[1]
 #sresname = [rr[rr.find('hcp400_')+7: rr.find('hcp400_')+17] for rr in resname ]; sresname[2] += 'le-4'
 sresname = resname
@@ -40,7 +41,6 @@ print('common str {}'.format(commonstr))
 
 target='ssim'; target_scale=1
 #target='random_noise'; target_scale=10
-
 legend_str=[]
 col = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'w']
 for ii, oneres in enumerate(dres):
@@ -48,11 +48,12 @@ for ii, oneres in enumerate(dres):
     fresT = gfile(oneres,'train.*csv')
     is_train = False if len(fresT)==0 else True
     if is_train: resT = [pd.read_csv(ff) for ff in fresT]
-    resV = [pd.read_csv(ff) for ff in fresV]
 
-    resname = get_parent_path(fresV)[1]
+    resdir, resname = get_parent_path(fresV)
     nbite = len(resT[0]) if is_train else 80000
-    a, b, c = get_ep_iter_from_res_name(resname, nbite)
+    fresV_sorted, b, c = get_ep_iter_from_res_name(resname, nbite)
+    resV = [pd.read_csv(resdir[0] + '/' + ff) for ff in fresV_sorted]
+
     ite_tot = c+b*nbite
     if is_train:
         errorT = np.hstack( [ np.abs(rr.model_out.values - rr.loc[:,target].values*target_scale) for rr in resT] )
@@ -60,16 +61,19 @@ for ii, oneres in enumerate(dres):
         LmTrain = [ np.mean(errorT[ite_tottt[ii]:ite_tottt[ii+1]]) for ii in range(0,len(ite_tot)) ]
 
     LmVal = [np.mean(np.abs(rr.model_out-rr.loc[:,target].values*target_scale)) for rr in resV]
-    plt.figure('meanL1'); legend_str.append('V{}'.format(sresname[ii]));
+    plt.figure('meanL1_mss'); legend_str.append('V{}'.format(sresname[ii]));
     if is_train: legend_str.append('T{}'.format(sresname[ii]))
     plt.plot(ite_tot, LmVal,'--',color=col[ii])
     if is_train: plt.plot(ite_tot, LmTrain,color=col[ii], linewidth=6)
 
 plt.legend(legend_str); plt.grid()
 
-#for ii, oneres in enumerate([dres[0]]):
-for ii, oneres in enumerate(dres):
+for ii, oneres in enumerate([dres[0]]):
+#for ii, oneres in enumerate(dres):
     fres=gfile(oneres,'res_val')
+    resdir, resname = get_parent_path(fres)
+    fresV_sorted, b, c = get_ep_iter_from_res_name(resname, nbite)
+    fres = [rr+'/'+ff for rr,ff in zip(resdir, fresV_sorted)]
     #fres = gfile(oneres,'train.*csv')
     if len(fres)>0:
         nb_fig = len(fres)//10 +1
@@ -264,23 +268,29 @@ suj = [Subject(image=Image('/data/romain/HCPdata/suj_150423/mT1w_1mm.nii', INTEN
          maskk=Image('/data/romain/HCPdata/suj_150423/mask_brain.nii',  LABEL))]
 
 tc = CenterCropOrPad(target_shape=(182, 218,212))
-tc = CropOrPad(target_shape=(182, 218,182), mode='mask',mask_key='maskk')
+tc = CropOrPad(target_shape=(182, 218,182), mask_name='maskk')
 #dico_elast = {'num_control_points': 6, 'deformation_std': (30, 30, 30), 'max_displacement': (4, 4, 4),
 #              'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR}
 #tc = RandomElasticDeformation(**dico_elast)
 
 dico_p = {'num_control_points': 8, 'deformation_std': (20, 20, 20), 'max_displacement': (4, 4, 4),
-              'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR}
+              'p': 1, 'image_interpolation': Interpolation.LINEAR}
 dico_p = { 'num_control_points': 6,
            #'max_displacement': (20, 20, 20),
            'max_displacement': (30, 30, 30),
-           'proportion_to_augment': 1, 'image_interpolation': Interpolation.LINEAR }
+           'p': 1, 'image_interpolation': Interpolation.LINEAR }
 
 t = Compose([ RandomElasticDeformation(**dico_p), tc])
-t = Compose([RandomNoise(std=(0.020,0.2)) ])
-
+t = Compose([RandomNoise(std=(0.020,0.2)),  RandomElasticDeformation(**dico_p) ])
+t = Compose([RandomNoise(),  RandomElasticDeformation() ])
 
 dataset = ImagesDataset(suj, transform=t)
+from torch.utils.data import DataLoader
+dl = DataLoader(dataset, batch_size=2,
+                collate_fn=lambda x: x,  # this creates a list of Subjects
+                )
+samples = next(iter(dl))
+
 s = dataset[0]
 ov(s['image']['data'][0])
 
