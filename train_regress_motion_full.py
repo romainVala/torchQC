@@ -1,6 +1,6 @@
 from doit_train import do_training, get_motion_transform, get_train_and_val_csv, get_cache_dir
 import torch
-from torchio.transforms import CropOrPad
+from torchio.transforms import CropOrPad, RescaleIntensity, RandomAffine
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 
@@ -11,34 +11,35 @@ cuda, verbose = True, True
 in_size = [182, 218, 182]
 
 name_list_train = ['mask_mvt_train_cati_T1', 'mask_mvt_train_cati_ms', 'mask_mvt_cati_train_brain_ms',
-                   'mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1']
+                   'mvt_train_hcp400_ms', 'mask_mvt_train_hcp400_brain_ms', 'mask_mvt_train_hcp400_T1',
+                   'ela1_train200_hcp400_ms']
 name_list_val = ['mask_mvt_val_cati_T1', 'mask_mvt_val_cati_ms', 'mask_mvt_val_cati_brain_ms',
                  'mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
 #name_list_train = ['mask_mvt_train50_hcp400_ms', 'mask_mvt_train50_hcp400_brain_ms', 'mask_mvt_train50_hcp400_T1']
 #name_list_val = ['mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
 
-#name_list_train = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
-#                    'ela1_train_hcp400_ms', 'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1',
-#                'ela1_train200_hcp400_ms']
-#name_list_val = ['ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain_ms',
-#                 'ela1_val_hcp200_ms', 'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1',
-#		'ela1_train200_hcp400_ms']
+name_list_train = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
+                    'ela1_train_hcp400_ms', 'ela1_train_hcp400_brain_ms', 'ela1_train_hcp400_T1',
+                'ela1_train200_hcp400_ms']
+name_list_val = ['ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain_ms',
+                 'ela1_val_hcp200_ms', 'ela1_val_hcp200_brain_ms', 'ela1_val_hcp200_T1',
+		'ela1_train200_hcp400_ms']
 
-data_name_train = name_list_train[3]
-data_name_val = name_list_val[3]
+data_name_train = name_list_train[5]
+data_name_val = name_list_val[5]
 
 res_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/'
-base_name = 'RegMotNew'
+base_name = 'RegMotNew_resc_Aff'
 if make_uniform : base_name += '_uniform'
 
 root_fs = 'le70'
-#root_fs = 'lustre'
+root_fs = 'lustre'
 
 par_model = {'network_name': 'ConvN',
              'losstype': 'L1',
              'lr': 1e-4,
               'conv_block': [16, 32, 64, 128, 256], 'linear_block': [40, 50],
-             'dropout': 0, 'batch_norm': True,
+             'dropout': 0, 'batch_norm': True, 'drop_conv':0.1,
              'in_size': in_size,
              'cuda': cuda, 'max_epochs': max_epochs}
 #'conv_block':[8, 16, 32, 64, 128]
@@ -86,6 +87,13 @@ else:
         tc = [CropOrPad(target_shape=target_shape, mask_name=mask_key), ]
     else:
         tc = None
+    if 'T1' in data_name_train:
+        if tc is None: tc=[]
+        tc.append(RescaleIntensity(percentiles=(0, 99)))
+        tc.append(RandomAffine())
+        print('adding a RESCALE Intensity 0 99 ')
+
+
     if make_uniform:
         doit.set_data_loader(batch_size=batch_size, num_workers=num_workers, load_from_dir=load_from_dir, transforms=tc,
                              get_condition_csv='res_motion.csv', get_condition_field='ssim_brain' )
