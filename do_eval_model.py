@@ -13,7 +13,7 @@ import sys, os, logging
 
 from utils_file import get_parent_path
 from doit_train import do_training, get_motion_transform, get_train_and_val_csv, get_cache_dir
-from torchio.transforms import CropOrPad
+from torchio.transforms import CropOrPad, RandomAffine, RescaleIntensity, ApplyMask
 
 formatter = logging.Formatter('%(asctime)-2s: %(levelname)-2s : %(message)s')
 
@@ -46,8 +46,18 @@ if __name__ == '__main__':
                                 help="full path of the model's weights file ")
     parser.add_option("--use_gpu", action="store", dest="use_gpu", default=0, type="int",
                                 help="0 means no gpu 1 to 4 means gpu device (0) ")
-    parser.add_option("--add_cut_mask", action="store", dest="add_cut_mask", default=1, type="int",
-                                help=">0 means a cut mask transform is added default 1")
+    parser.add_option("--add_cut_mask", action="store_true", dest="add_cut_mask", default=False,
+                                help="if specifie it will adda cut mask (brain) transformation default False ")
+    parser.add_option("--add_affine_zoom", action="store", dest="add_affine_zoom", default=0, type="float",
+                      help=">0 means we add an extra affine transform with zoom value and if define rotations default 0")
+    parser.add_option("--add_affine_rot", action="store", dest="add_affine_rot", default=0, type="float",
+                      help=">0 means we add an extra affine transform with rotation values and if define rotations default 0")
+    parser.add_option("--add_rescal_Imax", action="store_true", dest="add_rescal_Imax", default=False,
+                                help="if specifie it will add a rescale intensity transformation default False ")
+    parser.add_option("--add_mask_brain", action="store_true", dest="add_mask_brain", default=False,
+                                help="if specifie it will add a apply_mask (name brain) transformation default False ")
+    parser.add_option("--add_elastic1", action="store_true", dest="add_elastic1", default=False,
+                                help="if specifie it will add a elastic1 transformation default False ")
 
     (options, args) = parser.parse_args()
 
@@ -70,16 +80,38 @@ if __name__ == '__main__':
 
     fin = options.image_in
     dir_sample = options.sample_dir
+    add_affine_zoom, add_affine_rot = options.add_affine_zoom, options.add_affine_rot
+
+
+    doit = do_training('/tmp/', 'not_use', verbose=True)
+    # adding transformation
+    tc = []
+    name_suffix = ''
 
     if options.add_cut_mask > 0:
         target_shape, mask_key = (182, 218, 182), 'brain'
         tc = [CropOrPad(target_shape=target_shape, mask_name=mask_key), ]
-    else:
-        tc = None
+        name_suffix += '_tCrop_brain'
 
-    doit = do_training('/tmp/', 'not_use', verbose=True)
+    if add_affine_rot>0 or add_affine_zoom >0:
+        tc.append( RandomAffine(scales=(add_affine_zoom, add_affine_zoom), degrees=(add_affine_rot, add_affine_rot) ) )
+        name_suffix += '_tAffineS{}R{}'.format(add_affine_zoom, add_affine_rot)
+
+    if options.add_rescal_Imax:
+        tc.append(RescaleIntensity(percentiles=(0, 99)))
+        name_suffix += '_tRescale_0_99'
+
+    # TODO should be before RescaleIntensity when done in train_regres_motion_full
+    if options.add_mask_brain:
+        tc.append(ApplyMask(masking_method='brain'))
+        name_suffix += '_tMaskBrain'
+
+    if options.add_elastic1:
+        tc.append(get_motion_transform(type='elastic1'))
+        name_suffix += '_tElastic1'
 
     target = None
+    if len(tc)==0: tc = None
 
     if len(dir_sample) > 0:
         print('loading from {}'.format(dir_sample))
@@ -102,6 +134,8 @@ if __name__ == '__main__':
     else:
         out_name = 'eval_num_{:04d}'.format(val_number)
         subdir = 'eval_{}_{}'.format(name, get_parent_path(saved_model)[1][:-3])
+
+    out_name += name_suffix
 
     doit.set_model_from_file(saved_model, cuda=cuda)
 
