@@ -378,6 +378,8 @@ def get_parent_path(fin,level=1):
         concat = True
 
     for ff in fin:
+        if ff[-1]=='/':
+            ff=ff[:-1]
         dd = ff.split('/')
         ll = len(dd)
         if concat:
