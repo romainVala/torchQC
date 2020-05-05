@@ -540,6 +540,9 @@ def get_motion_transform(type='motion1'):
     if type == 'motion1':
         transforms = Compose([ RandomMotionFromTimeCourse(**dico_params_mot),])
 
+    if type == 'elastic1':
+        transforms = Compose([ RandomElasticDeformation(**dico_elast),])
+
     elif type == 'elastic1_and_motion1':
         transforms = Compose([ RandomElasticDeformation(**dico_elast),
                                RandomMotionFromTimeCourse(**dico_params_mot) ] )
