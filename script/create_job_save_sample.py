@@ -32,6 +32,8 @@ nb_motions_list = [20, 20, 20, 10, 10, 10] #[5, 5, 5]
 #nb_motions_list = [200]
 nb_motions_list = [20, 5, 5, 10, 10, 5,5]
 
+name_list = ['mvt_val_cati_T1', 'mvt_val_cati_ms']
+nb_motions_list = [20, 20]
 
 do_plotting = False
 
@@ -56,7 +58,7 @@ for name, fin, nb_motions in zip(name_list, fin_list, nb_motions_list):
         motion_type = 'elastic1_and_motion1'
 
     keep_brain = ' --keep_brain ' if 'cati' in name else ''
-    py_options = '{} --motion_type {} --nb_sample={} --res_dir={}'.format(keep_brain, motion_type, nb_motions, resdir)
+    py_options = '{} --motion_type {} --nb_sample={} --res_dir={} '.format(keep_brain, motion_type, nb_motions, resdir)
 
     job_id = name #+'_redo'
     params = dict()
