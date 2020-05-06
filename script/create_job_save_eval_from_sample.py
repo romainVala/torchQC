@@ -16,9 +16,9 @@ saved_models = gfile(model, '_ep9_.*000.pt$')
 saved_models = saved_models[0:10]
 
 name_list_val = ['mvt_val_hcp200_ms', 'ela1_val_hcp200_ms']
-name_list_val = ['ela1_val_hcp200_ms']
+#name_list_val = ['ela1_val_hcp200_ms']
 
-job_id = "eval_sample_ela1"
+job_id = "eval_sample_ela2"
 
 dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache_new/'
 
@@ -26,6 +26,7 @@ jobs = []
 scriptsDir = '/network/lustre/iss01/cenir/software/irm/toolbox_python/romain/torchQC'
 
 options_test = ['', '--add_affine_zoom 0.8', '--add_affine_zoom 1.2', '--add_affine_rot 10' ]
+options_test = ['', '--add_bias' ]
 
 for data_name_val in name_list_val :
     dir_sample = '{}/{}/'.format(dir_cache, data_name_val)
