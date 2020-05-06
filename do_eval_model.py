@@ -13,7 +13,7 @@ import sys, os, logging
 
 from utils_file import get_parent_path
 from doit_train import do_training, get_motion_transform, get_train_and_val_csv, get_cache_dir
-from torchio.transforms import CropOrPad, RandomAffine, RescaleIntensity, ApplyMask
+from torchio.transforms import CropOrPad, RandomAffine, RescaleIntensity, ApplyMask, RandomBiasField
 
 formatter = logging.Formatter('%(asctime)-2s: %(levelname)-2s : %(message)s')
 
@@ -58,6 +58,8 @@ if __name__ == '__main__':
                                 help="if specifie it will add a apply_mask (name brain) transformation default False ")
     parser.add_option("--add_elastic1", action="store_true", dest="add_elastic1", default=False,
                                 help="if specifie it will add a elastic1 transformation default False ")
+    parser.add_option("--add_bias", action="store_true", dest="add_bias", default=False,
+                                help="if specifie it will add a bias transformation default False ")
 
     (options, args) = parser.parse_args()
 
@@ -94,6 +96,7 @@ if __name__ == '__main__':
         name_suffix += '_tCrop_brain'
 
     if add_affine_rot>0 or add_affine_zoom >0:
+        if add_affine_zoom==0: add_affine_zoom=1 #0 -> no affine so 1
         tc.append( RandomAffine(scales=(add_affine_zoom, add_affine_zoom), degrees=(add_affine_rot, add_affine_rot) ) )
         name_suffix += '_tAffineS{}R{}'.format(add_affine_zoom, add_affine_rot)
 
@@ -109,6 +112,13 @@ if __name__ == '__main__':
     if options.add_elastic1:
         tc.append(get_motion_transform(type='elastic1'))
         name_suffix += '_tElastic1'
+
+    if options.add_bias:
+        tc.append(RandomBiasField())
+        name_suffix += '_tElastic1'
+
+    if len(name_suffix)==0:
+        name_suffix = '_Raw'
 
     target = None
     if len(tc)==0: tc = None
