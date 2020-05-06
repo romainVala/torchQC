@@ -590,12 +590,21 @@ def print_accuracy_all(res, resname, ytrue, prediction_name='ymean', inverse_pre
 
 def remove_extension(str_in):
     return_str = False
+    second_extention_list = ['.nii', '.pt']
     if isinstance(str_in, str):
         str_in = [str_in];
         return_str = True
     #remove up to 2 extension
-    res = [os.path.splitext(os.path.splitext(ss)[0])[0] for ss in str_in]
-    #ss = os.path.splitext(ss)[0]
+    #res = [os.path.splitext(os.path.splitext(ss)[0])[0] for ss in str_in]
+    res = []
+    for ss in str_in:
+        rr1, ext = os.path.splitext(ss)
+        rr2, ext = os.path.splitext(rr1)
+        if ext in second_extention_list:
+            res.append(rr2)
+        else:
+            res.append(rr1)
+    #res = [os.path.splitext(ss)[0] for ss in str_in]  #one shot
 
     return res[0] if return_str else res
 
