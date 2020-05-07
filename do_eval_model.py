@@ -89,11 +89,11 @@ if __name__ == '__main__':
     # adding transformation
     tc = []
     name_suffix = ''
-
+    #Attention pas de _ dans le name_suffix
     if options.add_cut_mask > 0:
         target_shape, mask_key = (182, 218, 182), 'brain'
         tc = [CropOrPad(target_shape=target_shape, mask_name=mask_key), ]
-        name_suffix += '_tCrop_brain'
+        name_suffix += '_tCropBrain'
 
     if add_affine_rot>0 or add_affine_zoom >0:
         if add_affine_zoom==0: add_affine_zoom=1 #0 -> no affine so 1
@@ -102,7 +102,7 @@ if __name__ == '__main__':
 
     if options.add_rescal_Imax:
         tc.append(RescaleIntensity(percentiles=(0, 99)))
-        name_suffix += '_tRescale_0_99'
+        name_suffix += '_tRescale-0-99'
 
     # TODO should be before RescaleIntensity when done in train_regres_motion_full
     if options.add_mask_brain:
@@ -115,7 +115,7 @@ if __name__ == '__main__':
 
     if options.add_bias:
         tc.append(RandomBiasField())
-        name_suffix += '_tElastic1'
+        name_suffix += '_tBias'
 
     if len(name_suffix)==0:
         name_suffix = '_Raw'
