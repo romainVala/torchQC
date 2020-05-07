@@ -65,7 +65,7 @@ class do_training():
                         par_queue=None, save_to_dir=None, load_from_dir=None,
                         replicate_suj=0, shuffel_train=True,
                         get_condition_csv=None, get_condition_field='', get_condition_nb_wanted=1/4,
-                        collate_fn=None):
+                        collate_fn=None, add_to_load=None, add_to_load_regexp=None ):
 
         if not isinstance(transforms, torchvision.transforms.transforms.Compose) and transforms is not None:
             transforms = Compose(transforms)
@@ -106,10 +106,12 @@ class do_training():
 
             self.log_string += '\nloading {} train sample from {}'.format(len(fsample_train), load_from_dir[0])
             self.log_string += '\nloading {} val   sample from {}'.format(len(fsample_val), load_from_dir[1])
-            train_dataset = ImagesDataset(fsample_train, load_from_dir=load_from_dir[0], transform=transforms )
+            train_dataset = ImagesDataset(fsample_train, load_from_dir=load_from_dir[0], transform=transforms,
+                                          add_to_load=add_to_load, add_to_load_regexp=add_to_load_regexp)
             self.train_csv_load_file_train = fsample_train
 
-            val_dataset = ImagesDataset(fsample_val, load_from_dir=load_from_dir[1], transform=transforms )
+            val_dataset = ImagesDataset(fsample_val, load_from_dir=load_from_dir[1], transform=transforms,
+                                        add_to_load=add_to_load, add_to_load_regexp=add_to_load_regexp)
             self.train_csv_load_file_train = fsample_val
 
         else :
