@@ -142,7 +142,9 @@ def create_jobs( params_fname ) :
         fd.write( ' --mem-per-cpu=' + str(params['mem_per_cpu_MB']) )
     if 'mem' in params :
         fd.write( ' --mem=' + str(params['mem']) )
-    
+    if 'sbatch_args' in params :
+        fd.write(' {} '.format(params['sbatch_args']))
+
     fd.write( ' --job-name=' + params['job_name'] + ' -o ' + logs_dir + '/log-%A_%a  -e ' + logs_dir + '/err-%A_%a --array=1-' + str(len(jobs)) )
 
     #if simultaneous_tasks
