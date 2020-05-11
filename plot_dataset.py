@@ -37,10 +37,12 @@ class PlotDataset:
         update_all_on_scroll: bool, if True all views with the same view_type and coordinate_system are updated
             when scrolling on one of them. Doing so supposes that they all have the same shape. Default is False.
         add_text: Boolean to choose if you want the axis legend to be printed default True
+        label_key_name: a string that gives the key of the label of the volume of interest in the dataset's samples.
+        alpha: overlay opacity, used when plotting label
     """
     def __init__(self, dataset, views=None, view_org=None, image_key_name='t1',
                  subject_idx=5, subject_org=None, figsize=(16, 9), update_all_on_scroll=False,
-                 add_text=True):
+                 add_text=True, label_key_name=None, alpha=0.2):
         self.dataset = dataset
         self.add_text = add_text
         self.views = views if views is not None else vox_views
@@ -50,11 +52,14 @@ class PlotDataset:
         self.subject_org = self.parse_subject_org(subject_org)
         self.figsize = figsize
         self.update_all_on_scroll = update_all_on_scroll
+        self.label_key_name = label_key_name
+        self.alpha = alpha
 
         self.imgs = {}
         self.figs_and_axes = []
         self.axes2view = {}
         self.cached_images_and_affines = {}
+        self.cached_labels = {}
 
         self.coordinate_system_list = ["vox", "mm"]
         self.view_type_list = ["sag", "cor", "ax"]
@@ -99,7 +104,7 @@ class PlotDataset:
             view_slice = img[:, idx, :]
         else:
             view_slice = img[:, :, idx]
-        return view_slice
+        return np.flipud(view_slice.T)
 
     def check_views(self):
         for view_type, coordinate_system, _ in self.views:
@@ -178,8 +183,10 @@ class PlotDataset:
         mapped_position, position = self.map_position(img, affine, position, view_idx, coordinate_system)
         view_slice = self.view2slice(view_idx, mapped_position, img)
 
-        # Change slice orientation
-        view_slice = np.flipud(view_slice.T)
+        # Load label
+        label_slice = None
+        if self.label_key_name is not None:
+            label_slice = self.view2slice(view_idx, mapped_position, self.get_label(subject))
 
         # Update image
         img_key = (subject, view_type, coordinate_system)
@@ -192,6 +199,8 @@ class PlotDataset:
             if self.add_text:
                 axis.text(0.5, -0.1, text, size=8, ha="center", transform=axis.transAxes)
             self.imgs[img_key]['img'] = axis.imshow(view_slice, cmap='gray')
+            if self.label_key_name is not None:
+                self.imgs[img_key]['label'] = axis.imshow(label_slice, cmap='jet', alpha=self.alpha)
         else:
             if self.update_all_on_scroll:
                 self.update_imgs(view_type, coordinate_system, position, mapped_position, view_idx)
@@ -199,7 +208,7 @@ class PlotDataset:
                 if self.add_text:
                     text_box = axis.texts[0]
                     text_box.set_text(text)
-                self.update_img(img_key, view_slice)
+                self.update_img(img_key, view_slice, label_slice)
 
     def get_image_and_affine(self, subject):
         if subject not in self.cached_images_and_affines.keys():
@@ -210,6 +219,14 @@ class PlotDataset:
                 obj = self.dataset[self.image_key_name]
                 self.cached_images_and_affines[subject] = (obj['data'].numpy()[subject][0], obj['affine'][subject])
         return self.cached_images_and_affines[subject]
+
+    def get_label(self, subject):
+        if subject not in self.cached_labels.keys():
+            if isinstance(self.dataset, Dataset):
+                self.cached_labels[subject] = self.dataset[int(subject)][self.label_key_name]['data'].numpy()[0]
+            else:
+                self.cached_labels[subject] = self.dataset[self.label_key_name]['data'].numpy()[subject][0]
+        return self.cached_labels[subject]
 
     @staticmethod
     def map_position(img, affine, position, view_idx, coordinate_system):
@@ -250,9 +267,11 @@ class PlotDataset:
 
                 self.render_view(subject, view)
 
-    def update_img(self, img_idx, view_slice):
+    def update_img(self, img_idx, view_slice, label_slice=None):
         img_dict = self.imgs[img_idx]
         img_dict['img'].set_data(view_slice)
+        if self.label_key_name is not None:
+            img_dict['label'].set_data(label_slice)
         img_dict['fig'].canvas.draw()
         img_dict['fig'].canvas.flush_events()
         self.scrolling = False
@@ -272,7 +291,10 @@ class PlotDataset:
 
             img, _ = self.get_image_and_affine(key[0])
             view_slice = self.view2slice(view_idx, mapped_position, img)
-            view_slice = np.flipud(view_slice.T)
+
+            if self.label_key_name is not None:
+                label_slice = self.view2slice(view_idx, mapped_position, self.get_label(key[0]))
+                img_dict['label'].set_data(label_slice)
 
             img_dict['img'].set_data(view_slice)
             fig = img_dict['fig']
