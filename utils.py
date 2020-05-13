@@ -658,3 +658,19 @@ def reduce_name_list(strlist):
     keep = [ss[res[-1] + 1:] for ss in strlist]
 
     return strcommon, keep
+
+def remove_string_from_name_list(strlist, string_to_remove_list):
+
+    for string_to_remove in string_to_remove_list:
+        slen = len(string_to_remove)
+        sout = []
+        for s in strlist:
+            ind_start = s.find(string_to_remove)
+            if ind_start >= 0 :
+                s = s[:ind_start] + s[ind_start+slen:]
+            sout.append(s)
+        strlist = sout.copy()
+        #print('removin {}'.format(string_to_remove))
+        #print(strlist)
+
+    return sout
