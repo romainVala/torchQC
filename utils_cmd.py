@@ -11,9 +11,7 @@ def get_cmd_select_data_option():
 
     # Parse input arguments
     parser=OptionParser(usage=usage)
-    #parser.add_option("-h", "--help", action="help")
-    #parser.add_option("-i", "--image_in", action="store", dest="image_in", default='',
-    #                            help="full path to the image to test ")
+
     parser.add_option("-i", "--image_in", action="callback", dest="image_in", default='', callback=get_comma_separated_args,
                                 type='string', help="full path to the image to test, list separate path by , ")
     parser.add_option("--sample_dir", action="store", dest="sample_dir", default='',
