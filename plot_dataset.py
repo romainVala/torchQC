@@ -40,7 +40,7 @@ class PlotDataset:
         label_key_name: a string that gives the key of the label of the volume of interest in the dataset's samples.
         alpha: overlay opacity, used when plotting label
     """
-    def __init__(self, dataset, views=None, view_org=None, image_key_name='t1',
+    def __init__(self, dataset, views=None, view_org=None, image_key_name='image',
                  subject_idx=5, subject_org=None, figsize=(16, 9), update_all_on_scroll=False,
                  add_text=True, label_key_name=None, alpha=0.2):
         self.dataset = dataset
