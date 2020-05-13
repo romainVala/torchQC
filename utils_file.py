@@ -464,7 +464,7 @@ def gfile(dirs,regex,opts={"items":-1}):
     finaldirs=gfile(finaldirs,regex[-1],opts)
     return finaldirs
 
-def get_log_file(filename):
+def get_log_file(filename=None):
     import logging, sys
 
     # get TF logger
@@ -477,11 +477,13 @@ def get_log_file(filename):
     console.setFormatter(formatter)
     log.addHandler(console)
 
-    # create file handler which logs even debug messages
-    fh = logging.FileHandler(filename)
-    # fh.setLevel(logging.INFO)
-    fh.setFormatter(formatter)
-    log.addHandler(fh)
+    if filename is not None:
+        # create file handler which logs even debug messages
+        fh = logging.FileHandler(filename)
+        # fh.setLevel(logging.INFO)
+        fh.setFormatter(formatter)
+        log.addHandler(fh)
+
     return log
 
 def get_T1_from_sujdir(din):
