@@ -78,7 +78,6 @@ def process_volumes(left_white_volume, right_white_volume, left_pial_volume, rig
         if subject_number is not None:
             to_write.insert(0, str(subject_number))
         file.write(','.join(to_write))
-        file.write(','.join(to_write))
 
     # Clip values
     white_volume = nib.Nifti1Image(np.clip(white_volume_data, 0, 1), left_white_volume.affine)
