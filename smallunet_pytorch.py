@@ -298,6 +298,19 @@ class ConvN_FC3(nn.Module):
         return x
 
 
+    def enable_dropout(self):
+
+        for m in self.encoding_blocks.modules():
+            if m.__class__.__name__.startswith('Dropout'):
+                m.train()
+                #print('layer CONV {} is in train'.format(m.__class__.__name__))
+
+        for m in self.classifier.modules():
+            if m.__class__.__name__.startswith('Dropout'):
+                m.train()
+                #print('layer CLASS {} is in train'.format(m.__class__.__name__))
+
+
 class STNConv(nn.Module):
     def __init__(self,  in_size=[182, 218, 182], dropout=0.5 ,
                  conv_block = [8, 16, 32, 64, 128], linear_block = [50, 40], align_corners=False ):

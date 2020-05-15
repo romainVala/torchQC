@@ -217,6 +217,7 @@ class do_training():
         self.cuda = par_model['cuda']
         self.max_epochs = par_model['max_epochs']
         optim_name = par_model['optim'] if 'optim' in par_model else 'Adam'
+        self.validation_droupout = par_model['validation_droupout'] if 'validation_droupout' in par_model else False
 
         if network_name == 'unet_f':
             self.model = UNet(in_channels=1, dimensions=3, out_classes=1, num_encoding_blocks=3, out_channels_first_layer=16,
@@ -241,8 +242,10 @@ class do_training():
                 network_name += '_fnc_{}'.format(output_fnc)
             if batch_norm:
                 network_name += '_BN'
-
+            if self.validation_droupout :
+                network_name += '_VD'
         self.res_name += '_Size{}_{}_Loss_{}_lr{}'.format(in_size[0], network_name, losstype, lr)
+
         if 'Adam' not in optim_name: #only write if not default Adam
             self.res_name += '_{}'.format(optim_name)
 
@@ -401,6 +404,9 @@ class do_training():
                             basename='res_val', subdir=None):
         start = time.time()
         self.model.eval()
+        if self.validation_droupout:
+            self.model.enable_dropout()
+
         epoch_samples, epoch_loss = 0, 0
         res, extra_info = pd.DataFrame(), dict()
 

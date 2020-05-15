@@ -57,5 +57,6 @@ if __name__ == '__main__':
     out_name += name_suffix
 
     doit.set_model_from_file(saved_model, cuda=cuda)
+    doit.validation_droupout = True
 
     doit.eval_regress_motion(999, 99, basename=out_name, subdir=subdir, target=target)

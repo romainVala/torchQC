@@ -20,14 +20,14 @@ name_list_val = ['mask_mvt_val_cati_T1', 'mask_mvt_val_cati_ms', 'mask_mvt_val_c
 #name_list_val = ['mask_mvt_val_hcp200_ms', 'mask_mvt_val_hcp200_brain_ms', 'mask_mvt_val_hcp200_T1']
 
 name_list_train = [ 'ela1_train_cati_T1', 'ela1_train_cati_ms', 'ela1_train_cati_brain',
-                    'ela1_train_hcp400_ms', 'ela1_train_hcp400_T1',
+                    'ela1_train_hcp400_ms', 'ela1_train_hcp400_T1', 'mvt_train_hcp400_ms',
                 'ela1_train200_hcp400_ms']
 name_list_val = ['ela1_val_cati_T1', 'ela1_val_cati_ms', 'ela1_val_cati_brain_ms',
-                 'ela1_val_hcp200_ms', 'ela1_val_hcp200_T1',
+                 'ela1_val_hcp200_ms', 'ela1_val_hcp200_T1','mvt_val_hcp200_ms',
 		'ela1_train200_hcp400_ms']
 
-data_name_train = name_list_train[3]
-data_name_val = name_list_val[3]
+data_name_train = name_list_train[5]
+data_name_val = name_list_val[5]
 
 res_dir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion/'
 base_name = 'RegMotNew_resc_Aff'
@@ -35,13 +35,14 @@ base_name = 'RegMotNew'
 if make_uniform : base_name += '_uniform'
 
 root_fs = 'le70'
-root_fs = 'lustre'
+#root_fs = 'lustre'
 
 par_model = {'network_name': 'ConvN',
              'losstype': 'L1',
              'lr': 1e-4,
               'conv_block': [16, 32, 64, 128, 256], 'linear_block': [40, 50],
-             'dropout': 0, 'batch_norm': True, 'drop_conv':0.1,
+             'dropout': 0.4, 'batch_norm': True, 'drop_conv':0,
+             'validation_droupout': True,
              'in_size': in_size,
              'cuda': cuda, 'max_epochs': max_epochs}
 #'conv_block':[8, 16, 32, 64, 128]
