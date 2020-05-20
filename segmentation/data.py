@@ -68,8 +68,3 @@ def generate_dataset(folder, data_filename='data.json', transform_filename='tran
     dataset = torchio.ImagesDataset(subjects, transform=transform)
 
     return dataset
-
-
-def generate_json_document(filename, **kwargs):
-    with open(filename, 'w') as file:
-        json.dump(kwargs, file)

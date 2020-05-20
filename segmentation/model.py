@@ -1,14 +1,9 @@
 import json
-from importlib import import_module
 import torch
+from segmentation.utils import import_object
 
 
 default_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-def import_model(module, name, package=''):
-    mod = import_module(module, package)
-    return getattr(mod, name)
 
 
 def load_model(folder, model_filename='model.json', device=default_device):
@@ -22,7 +17,7 @@ def load_model(folder, model_filename='model.json', device=default_device):
     attributes = model.get('attributes') or {}
     load = model.get('load')
 
-    model_class = import_model(module, model_name, package)
+    model_class = import_object(module, model_name, package)
     model = model_class(**attributes)
 
     if load is not None:
