@@ -47,8 +47,27 @@ def load_data(folder, data_filename='data.json'):
     return subjects
 
 
-def generate_dataset(visualize=False):
-    pass
+def generate_dataset(folder, data_filename='data.json', transform_filename='transform.json'):
+    subjects = load_data(folder, data_filename)
+
+    with open(folder + transform_filename) as file:
+        info = json.load(file)
+        transforms = info.get('transforms')
+        selection = info.get('selection')
+
+    transform_list = []
+    for transform in transforms:
+        transform_name = transform.get('name')
+        transform_attributes = transform.get('attributes') or {}
+        transform_list.append(getattr(torchio.transforms, transform_name)(**transform_attributes))
+
+    selection_name = selection.get('name')
+    selection_attributes = selection.get('attributes') or {}
+    transform = getattr(torchio.transforms, selection_name)(transform_list, **selection_attributes)
+
+    dataset = torchio.ImagesDataset(subjects, transform=transform)
+
+    return dataset
 
 
 def generate_json_document(filename, **kwargs):
