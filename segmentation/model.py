@@ -4,9 +4,10 @@ import json
 import torch
 import time
 import logging
-from segmentation.utils import parse_object_import, parse_function_import, to_var, summary, save_checkpoint,\
+import torchio
+from torch.utils.data import DataLoader
+from segmentation.utils import parse_object_import, parse_function_import, to_var, summary, save_checkpoint, \
     instantiate_logger
-
 
 default_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -29,36 +30,38 @@ def load_model(folder, model_filename='model.json', device=default_device):
     return model.to(device)
 
 
-def train_loop(loader, model, criteria, optimizer, epoch, device, batch_size, log_frequency, logger):
+def train_loop(loader, model, criteria, optimizer, epoch, device, log_frequency, logger):
+    batch_size = loader.batch_size
     model_mode = 'Train' if model.training else 'Val'
 
     start = time.time()
     time_sum, loss_sum = 0, 0
 
-    loss, volumes, masks, pred_masks = None, None, None, None
+    average_loss = None
 
     for i, sample in enumerate(loader, 1):
-        # Take variable and put them to GPU
-        (volumes, masks, patients) = sample
+        # Take variables and make sure they are tensors on the right device
+        volumes = sample[torchio.IMAGE]
+        targets = sample[torchio.LABEL]
 
         volumes = to_var(volumes.float(), device)
-        masks = to_var(masks.float(), device)
+        targets = to_var(targets.float(), device)
 
-        # compute output
-        pred_masks = model(volumes)
+        # Compute output
+        pred_targets = model(volumes)
 
-        # compute loss
+        # Compute loss
         loss = torch.tensor(0)
         for criterion in criteria:
-            loss += criterion(pred_masks, masks)
+            loss += criterion(pred_targets, targets)
 
-        # compute gradient and do SGD step
+        # Compute gradient and do SGD step
         if model.training:
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-        # measure elapsed time
+        # Measure elapsed time
         batch_time = time.time() - start
 
         time_sum += batch_size * batch_time
@@ -71,10 +74,73 @@ def train_loop(loader, model, criteria, optimizer, epoch, device, batch_size, lo
         if i % log_frequency == 0:
             to_log = summary(epoch + 1, i, len(loader), loss, batch_time, average_loss, average_time, model_mode)
             logger.log(logging.INFO, to_log)
-    return loss
+    return average_loss
 
 
-def train(model, train_loader, val_loader, batch_size, folder, train_filename='train.json', n_epochs=10):
+def validation_loop(dataset, model, criteria, optimizer, epoch, device, log_frequency, logger, batch_size, patch_size,
+                    patch_overlap, out_channels):
+    model_mode = 'Val'
+
+    start = time.time()
+    time_sum, loss_sum = 0, 0
+
+    average_loss = None
+
+    for i, sample in enumerate(dataset, 1):
+        grid_sampler = torchio.inference.GridSampler(sample, patch_size, patch_overlap)
+        patch_loader = DataLoader(grid_sampler, batch_size=batch_size)
+        aggregator = torchio.inference.GridAggregator(sample, patch_overlap, out_channels)
+
+        for patches_batch in patch_loader:
+            # Take variables and make sure they are tensors on the right device
+            volumes = patches_batch[torchio.IMAGE]
+            targets = patches_batch[torchio.LABEL]
+            locations = sample[torchio.LOCATION]
+
+            volumes = to_var(volumes.float(), device)
+            targets = to_var(targets.float(), device)
+
+            # Compute output
+            pred_targets = model(volumes)
+            aggregator.add_batch(pred_targets, locations)
+
+        # Aggregate predictions for the whole image
+        pred_targets = aggregator.get_output_tensor()
+
+        # Load target for the whole image
+        target = sample[torchio.LABEL]
+        target = to_var(target.float(), device)
+
+        # Compute loss
+        sample_loss = torch.tensor(0)
+        for criterion in criteria:
+            sample_loss += criterion(pred_targets, target)
+
+        # Compute gradient and do SGD step
+        if model.training:
+            optimizer.zero_grad()
+            sample_loss.backward()
+            optimizer.step()
+
+        # Measure elapsed time
+        sample_time = time.time() - start
+
+        time_sum += sample_time
+        loss_sum += sample_loss
+        average_loss = loss_sum / i
+        average_time = time_sum / i
+
+        start = time.time()
+
+        if i % log_frequency == 0:
+            to_log = summary(
+                epoch + 1, i, len(dataset), sample_loss, sample_time, average_loss, average_time, model_mode, 'Sample'
+            )
+            logger.log(logging.INFO, to_log)
+    return average_loss
+
+
+def train(model, train_loader, val_loader, folder, train_filename='train.json', n_epochs=10):
     def parse_criteria(criterion_list):
         c_list = []
         for criterion in criterion_list:
@@ -82,7 +148,9 @@ def train(model, train_loader, val_loader, batch_size, folder, train_filename='t
             c_list.append(c)
         return c_list
 
-    def parse_optimizer(optimizer_dict):
+    def parse_optimizer(optimizer_dict, model):
+        attributes = optimizer_dict.get('attributes') or {}
+        attributes.update({'params': model.parameters()})
         o = parse_object_import(optimizer_dict)
         strategy = optimizer_dict.get('learning_rate_strategy')
         strategy_attributes = optimizer_dict.get('learning_rate_strategy_attributes') or {}
@@ -105,14 +173,23 @@ def train(model, train_loader, val_loader, batch_size, folder, train_filename='t
         custom = save_dict.get('custom_save')
         return save, frequency, path, custom
 
+    def parse_validation(validation_dict):
+        infer = validation_dict.get('infer_on_whole_image')
+        size = validation_dict.get('patch_size')
+        overlap = validation_dict.get('patch_overlap')
+        channels = validation_dict.get('out_channels')
+        batch = validation_dict.get('batch_size')
+        return infer, size, overlap, channels, batch
+
     device = next(model.parameters()).device
     with open(folder + train_filename) as file:
         info = json.load(file)
 
     criteria = parse_criteria(info.get('criteria'))
-    optimizer, learning_rate_strategy, learning_rate_strategy_attributes = parse_optimizer(info.get('optimizer'))
+    optimizer, learning_rate_strategy, learning_rate_strategy_attributes = parse_optimizer(info.get('optimizer'), model)
     logger, log_frequency, log_filename = parse_logger(info.get('logger'))
     save_model, save_frequency, save_path, custom_save = parse_save(info.get('save'))
+    infer_on_whole_image, patch_size, patch_overlap, out_channels, batch_size = parse_validation(info.get('validation'))
     title = info.get('title') or 'Session'
     seed = info.get('seed')
 
@@ -129,15 +206,17 @@ def train(model, train_loader, val_loader, batch_size, folder, train_filename='t
         # Train for one epoch
         model.train()
         logger.log(logging.INFO, 'Training')
-        train_loop(train_loader, model, criteria, optimizer, epoch, device, batch_size, log_frequency, logger)
+        train_loop(train_loader, model, criteria, optimizer, epoch, device, log_frequency, logger)
 
         # Evaluate on validation set
         logger.log(logging.INFO, 'Validation')
         with torch.no_grad():
             model.eval()
-            val_loss = train_loop(
-                val_loader, model, criteria, optimizer, epoch, device, batch_size, log_frequency, logger
-            )
+            if infer_on_whole_image:
+                val_loss = validation_loop(val_loader, model, criteria, optimizer, epoch, device, log_frequency, logger,
+                                           batch_size, patch_size, patch_overlap, out_channels)
+            else:
+                val_loss = train_loop(val_loader, model, criteria, optimizer, epoch, device, log_frequency, logger)
             if save_model and epoch % save_frequency == 0:
                 state = {'epoch': epoch,
                          'state_dict': model.state_dict(),
