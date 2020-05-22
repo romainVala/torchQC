@@ -49,14 +49,13 @@ def to_numpy(x):
     return x
 
 
-def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time, mode):
-    string = '[' + str(mode) + '] Epoch: [{0}][{1}/{2}]\t'.format(
-        epoch, i, nb_batch)
+def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time, mode, granularity='Batch'):
+    string = f'[{str(mode)}] Epoch: [{epoch}][{i}/{nb_batch}]\t'
 
-    string += 'Batch Loss {:.4f} '.format(loss)
-    string += '(Average {:.4f}) \t'.format(average_loss)
-    string += 'Batch Time {:.4f} '.format(batch_time)
-    string += '(Average {:.4f}) \t'.format(average_time)
+    string += f'{granularity} Loss {loss:.4f} '
+    string += f'(Average {average_loss:.4f}) \t'
+    string += f'{granularity} Time {batch_time:.4f} '
+    string += f'(Average {average_time:.4f}) \t'
 
     return string
 
