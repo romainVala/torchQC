@@ -2,6 +2,7 @@
 
 import glob
 import json
+import re
 import multiprocessing
 import numpy as np
 import torchio
@@ -26,6 +27,17 @@ def load_data(folder, data_filename='data.json'):
             return test_list
         return default_list
 
+    def dict_to_subject_list(subject_dict):
+        return list(map(lambda s: torchio.Subject(s), subject_dict.values()))
+
+    def get_name(name_pattern, string):
+        if name_pattern is None:
+            string_split = string.split('/')
+            return string_split[-1] if len(string_split[-1]) > 0 else string_split[-2]
+        else:
+            matches = re.findall(name_pattern, string)
+            return matches[-1]
+
     with open(folder + data_filename) as file:
         info = json.load(file)
 
@@ -36,35 +48,41 @@ def load_data(folder, data_filename='data.json'):
     assert(sum(train_val_test_repartition) == 1)
     seed = info.get('seed')
 
-    subjects, train_subjects, val_subjects, test_subjects = [], [], [], []
+    subjects, train_subjects, val_subjects, test_subjects = {}, {}, {}, {}
 
     # Using patterns
     for pattern in patterns:
         root = pattern.get('root')
         list_name = pattern.get('list_name')
-        relevant_list = get_relevant_list(subjects, train_subjects, val_subjects, test_subjects, list_name)
+        relevant_dict = get_relevant_list(subjects, train_subjects, val_subjects, test_subjects, list_name)
         for folder_path in glob.glob(root):
-            path_split = folder_path.split('/')
-            name = path_split[-1] if len(path_split[-1]) > 0 else path_split[-2]
-            subject = {'name': name}
+            name = get_name(pattern.get('name_pattern'), folder_path)
+            subject = relevant_dict.get(name) or {}
 
             for modality_name, modality_path in pattern.get('modalities').items():
                 modality_path = glob.glob(folder_path + modality_path)[0]
                 update_subject(subject, modalities, modality_name, modality_path)
 
-            relevant_list.append(torchio.Subject(subject))
+            subject['name'] = name
+            relevant_dict[name] = subject
 
     # Using paths
     for path in paths:
-        name = path.get('name') or f'{len(subjects):0>6}'
-        subject = {'name': name}
+        name = path.get('name') or f'{len(subjects) + len(train_subjects) + len(val_subjects) + len(test_subjects):0>6}'
         list_name = path.get('list_name')
-        relevant_list = get_relevant_list(subjects, train_subjects, val_subjects, test_subjects, list_name)
+        relevant_dict = get_relevant_list(subjects, train_subjects, val_subjects, test_subjects, list_name)
+        subject = relevant_dict.get(name) or {}
 
         for modality_name, modality_path in path.get('modalities').items():
             update_subject(subject, modalities, modality_name, modality_path)
 
-        relevant_list.append(torchio.Subject(subject))
+        subject['name'] = name
+        relevant_dict[name] = subject
+
+    subjects = dict_to_subject_list(subjects)
+    train_subjects = dict_to_subject_list(train_subjects)
+    val_subjects = dict_to_subject_list(val_subjects)
+    test_subjects = dict_to_subject_list(test_subjects)
 
     np.random.seed(seed)
     np.random.shuffle(subjects)
