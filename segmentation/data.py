@@ -7,6 +7,7 @@ import multiprocessing
 import numpy as np
 import torchio
 from torch.utils.data import DataLoader
+from segmentation.utils import parse_function_import
 
 
 def load_data(folder, data_filename='data.json'):
@@ -97,22 +98,33 @@ def load_data(folder, data_filename='data.json'):
     return train_subjects, val_subjects, test_subjects
 
 
-def generate_dataset(subjects, folder, transform_filename='transform.json'):
+def generate_dataset(subjects, folder, transform_filename='transform.json', prefix='train'):
+    def parse_transform(t):
+        name = t.get('name')
+        attributes = t.get('attributes') or {}
+        if t.get('is_custom'):
+            t_class = parse_function_import(t)
+        else:
+            t_class = getattr(torchio.transforms, name)
+        if t.get('is_selection'):
+            t_dict = {}
+            for p_and_t in t.get('transforms'):
+                proba = p_and_t.get('proba')
+                inner_t = p_and_t.get('transform')
+                t_dict[parse_transform(inner_t)] = proba
+            return t_class(t_dict, **attributes)
+        else:
+            return t_class(**attributes)
+
     with open(folder + transform_filename) as file:
         info = json.load(file)
-        transforms = info.get('transforms')
-        selection = info.get('selection')
+        transforms = info.get(f'{prefix}_transforms')
 
     transform_list = []
     for transform in transforms:
-        transform_name = transform.get('name')
-        transform_attributes = transform.get('attributes') or {}
-        transform_list.append(getattr(torchio.transforms, transform_name)(**transform_attributes))
+        transform_list.append(parse_transform(transform))
 
-    selection_name = selection.get('name')
-    selection_attributes = selection.get('attributes') or {}
-    transform = getattr(torchio.transforms, selection_name)(transform_list, **selection_attributes)
-
+    transform = torchio.transforms.Compose(transform_list)
     dataset = torchio.ImagesDataset(subjects, transform=transform)
 
     return dataset
