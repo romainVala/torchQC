@@ -118,7 +118,7 @@ def generate_dataset(subjects, folder, transform_filename='transform.json'):
     return dataset
 
 
-def generate_dataloader(training_set, validation_set, folder, loader_filename='loader.json'):
+def generate_dataloader(dataset, folder, loader_filename='loader.json', train=True):
     with open(folder + loader_filename) as file:
         info = json.load(file)
 
@@ -131,16 +131,16 @@ def generate_dataloader(training_set, validation_set, folder, loader_filename='l
         num_workers = multiprocessing.cpu_count()
 
     if queue is None:
-        training_loader = DataLoader(training_set, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-        validation_loader = DataLoader(validation_set, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+        loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     else:
-        queue_attributes = queue.get('attributes')
-        sampler_class = queue.get('sampler_class')
-        sampler_class = getattr(torchio.data.sampler, sampler_class)
-        queue_attributes.update({'num_workers': num_workers, 'sampler_class': sampler_class})
-        queue = torchio.Queue(training_set, **queue_attributes)
-        training_loader = DataLoader(queue, batch_size)
+        if train:
+            queue_attributes = queue.get('attributes')
+            sampler_class = queue.get('sampler_class')
+            sampler_class = getattr(torchio.data.sampler, sampler_class)
+            queue_attributes.update({'num_workers': num_workers, 'sampler_class': sampler_class})
+            queue = torchio.Queue(dataset, **queue_attributes)
+            loader = DataLoader(queue, batch_size)
+        else:
+            loader = dataset
 
-        validation_loader = validation_set
-
-    return training_loader, validation_loader
+    return loader
