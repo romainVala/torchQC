@@ -9,15 +9,19 @@ from torch.utils.data import DataLoader
 from segmentation.utils import parse_object_import, parse_function_import, to_var, summary, save_checkpoint, \
     instantiate_logger
 
-default_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
-def load_model(folder, model_filename='model.json', device=default_device):
+def load_model(folder, model_filename='model.json'):
     with open(folder + model_filename) as file:
         info = json.load(file)
 
     model = info.get('model')
     load = model.get('load')
+
+    device_name = info.get('device') or 'cuda'
+    if device_name == 'cuda' and torch.cuda.is_available():
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
 
     model, model_class = parse_object_import(model)
 
@@ -30,7 +34,8 @@ def load_model(folder, model_filename='model.json', device=default_device):
     return model.to(device)
 
 
-def train_loop(loader, model, criteria, optimizer, epoch, device, log_frequency, logger):
+def train_loop(loader, model, criteria, optimizer, epoch, device, log_frequency, logger, image_key_name='image',
+               label_key_name='label'):
     batch_size = loader.batch_size
     model_mode = 'Train' if model.training else 'Val'
 
@@ -41,17 +46,17 @@ def train_loop(loader, model, criteria, optimizer, epoch, device, log_frequency,
 
     for i, sample in enumerate(loader, 1):
         # Take variables and make sure they are tensors on the right device
-        volumes = sample[torchio.IMAGE]
-        targets = sample[torchio.LABEL]
+        volumes = sample[image_key_name]
+        targets = sample[label_key_name]
 
-        volumes = to_var(volumes.float(), device)
-        targets = to_var(targets.float(), device)
+        volumes = to_var(volumes[torchio.DATA].float(), device)
+        targets = to_var(targets[torchio.DATA].float(), device)
 
         # Compute output
         pred_targets = model(volumes)
 
         # Compute loss
-        loss = torch.tensor(0)
+        loss = 0
         for criterion in criteria:
             loss += criterion(pred_targets, targets)
 
@@ -78,7 +83,7 @@ def train_loop(loader, model, criteria, optimizer, epoch, device, log_frequency,
 
 
 def validation_loop(dataset, model, criteria, optimizer, epoch, device, log_frequency, logger, batch_size, patch_size,
-                    patch_overlap, out_channels):
+                    patch_overlap, out_channels, image_key_name='image', label_key_name='label'):
     model_mode = 'Val'
 
     start = time.time()
@@ -93,26 +98,24 @@ def validation_loop(dataset, model, criteria, optimizer, epoch, device, log_freq
 
         for patches_batch in patch_loader:
             # Take variables and make sure they are tensors on the right device
-            volumes = patches_batch[torchio.IMAGE]
-            targets = patches_batch[torchio.LABEL]
-            locations = sample[torchio.LOCATION]
+            volumes = patches_batch[image_key_name]
+            locations = patches_batch[torchio.LOCATION]
 
-            volumes = to_var(volumes.float(), device)
-            targets = to_var(targets.float(), device)
+            volumes = to_var(volumes[torchio.DATA].float(), device)
 
             # Compute output
             pred_targets = model(volumes)
             aggregator.add_batch(pred_targets, locations)
 
         # Aggregate predictions for the whole image
-        pred_targets = aggregator.get_output_tensor()
+        pred_targets = to_var(aggregator.get_output_tensor(), device)
 
         # Load target for the whole image
-        target = sample[torchio.LABEL]
-        target = to_var(target.float(), device)
+        target = sample[label_key_name]
+        target = to_var(target[torchio.DATA].float(), device)
 
         # Compute loss
-        sample_loss = torch.tensor(0)
+        sample_loss = 0
         for criterion in criteria:
             sample_loss += criterion(pred_targets, target)
 
@@ -151,7 +154,7 @@ def train(model, train_loader, val_loader, folder, train_filename='train.json', 
     def parse_optimizer(optimizer_dict, model):
         attributes = optimizer_dict.get('attributes') or {}
         attributes.update({'params': model.parameters()})
-        o = parse_object_import(optimizer_dict)
+        o, _ = parse_object_import(optimizer_dict)
         strategy = optimizer_dict.get('learning_rate_strategy')
         strategy_attributes = optimizer_dict.get('learning_rate_strategy_attributes') or {}
         if strategy is not None:
@@ -192,6 +195,8 @@ def train(model, train_loader, val_loader, folder, train_filename='train.json', 
     infer_on_whole_image, patch_size, patch_overlap, out_channels, batch_size = parse_validation(info.get('validation'))
     title = info.get('title') or 'Session'
     seed = info.get('seed')
+    image_key_name = info.get('image_key_name')
+    label_key_name = info.get('label_key_name')
 
     session_name = f'{title}_{time.strftime("%m.%d %Hh%M")}'
     logger.log(logging.INFO, session_name)
@@ -206,7 +211,8 @@ def train(model, train_loader, val_loader, folder, train_filename='train.json', 
         # Train for one epoch
         model.train()
         logger.log(logging.INFO, 'Training')
-        train_loop(train_loader, model, criteria, optimizer, epoch, device, log_frequency, logger)
+        train_loop(train_loader, model, criteria, optimizer, epoch, device, log_frequency, logger, image_key_name,
+                   label_key_name)
 
         # Evaluate on validation set
         logger.log(logging.INFO, 'Validation')
@@ -214,9 +220,11 @@ def train(model, train_loader, val_loader, folder, train_filename='train.json', 
             model.eval()
             if infer_on_whole_image:
                 val_loss = validation_loop(val_loader, model, criteria, optimizer, epoch, device, log_frequency, logger,
-                                           batch_size, patch_size, patch_overlap, out_channels)
+                                           batch_size, patch_size, patch_overlap, out_channels, image_key_name,
+                                           label_key_name)
             else:
-                val_loss = train_loop(val_loader, model, criteria, optimizer, epoch, device, log_frequency, logger)
+                val_loss = train_loop(val_loader, model, criteria, optimizer, epoch, device, log_frequency, logger,
+                                      image_key_name, label_key_name)
             if save_model and epoch % save_frequency == 0:
                 state = {'epoch': epoch,
                          'state_dict': model.state_dict(),
