@@ -143,7 +143,7 @@ def validation_loop(dataset, model, criteria, optimizer, epoch, device, log_freq
     return average_loss
 
 
-def train(model, train_loader, val_loader, folder, train_filename='train.json', n_epochs=10):
+def train(model, train_loader, val_loader, folder, train_filename='train.json'):
     def parse_criteria(criterion_list):
         c_list = []
         for criterion in criterion_list:
@@ -193,6 +193,7 @@ def train(model, train_loader, val_loader, folder, train_filename='train.json', 
     logger, log_frequency, log_filename = parse_logger(info.get('logger'))
     save_model, save_frequency, save_path, custom_save = parse_save(info.get('save'))
     infer_on_whole_image, patch_size, patch_overlap, out_channels, batch_size = parse_validation(info.get('validation'))
+    n_epochs = info.get('n_epochs')
     title = info.get('title') or 'Session'
     seed = info.get('seed')
     image_key_name = info.get('image_key_name')
