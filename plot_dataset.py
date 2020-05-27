@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from typing import Sequence
 from functools import reduce
 from itertools import product
+import copy
 from torch.utils.data import Dataset
 
 
@@ -15,7 +16,7 @@ class PlotDataset:
     Scrolling on the different images enable to navigate sections.
 
     Args:
-        dataset: a torchio.ImagesDataset
+        dataset: a torchio.ImagesDataset or a batch generated from a torchio.ImagesDataset using pytorch DataLoader.
         views: None or a sequence of views, each view is given as (view_type, coordinate_system, position),
             view_type is one among "sag", "ax" and "cor" which corresponds to sagittal, axial and coronal slices;
             coordinate_system is one among "vox" or "mm" and is responsible for placing the slice using position
@@ -24,7 +25,7 @@ class PlotDataset:
             If no value is provided, the default views are used:
             [['sag', 'vox', 50], ['ax', 'vox', 50], ['cor', 'vox', 50]].
         view_org: None or a sequence of length 2, responsible for the organisation of views in subplots.
-            Default is (len(views), 1)
+            Default is (len(views), 1).
         image_key_name: a string that gives the key of the volume of interest in the dataset's samples.
         subject_idx: None, an integer or a sequence of integers. Defines which subjects are plotted.
             If subject_idx is a sequence of integers, it is directly used as the list of indexes,
@@ -36,30 +37,38 @@ class PlotDataset:
         figsize: Sequence of length 2, size of the figure.
         update_all_on_scroll: bool, if True all views with the same view_type and coordinate_system are updated
             when scrolling on one of them. Doing so supposes that they all have the same shape. Default is False.
-        add_text: Boolean to choose if you want the axis legend to be printed default True
+        add_text: Boolean to choose if you want the axis legend to be printed default True.
         label_key_name: a string that gives the key of the label of the volume of interest in the dataset's samples.
-        alpha: overlay opacity, used when plotting label
+        alpha: overlay opacity, used when plotting label.
+        batch: a batch of patches to plot over the subjects.
+        batch_mapping_key: the key on which to map patches to subjects.
     """
     def __init__(self, dataset, views=None, view_org=None, image_key_name='image',
                  subject_idx=5, subject_org=None, figsize=(16, 9), update_all_on_scroll=False,
-                 add_text=True, label_key_name=None, alpha=0.2):
-        self.dataset = dataset
+                 add_text=True, label_key_name=None, alpha=0.2, batch=None, batch_mapping_key='name'):
+        self.dataset = copy.deepcopy(dataset)
         self.add_text = add_text
         self.views = views if views is not None else vox_views
         self.view_org = self.parse_view_org(view_org)
         self.image_key_name = image_key_name
+        self.label_key_name = label_key_name
+
+        self.cached_images_and_affines = {}
+        self.cached_labels = {}
+
+        if batch is not None:
+            subject_idx = self.parse_batch(copy.deepcopy(batch), batch_mapping_key)
+
         self.subject_idx = self.parse_subject_idx(subject_idx)
         self.subject_org = self.parse_subject_org(subject_org)
         self.figsize = figsize
         self.update_all_on_scroll = update_all_on_scroll
-        self.label_key_name = label_key_name
+
         self.alpha = alpha
 
         self.imgs = {}
         self.figs_and_axes = []
         self.axes2view = {}
-        self.cached_images_and_affines = {}
-        self.cached_labels = {}
 
         self.coordinate_system_list = ["vox", "mm"]
         self.view_type_list = ["sag", "cor", "ax"]
@@ -74,6 +83,36 @@ class PlotDataset:
             return view_org
         else:
             return len(self.views), 1
+
+    def parse_batch(self, batch, mapping_key):
+        subject_idx = []
+        for subject in filter(lambda s: s[mapping_key] in batch[mapping_key], self.dataset):
+            sub_idx = next(i for i, x in enumerate(self.dataset) if x[mapping_key] == subject[mapping_key])
+            subject_idx.append(sub_idx)
+            patch_indexes = [i for i, x in enumerate(batch[mapping_key]) if x == subject[mapping_key]]
+            for patch_index in patch_indexes:
+                patch = batch[self.image_key_name]['data'].numpy()[patch_index][0]
+                x, y, z = batch['index_ini'][patch_index]
+                w, h, d = patch.shape
+
+                patch[0, :, :] = 1
+                patch[-1, :, :] = 1
+                patch[:, 0, :] = 1
+                patch[:, -1, :] = 1
+                patch[:, :, 0] = 1
+                patch[:, :, -1] = 1
+
+                subject[self.image_key_name]['data'].numpy()[0][x:x + w, y:y + h, z:z + d] = patch
+
+                self.cached_images_and_affines[sub_idx] = (subject[self.image_key_name]['data'].numpy()[0],
+                                                           subject[self.image_key_name]['affine'])
+
+                if self.label_key_name is not None:
+                    patch_label = batch[self.label_key_name]['data'].numpy()[patch_index][0]
+                    subject[self.label_key_name]['data'].numpy()[0][x:x + w, y:y + h, z:z + d] = patch_label
+
+                    self.cached_labels[sub_idx] = subject[self.label_key_name]['data'].numpy()[0]
+        return subject_idx
 
     def parse_subject_idx(self, subject_idx):
         if isinstance(self.dataset, Dataset):
