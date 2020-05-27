@@ -1,13 +1,17 @@
 """ Load model, use it and save it """
 
+import os
 import json
 import torch
 import time
 import logging
+import numpy as np
+import pandas as pd
+from pathlib import Path
 import torchio
 from torch.utils.data import DataLoader
 from segmentation.utils import parse_object_import, parse_function_import, to_var, summary, save_checkpoint, \
-    instantiate_logger
+    instantiate_logger, to_numpy
 
 
 def load_model(folder, model_filename='model.json'):
@@ -34,15 +38,20 @@ def load_model(folder, model_filename='model.json'):
     return model.to(device)
 
 
-def train_loop(loader, model, criteria, optimizer, epoch, device, log_frequency, logger, image_key_name='image',
-               label_key_name='label'):
+def train_loop(loader, model, criteria, optimizer, epoch, device, log_frequency, logger, save_path,
+               image_key_name='image', label_key_name='label', reporting_metrics=None, eval_loader=None,
+               eval_frequency=None, iterations=None, record_frequency=1, custom_save=False):
     batch_size = loader.batch_size
     model_mode = 'Train' if model.training else 'Val'
+
+    if eval_frequency is None:
+        eval_frequency = np.inf
 
     start = time.time()
     time_sum, loss_sum = 0, 0
 
     average_loss = None
+    df = pd.DataFrame()
 
     for i, sample in enumerate(loader, 1):
         # Take variables and make sure they are tensors on the right device
@@ -77,13 +86,41 @@ def train_loop(loader, model, criteria, optimizer, epoch, device, log_frequency,
         start = time.time()
 
         if i % log_frequency == 0:
-            to_log = summary(epoch + 1, i, len(loader), loss, batch_time, average_loss, average_time, model_mode)
+            to_log = summary(epoch, i, len(loader), loss, batch_time, average_loss, average_time, model_mode)
             logger.log(logging.INFO, to_log)
+
+        if i % eval_frequency == 0:
+            with torch.no_grad():
+                model.eval()
+                train_loop(eval_loader, model, criteria, optimizer, epoch, device, log_frequency, logger, save_path,
+                           image_key_name, label_key_name, reporting_metrics, iterations=i, custom_save=custom_save)
+                model.train()
+
+        if i % record_frequency == 0:
+            df = record_batch(df, save_path, i, sample, pred_targets, targets, batch_time, batch_size, model_mode,
+                              criteria, epoch, image_key_name, label_key_name, reporting_metrics, iterations, save=True)
+
+            if model_mode == 'Train':
+                df = pd.DataFrame()
+        else:
+            df = record_batch(df, save_path, i, sample, pred_targets, targets, batch_time, batch_size, model_mode,
+                              criteria, epoch, image_key_name, label_key_name, reporting_metrics, iterations,
+                              save=False)
+
+    if model_mode == 'Val':
+        state = {'epoch': epoch,
+                 'iterations': iterations,
+                 'val_loss': average_loss,
+                 'state_dict': model.state_dict(),
+                 'optimizer': optimizer.state_dict()}
+        save_checkpoint(state, save_path, custom_save, model)
+
     return average_loss
 
 
-def validation_loop(dataset, model, criteria, optimizer, epoch, device, log_frequency, logger, batch_size, patch_size,
-                    patch_overlap, out_channels, image_key_name='image', label_key_name='label'):
+def whole_image_loop(dataset, model, criteria, optimizer, epoch, device, log_frequency, logger, batch_size, patch_size,
+                     patch_overlap, out_channels, save_path, image_key_name='image', label_key_name='label',
+                     reporting_metrics=None):
     model_mode = 'Val'
 
     start = time.time()
@@ -137,13 +174,16 @@ def validation_loop(dataset, model, criteria, optimizer, epoch, device, log_freq
 
         if i % log_frequency == 0:
             to_log = summary(
-                epoch + 1, i, len(dataset), sample_loss, sample_time, average_loss, average_time, model_mode, 'Sample'
+                epoch, i, len(dataset), sample_loss, sample_time, average_loss, average_time, model_mode, 'Sample'
             )
             logger.log(logging.INFO, to_log)
+
+        record_whole_image(save_path, sample, pred_targets, target, sample_time, model_mode, criteria, epoch,
+                           image_key_name, label_key_name, reporting_metrics)
     return average_loss
 
 
-def train(model, train_loader, val_loader, folder, train_filename='train.json'):
+def train(model, train_loader, val_loader, val_set, folder, train_filename='train.json'):
     def parse_criteria(criterion_list):
         c_list = []
         for criterion in criterion_list:
@@ -174,15 +214,19 @@ def train(model, train_loader, val_loader, folder, train_filename='train.json'):
         frequency = save_dict.get('save_frequency')
         path = save_dict.get('save_path')
         custom = save_dict.get('custom_save')
-        return save, frequency, path, custom
+        rec_frequency = save_dict.get('record_frequency')
+        return save, frequency, path, custom, rec_frequency
 
     def parse_validation(validation_dict):
-        infer = validation_dict.get('infer_on_whole_image')
+        inference_frequency = validation_dict.get('whole_image_inference_frequency') or np.inf
         size = validation_dict.get('patch_size')
         overlap = validation_dict.get('patch_overlap')
         channels = validation_dict.get('out_channels')
         batch = validation_dict.get('batch_size')
-        return infer, size, overlap, channels, batch
+        metrics = validation_dict.get('reporting_metrics') or []
+        metrics = parse_criteria(metrics)
+        val_frequency = validation_dict.get('eval_frequency')
+        return inference_frequency, size, overlap, channels, batch, metrics, val_frequency
 
     device = next(model.parameters()).device
     with open(folder + train_filename) as file:
@@ -191,8 +235,9 @@ def train(model, train_loader, val_loader, folder, train_filename='train.json'):
     criteria = parse_criteria(info.get('criteria'))
     optimizer, learning_rate_strategy, learning_rate_strategy_attributes = parse_optimizer(info.get('optimizer'), model)
     logger, log_frequency, log_filename = parse_logger(info.get('logger'))
-    save_model, save_frequency, save_path, custom_save = parse_save(info.get('save'))
-    infer_on_whole_image, patch_size, patch_overlap, out_channels, batch_size = parse_validation(info.get('validation'))
+    save_model, save_frequency, save_path, custom_save, record_frequency = parse_save(info.get('save'))
+    whole_image_inference_frequency, patch_size, patch_overlap, out_channels, \
+        batch_size, reporting_metrics, eval_frequency = parse_validation(info.get('validation'))
     n_epochs = info.get('n_epochs')
     title = info.get('title') or 'Session'
     seed = info.get('seed')
@@ -206,33 +251,110 @@ def train(model, train_loader, val_loader, folder, train_filename='train.json'):
     if seed is not None:
         torch.manual_seed(seed)
 
-    for epoch in range(n_epochs):
-        logger.log(logging.INFO, '******** Epoch [{}/{}]  ********'.format(epoch + 1, n_epochs))
+    for epoch in range(1, n_epochs + 1):
+        logger.log(logging.INFO, '******** Epoch [{}/{}]  ********'.format(epoch, n_epochs))
 
         # Train for one epoch
         model.train()
         logger.log(logging.INFO, 'Training')
-        train_loop(train_loader, model, criteria, optimizer, epoch, device, log_frequency, logger, image_key_name,
-                   label_key_name)
+        train_loop(train_loader, model, criteria, optimizer, epoch, device, log_frequency, logger, save_path,
+                   image_key_name, label_key_name, reporting_metrics, val_loader, eval_frequency,
+                   record_frequency=record_frequency, custom_save=custom_save)
 
-        # Evaluate on validation set
-        logger.log(logging.INFO, 'Validation')
+        # Evaluate on whole images of the validation set
         with torch.no_grad():
             model.eval()
-            if infer_on_whole_image:
-                val_loss = validation_loop(val_loader, model, criteria, optimizer, epoch, device, log_frequency, logger,
-                                           batch_size, patch_size, patch_overlap, out_channels, image_key_name,
-                                           label_key_name)
-            else:
-                val_loss = train_loop(val_loader, model, criteria, optimizer, epoch, device, log_frequency, logger,
-                                      image_key_name, label_key_name)
-            if save_model and epoch % save_frequency == 0:
-                state = {'epoch': epoch,
-                         'state_dict': model.state_dict(),
-                         'val_loss': val_loss,
-                         'optimizer': optimizer.state_dict()}
-                save_checkpoint(state, save_path, custom_save, model)
+            if epoch % whole_image_inference_frequency == 0:
+                logger.log(logging.INFO, 'Validation')
+                whole_image_loop(val_set, model, criteria, optimizer, epoch, device, log_frequency, logger, batch_size,
+                                 patch_size, patch_overlap, out_channels, save_path, image_key_name, label_key_name,
+                                 reporting_metrics)
+
+        # Save model
+        if save_model and epoch % save_frequency == 0:
+            state = {'epoch': epoch,
+                     'state_dict': model.state_dict(),
+                     'optimizer': optimizer.state_dict()}
+            save_checkpoint(state, save_path, custom_save, model)
 
         # Update learning rate
         if learning_rate_strategy is not None:
             optimizer = learning_rate_strategy(optimizer, log_filename, **learning_rate_strategy_attributes)
+
+
+def record_batch(df, save_path, i, sample, pred_targets, targets, batch_time, batch_size, mode, criteria, epoch,
+                 image_key_name='t1', label_key_name='label', reporting_metrics=None, iterations=None, save=False):
+    location = sample.get('index_ini')
+    shape = sample[label_key_name]['data'].shape[2:]
+    size = np.product(shape)
+
+    for idx in range(batch_size):
+        info = {
+            'name': sample['name'][idx],
+            'image_filename': sample[image_key_name]['path'][idx],
+            'label_filename': sample[label_key_name]['path'][idx],
+            'shape': to_numpy(shape),
+            'occupied_volume': to_numpy(sample[label_key_name]['data'][idx].sum() / size),
+            'batch_time': batch_time,
+            'batch_size': batch_size
+        }
+
+        if location is not None:
+            info['location'] = to_numpy(location[idx])
+
+        loss = 0
+        for criterion in criteria:
+            loss += criterion(pred_targets[idx], targets[idx])
+        info['loss'] = to_numpy(loss)
+
+        if mode == 'Val':
+            for metric in reporting_metrics:
+                info[f'metric_{metric.__name__}'] = to_numpy(metric(pred_targets[idx], targets[idx]))
+
+        df = df.append(info, ignore_index=True)
+
+    if save:
+        if not os.path.isdir(save_path):
+            os.makedirs(save_path)
+
+        filename = f'{save_path}/{mode}_ep{epoch}_it{i if iterations is None else iterations}.csv'
+        df.to_csv(filename)
+
+    return df
+
+
+def record_whole_image(save_path, sample, pred_targets, targets, sample_time, mode, criteria, epoch,
+                       image_key_name='t1', label_key_name='label', reporting_metrics=None):
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path)
+
+    filename = f'{save_path}/{mode}_inference_ep{epoch}.csv'
+    if Path(filename).is_file():
+        df = pd.read_csv(filename, index_col=0)
+    else:
+        df = pd.DataFrame()
+
+    shape = sample[label_key_name]['data'].shape[1:]
+    size = np.product(shape)
+
+    info = {
+        'name': sample['name'],
+        'image_filename': sample[image_key_name]['path'],
+        'label_filename': sample[label_key_name]['path'],
+        'shape': to_numpy(shape),
+        'occupied_volume': to_numpy(sample[label_key_name]['data'].sum() / size),
+        'sample_time': sample_time
+    }
+
+    loss = 0
+    for criterion in criteria:
+        loss += criterion(pred_targets, targets)
+    info['loss'] = to_numpy(loss)
+
+    if mode == 'Val':
+        for metric in reporting_metrics:
+            info[f'metric_{metric.__name__}'] = to_numpy(metric(pred_targets, targets))
+
+    df = df.append(info, ignore_index=True)
+
+    df.to_csv(filename)

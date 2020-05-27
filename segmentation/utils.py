@@ -43,9 +43,12 @@ def to_var(x, device):
 
 def to_numpy(x):
     if not (isinstance(x, np.ndarray) or x is None):
-        if x.is_cuda:
+        if hasattr(x, 'cuda') and x.is_cuda:
             x = x.data.cpu()
-        x = x.numpy()
+        if hasattr(x, 'numpy'):
+            x = x.numpy()
+        else:
+            x = np.array(x)
     return x
 
 
@@ -81,10 +84,17 @@ def save_checkpoint(state, save_path, custom_save=False, model=None):
     if not os.path.isdir(save_path):
         os.makedirs(save_path)
 
-    epoch = state['epoch']
-    val_loss = state['val_loss']
-    filename = save_path + '/' + \
-        'model.{:02d}--{:.3f}.pth.tar'.format(epoch, val_loss)
+    epoch = state.get('epoch')
+    val_loss = state.get('val_loss')
+    iterations = state.get('iterations')
+
+    filename = f'{save_path}/model_ep{epoch}'
+    if iterations is not None:
+        filename += f'_it{iterations}'
+    if val_loss is not None:
+        filename += f'_loss{val_loss:0.4f}'
+    filename += '.pth.tar'
+
     if custom_save:
         model.save(filename)
     else:

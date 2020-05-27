@@ -130,7 +130,7 @@ def generate_dataset(subjects, folder, transform_filename='transform.json', pref
     return dataset
 
 
-def generate_dataloader(dataset, folder, loader_filename='loader.json', train=True):
+def generate_dataloader(dataset, folder, loader_filename='loader.json'):
     with open(folder + loader_filename) as file:
         info = json.load(file)
 
@@ -145,14 +145,11 @@ def generate_dataloader(dataset, folder, loader_filename='loader.json', train=Tr
     if queue is None:
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     else:
-        if train:
-            queue_attributes = queue.get('attributes')
-            sampler_class = queue.get('sampler_class')
-            sampler_class = getattr(torchio.data.sampler, sampler_class)
-            queue_attributes.update({'num_workers': num_workers, 'sampler_class': sampler_class})
-            queue = torchio.Queue(dataset, **queue_attributes)
-            loader = DataLoader(queue, batch_size)
-        else:
-            loader = dataset
+        queue_attributes = queue.get('attributes')
+        sampler_class = queue.get('sampler_class')
+        sampler_class = getattr(torchio.data.sampler, sampler_class)
+        queue_attributes.update({'num_workers': num_workers, 'sampler_class': sampler_class})
+        queue = torchio.Queue(dataset, **queue_attributes)
+        loader = DataLoader(queue, batch_size)
 
     return loader

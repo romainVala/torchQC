@@ -40,8 +40,8 @@ if __name__ == "__main__":
     test_set = generate_dataset(test_subjects, folder, transform_filename, prefix='val')
 
     train_loader = generate_dataloader(train_set, folder, loader_filename)
-    val_loader = generate_dataloader(val_set, folder, loader_filename, train=False)
-    test_loader = generate_dataloader(test_set, folder, loader_filename, train=False)
+    val_loader = generate_dataloader(val_set, folder, loader_filename)
+    test_loader = generate_dataloader(test_set, folder, loader_filename)
 
     # Visualize data
     if args.visualization > 0:
@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
     # Train model
     if args.mode == 'train':
-        train(model, train_loader, val_loader, folder, train_filename)
+        train(model, train_loader, val_loader, val_set, folder, train_filename)
 
     # Infer results on test data
     else:
