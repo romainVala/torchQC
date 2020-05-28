@@ -12,6 +12,7 @@ import torchio
 from torch.utils.data import DataLoader
 from segmentation.utils import parse_object_import, parse_function_import, to_var, summary, save_checkpoint, \
     instantiate_logger, to_numpy
+from segmentation.visualization import report_loss
 
 
 def load_model(folder, model_filename='model.json'):
@@ -280,6 +281,9 @@ def train(model, train_loader, val_loader, val_set, folder, train_filename='trai
         # Update learning rate
         if learning_rate_strategy is not None:
             optimizer = learning_rate_strategy(optimizer, log_filename, **learning_rate_strategy_attributes)
+
+    # Report loss
+    report_loss(save_path)
 
 
 def record_batch(df, save_path, i, sample, pred_targets, targets, batch_time, batch_size, mode, criteria, epoch,
