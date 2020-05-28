@@ -46,6 +46,13 @@ if __name__ == '__main__':
 
     doit, name_suffix, target = get_dataset_from_option(options)
     dataset = doit.train_dataset
-    int_plot = PlotDataset(dataset, subject_idx=options.nb_display, update_all_on_scroll=True)
+    #int_plot = PlotDataset(dataset, subject_idx=options.nb_display, update_all_on_scroll=True)
+    image_key_name = 'original' if options.add_orig else 'image'
+
+    int_plot = PlotDataset(dataset, subject_idx=64, update_all_on_scroll=True, add_text=False,
+                           subject_org=(8,8), views=(('sag','vox',40),('ax','vox',50)), view_org=(1,2),
+                           image_key_name = image_key_name
+                           )
 
     plt.show()
+#(view_type, coordinate_system, position)
