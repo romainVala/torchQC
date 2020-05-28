@@ -1,5 +1,5 @@
 from doit_train import do_training, get_motion_transform, get_train_and_val_csv, get_cache_dir
-from torchio.transforms import CropOrPad, RandomAffine, RescaleIntensity, ApplyMask, RandomBiasField
+from torchio.transforms import CropOrPad, RandomAffine, RescaleIntensity, ApplyMask, RandomBiasField, Interpolation
 from optparse import OptionParser
 from utils_file import get_parent_path
 
@@ -35,6 +35,10 @@ def get_cmd_select_data_option():
                                 help="if specifie it will add a elastic1 transformation default False ")
     parser.add_option("--add_bias", action="store_true", dest="add_bias", default=False,
                                 help="if specifie it will add a bias transformation default False ")
+    parser.add_option("--add_orig", action="store_true", dest="add_orig", default=False,
+                                help="if specifie it will add original image to sample ")
+    parser.add_option("--target", action="store", dest="target", default='ssim',
+                      help=" specify the objectiv target either 'ssim' or 'random_noise' (default ssim)")
 
 
     return parser
@@ -60,7 +64,8 @@ def get_dataset_from_option(options):
 
     if add_affine_rot>0 or add_affine_zoom >0:
         if add_affine_zoom==0: add_affine_zoom=1 #0 -> no affine so 1
-        tc.append( RandomAffine(scales=(add_affine_zoom, add_affine_zoom), degrees=(add_affine_rot, add_affine_rot) ) )
+        tc.append( RandomAffine(scales=(add_affine_zoom, add_affine_zoom), degrees=(add_affine_rot, add_affine_rot),
+                                image_interpolation = Interpolation.NEAREST ) )
         name_suffix += '_tAffineS{}R{}'.format(add_affine_zoom, add_affine_rot)
 
     # for hcp should be before RescaleIntensity
@@ -88,19 +93,26 @@ def get_dataset_from_option(options):
     target = None
     if len(tc)==0: tc = None
 
+    add_to_load, add_to_load_regexp = None, None
+
     if len(dir_sample) > 0:
         print('loading from {}'.format(dir_sample))
+        if options.add_orig:
+            add_to_load, add_to_load_regexp = 'original', 'notused'
+
         data_name = get_parent_path(dir_sample)[1]
         if mask_brain and 'hcp' in data_name:
-            add_to_load, add_to_load_regexp = 'brain', 'brain_T'
-        else:
-            add_to_load, add_to_load_regexp = None, None
+            add_to_load_regexp = 'brain_T'
+            if add_to_load is None:
+                add_to_load = 'brain'
+            else:
+                add_to_load += 'brain'
 
         doit.set_data_loader(batch_size=batch_size, num_workers=num_workers, load_from_dir=dir_sample, transforms=tc,
                              add_to_load=add_to_load, add_to_load_regexp=add_to_load_regexp)
 
         name_suffix = 'On_' + data_name + name_suffix
-        target='ssim' #suppose that if from sample, it should be simulation so set target
+        target = options.target #'ssim' #suppose that if from sample, it should be simulation so set target
     else :
         print('working on ')
         for ff in fin:
