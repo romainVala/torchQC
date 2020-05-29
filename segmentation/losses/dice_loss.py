@@ -1,3 +1,6 @@
+from segmentation.utils import mean_metric
+
+
 def dice_loss(prediction, target):
     smooth = 1.
     target = target.float()
@@ -9,10 +12,6 @@ def dice_loss(prediction, target):
 
 
 def mean_dice_loss(prediction, target):
-    channels = list(range(target.shape[1]))
-    loss = 0
-    for channel in channels:
-        dice = dice_loss(prediction[:, channel, ...], target[:, channel, ...])
-        loss += dice
+    return mean_metric(prediction, target, dice_loss)
 
     return loss / len(channels)

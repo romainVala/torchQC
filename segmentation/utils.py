@@ -2,6 +2,7 @@ import json
 from importlib import import_module
 import numpy as np
 import torch
+import torch.nn.functional as F
 import logging
 import os
 
@@ -99,3 +100,13 @@ def save_checkpoint(state, save_path, custom_save=False, model=None):
         model.save(filename)
     else:
         torch.save(state, filename)
+
+
+def mean_metric(prediction, target, metric):
+    prediction = F.softmax(prediction, dim=1)
+    channels = list(range(target.shape[1]))
+    res = 0
+    for channel in channels:
+        res += metric(prediction[:, channel, ...], target[:, channel, ...])
+
+    return res / len(channels)
