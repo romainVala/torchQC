@@ -47,6 +47,7 @@ def load_data(folder, data_filename='data.json'):
     paths = info.get('paths') or []
     train_val_test_repartition = info.get('repartition') or [0.7, 0.15, 0.15]
     assert(sum(train_val_test_repartition) == 1)
+    shuffle = info.get('shuffle')
     seed = info.get('seed')
 
     subjects, train_subjects, val_subjects, test_subjects = {}, {}, {}, {}
@@ -85,8 +86,9 @@ def load_data(folder, data_filename='data.json'):
     val_subjects = dict_to_subject_list(val_subjects)
     test_subjects = dict_to_subject_list(test_subjects)
 
-    np.random.seed(seed)
-    np.random.shuffle(subjects)
+    if shuffle:
+        np.random.seed(seed)
+        np.random.shuffle(subjects)
     n_subjects = len(subjects)
 
     end_train = int(round(train_val_test_repartition[0] * n_subjects))
