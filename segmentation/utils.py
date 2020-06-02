@@ -7,6 +7,17 @@ import logging
 import os
 
 
+def check_mandatory_keys(dictionary, mandatory_keys, name):
+    for key in mandatory_keys:
+        if key not in dictionary.keys():
+            raise KeyError(f'Mandatory key {key} not in dictionary keys {dictionary.keys()} from {name}')
+
+
+def set_dict_value(dictionary, key, default_value=None):
+    value = dictionary.get(key) or default_value
+    dictionary[key] = value
+
+
 def import_object(module, name, package=''):
     mod = import_module(module, package)
     return getattr(mod, name)
