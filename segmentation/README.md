@@ -17,9 +17,12 @@ This file references all the configuration files needed to run the code.
     "loader": "loader.json",
     "model": "model.json",
     "train": "train.json",
-    "visualization": "visualization.json"
+    "visualization": "visualization.json",
+    "test": "test.json"
 }
 ```
+`"folder"`, `"data"`, `"transform"`, `"loader"`, `"model"` and `"train"` are mandatory. `"test"`
+does not do anything so far.
 
 #### data.json
 This file tells the code where to find the data to use in the segmentation task and the repartition
@@ -84,6 +87,12 @@ Both can be used at the same time (patterns are read first).
     "seed": 0
 }
 ```
+`"modalities"` is mandatory. If `"patterns"` are not empty, each pattern must have keys
+`"root"` and `"modalities"`. If `"paths"` are not empty, each path must have keys `"name"`
+and `"modalities"`. 
+
+Any modality present in a pattern or a path must be present in `"modalities"` and
+each subject must have every modality of `"modalities"`.
 
 #### transform.json
 This file defines which transforms (preprocessing and data augmentation) are applied to train
@@ -131,6 +140,7 @@ and validation samples.
     "val_transforms": []
 }
 ```
+`"train_transforms"` and `"val_transforms"` are mandatory.
 
 #### loader.json
 This file defines the behaviour of the `DataLoader`, using patches or not, the number of workers
@@ -151,6 +161,7 @@ used to load data (`-1` means all available workers are used) and the batch size
     }
 }
 ```
+`"batch_size"` is mandatory.
 
 #### model.json
 This file defines the model to use, its parameters and if it is loaded from a saved model.
@@ -185,7 +196,8 @@ method.
                 [30, 30, 30]
             ]
         }
-    }
+    },
+    "device": "cuda"
 }
 ```
 
@@ -203,6 +215,9 @@ method.
     }
 }
 ```
+`"model"` is mandatory.
+
+In the `"model"` dictionary, `"name"` and `"module"` are mandatory.
 
 #### train.json
 This file defines
@@ -270,6 +285,15 @@ set,
     "n_epochs": 500
 }
 ```
+`"criteria"`, `"optimizer"`, `"logger"`, `"save"`, `"validation"`, `"image_key_name"`, 
+`"label_key_name"`, and `"n_epochs"` are mandatory.
+
+In the `"optimizer"` dictionary, `"name"` and `"module"` are mandatory. <br>
+In the `"logger"` dictionary, `"name"`, `"log_frequency"` and `"filename"` are mandatory. <br>
+In the `"save"` dictionary, `"save_model"`, `"save_path"`, `"save_frequency"`, 
+`"record_frequency"` are mandatory. <br>
+In the `"validation"` dictionary, `"batch_size"`, `"patch_size"`, `"eval_frequency"`, 
+`"out_channels"` are mandatory.
 
 #### visualization.json
 This file defines the visualization parameters. It uses `PlotDataset` to make plots.
@@ -281,6 +305,7 @@ This file defines the visualization parameters. It uses `PlotDataset` to make pl
     "update_all_on_scroll": true
 }
 ```
+`"image_key_name"` and `"label_key_name"` are mandatory.
 
 ## Run the program
 The main entry point of the program is the `segmentation_pipeline.py` file.

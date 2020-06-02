@@ -6,6 +6,7 @@ from segmentation.utils import parse_object_import, set_dict_value, check_mandat
 
 
 MODEL_KEYS = ['model']
+MODEL_DICT_KEYS = ['name', 'module']
 
 
 def load_model(folder, model_filename='model.json'):
@@ -13,6 +14,7 @@ def load_model(folder, model_filename='model.json'):
         info = json.load(file)
 
     check_mandatory_keys(info, MODEL_KEYS, folder + model_filename)
+    check_mandatory_keys(info['model'], MODEL_DICT_KEYS, 'model dict')
     set_dict_value(info, 'load')
     set_dict_value(info, 'device', 'cuda')
 

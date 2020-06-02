@@ -6,12 +6,18 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from inspect import signature
 from operator import itemgetter
+from segmentation.utils import check_mandatory_keys
 from plot_dataset import PlotDataset
+
+
+VISUALIZATION_KEYS = ['image_key_name', 'label_key_name']
 
 
 def parse_visualization_config_file(folder, visualization_filename='visualization.json'):
     with open(folder + visualization_filename) as file:
         info = json.load(file)
+
+    check_mandatory_keys(info, VISUALIZATION_KEYS, folder + visualization_filename)
 
     sig = signature(PlotDataset)
     for key in info.keys():
