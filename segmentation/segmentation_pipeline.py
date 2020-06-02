@@ -2,10 +2,15 @@
 import json
 import argparse
 import matplotlib.pyplot as plt
+from segmentation.utils import check_mandatory_keys
 from segmentation.data import load_data, generate_dataset, generate_dataloader
-from segmentation.model import load_model, train
+from segmentation.model import load_model
+from segmentation.run_model import RunModel
 from segmentation.visualization import parse_visualization_config_file
 from plot_dataset import PlotDataset
+
+
+MAIN_KEYS = ['folder', 'data', 'transform', 'loader', 'model', 'train']
 
 
 if __name__ == "__main__":
@@ -22,30 +27,26 @@ if __name__ == "__main__":
     with open(args.file) as file:
         info = json.load(file)
 
-    # Get all configuration files from main file
-    folder = info.get('folder')
-    data_filename = info.get('data')
-    transform_filename = info.get('transform')
-    loader_filename = info.get('loader')
-    model_filename = info.get('model')
-    train_filename = info.get('train')
-    test_filename = info.get('test')
-    visualization_filename = info.get('visualization')
+    # Check that all configuration files are listed in main file
+    check_mandatory_keys(info, MAIN_KEYS, file)
 
     # Generate datasets and data loaders
-    train_subjects, val_subjects, test_subjects = load_data(folder, data_filename)
+    train_subjects, val_subjects, test_subjects = load_data(info['folder'], info['data'])
 
-    train_set = generate_dataset(train_subjects, folder, transform_filename)
-    val_set = generate_dataset(val_subjects, folder, transform_filename, prefix='val')
-    test_set = generate_dataset(test_subjects, folder, transform_filename, prefix='val')
+    train_subjects = train_subjects[:5]
+    val_subjects = val_subjects[:2]
 
-    train_loader = generate_dataloader(train_set, folder, loader_filename)
-    val_loader = generate_dataloader(val_set, folder, loader_filename)
-    test_loader = generate_dataloader(test_set, folder, loader_filename)
+    train_set = generate_dataset(train_subjects, info['folder'], info['transform'])
+    val_set = generate_dataset(val_subjects, info['folder'], info['transform'], prefix='val')
+    test_set = generate_dataset(test_subjects, info['folder'], info['transform'], prefix='val')
+
+    train_loader = generate_dataloader(train_set, info['folder'], info['loader'])
+    val_loader = generate_dataloader(val_set, info['folder'], info['loader'])
+    test_loader = generate_dataloader(test_set, info['folder'], info['loader'])
 
     # Visualize data
     if args.visualization > 0:
-        kwargs = parse_visualization_config_file(folder, visualization_filename)
+        kwargs = parse_visualization_config_file(info['folder'], info['visualization'])
         if args.visualization == 1:
             fig = PlotDataset(train_set, **kwargs)
         elif args.visualization == 2:
@@ -58,11 +59,12 @@ if __name__ == "__main__":
         plt.show()
 
     # Load model
-    model = load_model(folder, model_filename)
+    model = load_model(info['folder'], info['model'])
 
     # Train model
     if args.mode == 'train':
-        train(model, train_loader, val_loader, val_set, folder, train_filename)
+        run_model = RunModel(model, train_loader, val_loader, val_set, info['folder'], info['train'])
+        run_model.train()
 
     # Infer results on test data
     else:
