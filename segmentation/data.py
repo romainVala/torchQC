@@ -6,6 +6,7 @@ import re
 import multiprocessing
 import numpy as np
 import torchio
+import torch
 from torch.utils.data import DataLoader
 from segmentation.utils import parse_function_import, set_dict_value, check_mandatory_keys
 
@@ -167,18 +168,27 @@ def generate_dataloader(dataset, folder, loader_filename='loader.json'):
     set_dict_value(info, 'num_workers', 0)
     set_dict_value(info, 'queue')
     set_dict_value(info, 'shuffle', True)
+    set_dict_value(info, 'collate_fn')
+    set_dict_value(info, 'seed')
 
     num_workers = info['num_workers']
     if num_workers == -1:
         num_workers = multiprocessing.cpu_count()
 
+    if info['collate_fn'] is not None:
+        info['collate_fn'] = parse_function_import(info['collate_fn'])
+
+    if info['seed'] is not None:
+        torch.manual_seed(info['seed'])
+
     if info['queue'] is None:
-        loader = DataLoader(dataset, batch_size=info['batch_size'], shuffle=info['shuffle'], num_workers=num_workers)
+        loader = DataLoader(dataset, batch_size=info['batch_size'], shuffle=info['shuffle'], num_workers=num_workers,
+                            collate_fn=info['collate_fn'])
     else:
         queue_attributes = info['queue']['attributes']
         sampler_class = getattr(torchio.data.sampler, info['queue']['sampler_class'])
         queue_attributes.update({'num_workers': num_workers, 'sampler_class': sampler_class})
         queue = torchio.Queue(dataset, **queue_attributes)
-        loader = DataLoader(queue, info['batch_size'])
+        loader = DataLoader(queue, info['batch_size'], collate_fn=info['collate_fn'])
 
     return loader

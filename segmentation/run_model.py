@@ -14,6 +14,15 @@ from segmentation.utils import parse_object_import, parse_function_import, to_va
     instantiate_logger, to_numpy, set_dict_value, check_mandatory_keys
 from segmentation.visualization import report_loss
 
+
+class ArrayTensorJSONEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, (torch.Tensor, np.ndarray)):
+            return o.tolist()
+        else:
+            return json.JSONEncoder.default(self, o)
+
+
 RUN_KEYS = ['criteria', 'optimizer', 'logger', 'save', 'validation', 'n_epochs', 'image_key_name', 'label_key_name']
 OPTIMIZER_KEYS = ['name', 'module']
 LOGGER_KEYS = ['name', 'log_frequency', 'filename']
@@ -280,6 +289,7 @@ class RunModel:
         location = sample.get('index_ini')
         shape = sample[self.label_key_name]['data'].shape[2:]
         size = np.product(shape)
+        history = sample.get('history')
 
         for idx in range(batch_size):
             info = {
@@ -303,6 +313,10 @@ class RunModel:
             if not self.model.training:
                 for metric in self.metrics:
                     info[f'metric_{metric.__name__}'] = to_numpy(metric(predictions[idx], targets[idx]))
+
+            if history is not None:
+                for hist in history[idx]:
+                    info[f'history_{hist[0]}'] = json.dumps(hist[1], cls=ArrayTensorJSONEncoder)
 
             df = df.append(info, ignore_index=True)
 
