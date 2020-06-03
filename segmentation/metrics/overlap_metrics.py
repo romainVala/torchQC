@@ -3,22 +3,26 @@ from segmentation.utils import mean_metric
 
 def true_positives(prediction, target, cut=0.5):
     predicted_mask = prediction > cut
-    return ((predicted_mask == target) * target).sum()
+    target_mask = target > cut
+    return ((predicted_mask == target_mask) * target_mask).sum()
 
 
 def true_negatives(prediction, target, cut=0.5):
     predicted_mask = prediction > cut
-    return ((predicted_mask == target) * (1 - target)).sum()
+    target_mask = target > cut
+    return ((predicted_mask == target_mask) * (~ target_mask)).sum()
 
 
 def false_positives(prediction, target, cut=0.5):
     predicted_mask = prediction > cut
-    return ((predicted_mask != target) * (1 - target)).sum()
+    target_mask = target > cut
+    return ((predicted_mask != target_mask) * (~ target_mask)).sum()
 
 
 def false_negatives(prediction, target, cut=0.5):
     predicted_mask = prediction > cut
-    return ((predicted_mask != target) * target).sum()
+    target_mask = target > cut
+    return ((predicted_mask != target_mask) * target_mask).sum()
 
 
 def mean_true_positives(prediction, target, cut=0.5):

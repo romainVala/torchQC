@@ -287,8 +287,8 @@ class RunModel:
     def record_batch(self, df, i, sample, predictions, targets, batch_time, batch_size, epoch, save=False):
         model_mode = 'Train' if self.model.training else 'Val'
         location = sample.get('index_ini')
-        shape = sample[self.label_key_name]['data'].shape[2:]
-        size = np.product(shape)
+        shape = sample[self.label_key_name]['data'].shape
+        size = np.product(shape[2:])
         history = sample.get('history')
 
         for idx in range(batch_size):
@@ -296,7 +296,7 @@ class RunModel:
                 'name': sample['name'][idx],
                 'image_filename': sample[self.image_key_name]['path'][idx],
                 'label_filename': sample[self.label_key_name]['path'][idx],
-                'shape': to_numpy(shape),
+                'shape': to_numpy(shape[2:]),
                 'occupied_volume': to_numpy(sample[self.label_key_name]['data'][idx].sum() / size),
                 'batch_time': batch_time,
                 'batch_size': batch_size
@@ -307,12 +307,14 @@ class RunModel:
 
             loss = 0
             for criterion in self.criteria:
-                loss += criterion(predictions[idx], targets[idx])
+                loss += criterion(predictions[idx].reshape(1, *shape[1:]), targets[idx].reshape(1, *shape[1:]))
             info['loss'] = to_numpy(loss)
 
             if not self.model.training:
                 for metric in self.metrics:
-                    info[f'metric_{metric.__name__}'] = to_numpy(metric(predictions[idx], targets[idx]))
+                    info[f'metric_{metric.__name__}'] = to_numpy(
+                        metric(predictions[idx].reshape(1, *shape[1:]), targets[idx].reshape(1, *shape[1:]))
+                    )
 
             if history is not None:
                 for hist in history[idx]:

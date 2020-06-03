@@ -23,22 +23,18 @@ def import_object(module, name, package=''):
     return getattr(mod, name)
 
 
-def parse_object_import(object_dict):
-    object_name = object_dict.get('name')
-    module = object_dict.get('module')
-    package = object_dict.get('package') or ''
-    attributes = object_dict.get('attributes') or {}
-
-    object_class = import_object(module, object_name, package)
-    return object_class(**attributes), object_class
-
-
 def parse_function_import(function_dict):
     function_name = function_dict.get('name')
     module = function_dict.get('module')
     package = function_dict.get('package') or ''
 
     return import_object(module, function_name, package)
+
+
+def parse_object_import(object_dict):
+    attributes = object_dict.get('attributes') or {}
+    object_class = parse_function_import(object_dict)
+    return object_class(**attributes), object_class
 
 
 def generate_json_document(filename, **kwargs):
@@ -114,6 +110,18 @@ def save_checkpoint(state, save_path, custom_save=False, model=None):
 
 
 def mean_metric(prediction, target, metric):
+    if target.shape[1] == 1:
+        return mean_metric_1d(prediction, target, metric)
+    else:
+        return mean_metric_nd(prediction, target, metric)
+
+
+def mean_metric_1d(prediction, target, metric):
+    prediction = torch.sigmoid(prediction)
+    return metric(prediction[:, 0, ...], target[:, 0, ...])
+
+
+def mean_metric_nd(prediction, target, metric):
     prediction = F.softmax(prediction, dim=1)
     channels = list(range(target.shape[1]))
     res = 0
