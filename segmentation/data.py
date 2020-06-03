@@ -8,7 +8,7 @@ import numpy as np
 import torchio
 import torch
 from torch.utils.data import DataLoader
-from segmentation.utils import parse_function_import, set_dict_value, check_mandatory_keys
+from segmentation.utils import parse_function_import, set_dict_value, check_mandatory_keys, parse_object_import
 
 
 DATA_LOADING_KEYS = ['modalities']
@@ -186,8 +186,15 @@ def generate_dataloader(dataset, folder, loader_filename='loader.json'):
                             collate_fn=info['collate_fn'])
     else:
         queue_attributes = info['queue']['attributes']
-        sampler_class = getattr(torchio.data.sampler, info['queue']['sampler_class'])
-        queue_attributes.update({'num_workers': num_workers, 'sampler_class': sampler_class})
+        sampler_class = parse_function_import(info['queue']['sampler'])
+        if info['queue']['sampler']['attributes'].get('label_probabilities') is not None:
+            for key, value in info['queue']['sampler']['attributes']['label_probabilities'].items():
+                if isinstance(key, str) and key.isdigit():
+                    del info['queue']['sampler']['attributes']['label_probabilities'][key]
+                    info['queue']['sampler']['attributes']['label_probabilities'][int(key)] = value
+        sampler = sampler_class(**info['queue']['sampler']['attributes'])
+
+        queue_attributes.update({'num_workers': num_workers, 'sampler': sampler})
         queue = torchio.Queue(dataset, **queue_attributes)
         loader = DataLoader(queue, info['batch_size'], collate_fn=info['collate_fn'])
 

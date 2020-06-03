@@ -102,16 +102,14 @@ and validation samples.
     "train_transforms": 
     [
         {
-            "name": "RandomBiasField",
-            "attributes": {"seed":0}
+            "name": "RandomBiasField"
         }, 
         {
-            "name": "RandomNoise", 
-            "attributes": {"seed":0}
+            "name": "RandomNoise"
         }, 
         {
             "name": "RandomFlip",
-            "attributes": {"axes": [0], "seed": 0}
+            "attributes": {"axes": [0]}
         },
         {
             "name": "OneOf", 
@@ -122,22 +120,21 @@ and validation samples.
                     "proba": 0.8, 
                     "transform":
                     {
-                        "name":"RandomAffine", 
-                        "attributes": {"seed": 0}
+                        "name":"RandomAffine"
                     }
                 }, 
                 {
                     "proba": 0.2,
                     "transform":
                     {
-                        "name":"RandomElasticDeformation", 
-                        "attributes": {"seed":0}
+                        "name":"RandomElasticDeformation"
                     }
                 }
             ]
         }
     ], 
-    "val_transforms": []
+    "val_transforms": [],
+    "seed":0
 }
 ```
 `"train_transforms"` and `"val_transforms"` are mandatory.
@@ -147,21 +144,38 @@ This file defines the behaviour of the `DataLoader`, using patches or not, the n
 used to load data (`-1` means all available workers are used) and the batch size.
 ```json
 {
-    "batch_size": 2,
-    "num_workers": 4,
-    "queue":
+    "batch_size": 2, 
+    "num_workers": 0, 
+    "queue": 
     {
         "attributes": 
         {
-            "patch_size": 64, 
-            "max_length": 64, 
-            "samples_per_volume": 32
+            "max_length": 8, 
+            "samples_per_volume": 4
         }, 
-    "sampler_class": "LabelSampler"
+        "sampler": 
+        {
+            "name": "LabelSampler",
+            "module": "torchio.data.sampler",
+            "attributes": 
+            {
+                "patch_size": 64,
+                "label_name": "label",
+                "label_probabilities": {"0":0.1, "1": 0.9}
+            }
+        }
+    },
+    "collate_fn": 
+    {
+        "name": "history_collate",
+        "module": "segmentation.collate_functions"
     }
 }
 ```
 `"batch_size"` is mandatory.
+
+In the `"queue"` dictionary, if `"sampler"` is mandatory and must
+have `"name"`, `"module"` and `"patch_size"` in `"attributes"`.
 
 #### model.json
 This file defines the model to use, its parameters and if it is loaded from a saved model.
