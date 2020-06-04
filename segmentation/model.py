@@ -10,6 +10,7 @@ MODEL_DICT_KEYS = ['name', 'module']
 
 
 def load_model(folder, model_filename='model.json'):
+    """ Load a model using the information in a json configuration file """
     with open(folder + model_filename) as file:
         info = json.load(file)
 

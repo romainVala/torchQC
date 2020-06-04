@@ -33,9 +33,6 @@ if __name__ == "__main__":
     # Generate datasets and data loaders
     train_subjects, val_subjects, test_subjects = load_data(info['folder'], info['data'])
 
-    train_subjects = train_subjects[:5]
-    val_subjects = val_subjects[:2]
-
     train_set = generate_dataset(train_subjects, info['folder'], info['transform'])
     val_set = generate_dataset(val_subjects, info['folder'], info['transform'], prefix='val')
     test_set = generate_dataset(test_subjects, info['folder'], info['transform'], prefix='val')

@@ -14,6 +14,9 @@ VISUALIZATION_KEYS = ['image_key_name', 'label_key_name']
 
 
 def parse_visualization_config_file(folder, visualization_filename='visualization.json'):
+    """
+    Get PlotDataset arguments from a json configuration file.
+    """
     with open(folder + visualization_filename) as file:
         info = json.load(file)
 
@@ -27,6 +30,9 @@ def parse_visualization_config_file(folder, visualization_filename='visualizatio
 
 
 def report_loss(results_folder):
+    """
+    Plot error curves from record files and save plot to jpeg file.
+    """
     def get_number(number_type, string):
         number = re.findall(f'{number_type}[0-9]+', string)[0]
         return int(number[len(number_type):])

@@ -8,7 +8,7 @@ import numpy as np
 import torchio
 import torch
 from torch.utils.data import DataLoader
-from segmentation.utils import parse_function_import, set_dict_value, check_mandatory_keys
+from segmentation.utils import parse_function_import, set_dict_value, check_mandatory_keys, parse_object_import
 
 
 DATA_LOADING_KEYS = ['modalities']
@@ -19,6 +19,7 @@ DATA_LOADER_KEYS = ['batch_size']
 
 
 def load_data(folder, data_filename='data.json'):
+    """ Load data from a json configuration file and turn them into torchio.Subjects. """
     def update_subject(sub, mods, mod_name, mod_path):
         subject_type = mods.get(mod_name).get('type')
         subject_attributes = mods.get(mod_name).get('attributes') or {}
@@ -131,6 +132,8 @@ def load_data(folder, data_filename='data.json'):
 
 
 def generate_dataset(subjects, folder, transform_filename='transform.json', prefix='train'):
+    """ Generate torchio.ImagesDataset from list of torchio.Subjects using transforms defined in a
+    json configuration file. """
     def parse_transform(t):
         attributes = t.get('attributes') or {}
         if t.get('is_custom'):
@@ -161,6 +164,7 @@ def generate_dataset(subjects, folder, transform_filename='transform.json', pref
 
 
 def generate_dataloader(dataset, folder, loader_filename='loader.json'):
+    """ Generate torch DataLoader from dataset using a json configuration file. """
     with open(folder + loader_filename) as file:
         info = json.load(file)
 
@@ -186,8 +190,16 @@ def generate_dataloader(dataset, folder, loader_filename='loader.json'):
                             collate_fn=info['collate_fn'])
     else:
         queue_attributes = info['queue']['attributes']
-        sampler_class = getattr(torchio.data.sampler, info['queue']['sampler_class'])
-        queue_attributes.update({'num_workers': num_workers, 'sampler_class': sampler_class})
+
+        if info['queue']['sampler']['attributes'].get('label_probabilities') is not None:
+            for key, value in info['queue']['sampler']['attributes']['label_probabilities'].items():
+                if isinstance(key, str) and key.isdigit():
+                    del info['queue']['sampler']['attributes']['label_probabilities'][key]
+                    info['queue']['sampler']['attributes']['label_probabilities'][int(key)] = value
+
+        sampler, _ = parse_object_import(info['queue']['sampler'])
+
+        queue_attributes.update({'num_workers': num_workers, 'sampler': sampler})
         queue = torchio.Queue(dataset, **queue_attributes)
         loader = DataLoader(queue, info['batch_size'], collate_fn=info['collate_fn'])
 
