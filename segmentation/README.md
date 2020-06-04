@@ -285,7 +285,7 @@ set,
         "whole_image_inference_frequency": 100, 
         "patch_size": 64, 
         "patch_overlap": 0, 
-        "out_channels": 1, 
+        "out_channels": 2, 
         "batch_size": 2, 
         "eval_frequency": 100, 
         "reporting_metrics": 
