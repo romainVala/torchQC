@@ -1,10 +1,10 @@
 import os
 from torchio import ImagesDataset, Queue
 from torchio.data import ImagesClassifDataset, get_subject_list_and_csv_info_from_data_prameters
-from torchio.data.sampler import ImageSampler
+#from torchio.data.sampler import ImageSampler
 from torchio import INTENSITY, LABEL, Interpolation, Image, Subject
 
-from torchio.transforms import RandomMotionFromTimeCourse, RandomElasticDeformation, RandomNoise
+from torchio.transforms import RandomMotionFromTimeCourse, RandomElasticDeformation, RandomNoise, RandomAffineFFT, RandomAffine
 
 from torch.utils.data import DataLoader
 import torch.nn as tnn
@@ -444,6 +444,67 @@ class do_training():
         res.to_csv(fres)
 
 
+    def eval_multiple_transform(self, epTrain, iterationTrain, target='ssim', basename='res_val', subdir=None,
+                                transform_list=None, transform_list_name=None):
+        start = time.time()
+        self.model.eval()
+        if self.validation_droupout:
+            self.model.enable_dropout()
+
+        epoch_samples, epoch_loss = 0, 0
+        res, extra_info = pd.DataFrame(), dict()
+
+        #transform_list = self.eval_transform_list
+        #transform_list_name = self.eval_transform_list_name
+
+        for iteration, data in enumerate(self.val_dataloader):
+
+            inputs, labels = self.get_inputs_labels_from_sample(data, target)
+
+            with torch.no_grad():
+                outputs = self.model(inputs)
+                if labels is None:
+                    labels = outputs
+
+                l_tmp = self.loss(outputs, labels)
+                epoch_samples += 1  # inputs.size(0)
+                epoch_loss += l_tmp.item()
+
+            extra_info['model_out'] = outputs.squeeze().cpu().detach()
+            for trans, trans_name in zip(transform_list, transform_list_name):
+                tinputs = torch.empty(inputs.shape, dtype=torch.float)
+
+                #arge c'est pas le bon endroit si les transform sont en cpu grrr should be handel in data handeling
+                for ii in range(inputs.shape[0]):
+                    data_n = inputs[ii].cpu().detach() if self.cuda else inputs[ii]
+                    tinputs[ii] = trans(data_n)
+                tttinputs = tinputs.cuda() if self.cuda else tinputs
+
+                with torch.no_grad():
+                    outputs = self.model(tttinputs)
+
+                extra_info[trans_name + 'model_out'] = outputs.squeeze().cpu().detach()
+
+            res = self.add_motion_info(data, res, extra_info)
+
+            if (iteration % 100 == 0) and (iteration > 0):
+                self.log.info("VAL data Ep_it: {}_{} It {} Loss: {} mean {}".format(epTrain, iterationTrain, iteration, l_tmp.item(),
+                                                                        epoch_loss / epoch_samples))
+
+        self.log.info("VAL data Ep_it: {}_{} It {} Loss: {} mean {}".format(epTrain, iterationTrain, iteration, l_tmp.item(),
+                                                                epoch_loss / epoch_samples))
+        duration = (time.time() - start) / 60 / 60
+        self.log.info(' validation duration for {} iter {:.2f} hours {:.2f} mn '.format(iteration,duration, duration*60))
+
+        fres = self.res_dir + '/{}_{}.csv'.format(basename, self.last_model_saved[:-3])
+        if subdir is not None:
+            fres = self.res_dir + '/' + subdir
+            if not os.path.isdir(fres): os.mkdir(fres)
+            fres += '/{}_{}.csv'.format(basename, self.last_model_saved)
+
+        res.to_csv(fres)
+
+
     def add_motion_info(self, data, res, extra_info=None):
 
         if isinstance(data, list):  # case where callate_fn is used
@@ -455,6 +516,8 @@ class do_training():
                 for hh in historys: #len depend of number of transform
                     if 'RandomNoise' in hh:
                         one_dict['random_noise'] = hh[1]['image']['std']
+                    if 'RandomAffine' in hh: #if 'RandomAffineFFT' in hh:
+                        one_dict.update(hh[1])
 
                 if extra_info is not None:
                     for k, v in extra_info.items():
@@ -556,6 +619,13 @@ def get_motion_transform(type='motion1'):
                                RandomMotionFromTimeCourse(**dico_params_mot) ] )
     if type == 'random_noise_1':
         transforms = Compose([RandomNoise(std=(0.020, 0.2))])
+
+    if type == 'AffFFT_random_noise':
+        transforms = Compose([RandomAffineFFT(scales=(0.8, 1.2), degrees=10, oversampling_pct=0.2, p=0.75),
+                               RandomNoise(std=(0.020, 0.2))])
+    if type == 'AffFFT_random_noise':
+        transforms = Compose([RandomAffine(scales=(0.8, 1.2), degrees=10, p=0.75, image_interpolation=Interpolation.NEAREST),
+                              RandomNoise(std=(0.020, 0.2))])
 
     return transforms
 

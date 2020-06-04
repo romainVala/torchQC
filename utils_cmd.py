@@ -1,5 +1,5 @@
 from doit_train import do_training, get_motion_transform, get_train_and_val_csv, get_cache_dir
-from torchio.transforms import CropOrPad, RandomAffine, RescaleIntensity, ApplyMask, RandomBiasField, Interpolation
+from torchio.transforms import CropOrPad, RandomAffine, RescaleIntensity, ApplyMask, RandomBiasField, Interpolation, RandomAffineFFT
 from optparse import OptionParser
 from utils_file import get_parent_path
 
@@ -42,6 +42,28 @@ def get_cmd_select_data_option():
 
 
     return parser
+
+def get_tranformation_list(choice=1):
+    if isinstance(choice,int):
+        choice = [choice]
+    transfo_list, transfo_name = [], []
+
+    if 1 in choice:
+        transfo_list +=  [
+            RandomAffineFFT(scales=(1, 1), degrees=(10, 10)),
+            RandomAffineFFT(scales=(1.2, 1.2), degrees=(0, 0)),
+            RandomAffineFFT(scales=(0.8, 0.8), degrees=(0, 0)),
+        ]
+        transfo_name += ['tAfft_R10', 'tAfft_S1.2', 'tAfft_S08']
+    if 2 in choice:
+        transfo_list += [
+            RandomAffine(scales=(1, 1), degrees=(10, 10), image_interpolation='nearest'),
+            RandomAffine(scales=(1.2, 1.2), degrees=(0, 0), image_interpolation='nearest'),
+            RandomAffine(scales=(0.8, 0.8), degrees=(0, 0), image_interpolation='nearest'),
+        ]
+        transfo_name += ['tAffN_R10', 'tAffN_S1.2', 'tAffN_S08']
+
+    return transfo_list, transfo_name
 
 def get_dataset_from_option(options):
 

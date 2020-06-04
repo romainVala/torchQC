@@ -12,7 +12,7 @@ import pandas as pd
 import sys, os, logging
 
 from utils_file import get_parent_path, get_log_file
-from utils_cmd import get_cmd_select_data_option, get_dataset_from_option
+from utils_cmd import get_cmd_select_data_option, get_dataset_from_option, get_tranformation_list
 
 formatter = logging.Formatter('%(asctime)-2s: %(levelname)-2s : %(message)s')
 
@@ -34,6 +34,11 @@ if __name__ == '__main__':
                                 help="full path of the model's weights file ")
     parser.add_option("--use_gpu", action="store", dest="use_gpu", default=0, type="int",
                                 help="0 means no gpu 1 to 4 means gpu device (0) ")
+    parser.add_option("--validation_dropout", action="store_true", dest="validation_dropout", default=False,
+                                help="if specifie it will perform validation with dropout enable ")
+    parser.add_option("--transfo_list", action="store", dest="transfo_list", default=0, type="int",
+                                help="integer to set a predefined transfo list default 0 means no list ")
+
 
     (options, args) = parser.parse_args()
 
@@ -57,6 +62,15 @@ if __name__ == '__main__':
     out_name += name_suffix
 
     doit.set_model_from_file(saved_model, cuda=cuda)
-    doit.validation_droupout = True
 
-    doit.eval_regress_motion(999, 99, basename=out_name, subdir=subdir, target=target)
+    if options.validation_dropout:
+        doit.validation_droupout = True
+
+    if options.transfo_list > 0:
+        tlist, tname = get_tranformation_list(options.transfo_list)
+        tname_all = [out_name + tt for tt in tname]
+        doit.eval_multiple_transform(999, 99, basename=out_name, subdir=subdir, target=target,
+                                     transform_list=tlist, transform_list_name=tname_all)
+
+    else:
+        doit.eval_regress_motion(999, 99, basename=out_name, subdir=subdir, target=target)
