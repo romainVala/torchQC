@@ -66,13 +66,7 @@ class RunModel:
         self.title = info['title']
 
         # Define which methods will be used to retrieve data
-        self.train_data_getter = getattr(self, info.get('train_data_getter') or 'load_segmentation_data')
-        self.inference_patches_getter = getattr(
-            self, info.get('inference_patches_getter') or 'load_inference_segmentation_patches'
-        )
-        self.inference_target_getter = getattr(
-            self, info['inference_target_getter'] or 'load_inference_segmentation_target'
-        )
+        self.data_getter = getattr(self, info.get('data_getter') or 'get_segmentation_data')
 
         # Define which methods will be used to record information
         self.batch_recorder = getattr(self, info['batch_recorder'] or 'record_segmentation_batch')
@@ -130,23 +124,13 @@ class RunModel:
         metrics = self.parse_criteria(validation_dict['reporting_metrics'])
         return validation_dict, metrics
 
-    def load_segmentation_data(self, sample):
+    def get_segmentation_data(self, sample):
         volumes = sample[self.image_key_name]
         targets = sample[self.label_key_name]
 
         volumes = to_var(volumes[torchio.DATA].float(), self.device)
         targets = to_var(targets[torchio.DATA].float(), self.device)
         return volumes, targets
-
-    def load_inference_segmentation_patches(self, batch):
-        volumes = batch[self.image_key_name]
-        volumes = to_var(volumes[torchio.DATA].float(), self.device)
-        return volumes
-
-    def load_inference_segmentation_target(self, sample):
-        target = sample[self.label_key_name]
-        target = to_var(target[torchio.DATA].float(), self.device)
-        return target
 
     def train(self):
         # Log session title
@@ -214,7 +198,7 @@ class RunModel:
                 self.iteration = i
 
             # Take variables and make sure they are tensors on the right device
-            volumes, targets = self.train_data_getter(sample)
+            volumes, targets = self.data_getter(sample)
 
             # Compute output
             predictions = self.model(volumes)
@@ -289,7 +273,7 @@ class RunModel:
 
             for patches_batch in patch_loader:
                 # Take variables and make sure they are tensors on the right device
-                volumes = self.inference_patches_getter(patches_batch)
+                volumes, _ = self.data_getter(patches_batch)
                 locations = patches_batch[torchio.LOCATION]
 
                 # Compute output
@@ -300,7 +284,7 @@ class RunModel:
             predictions = to_var(aggregator.get_output_tensor(), self.device)
 
             # Load target for the whole image
-            target = self.inference_target_getter(sample)
+            _, target = self.data_getter(sample)
 
             # Compute loss
             sample_loss = 0

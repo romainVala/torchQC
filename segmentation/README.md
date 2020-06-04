@@ -301,9 +301,7 @@ set,
     "image_key_name": "t1", 
     "label_key_name": "label", 
     "n_epochs": 500,
-    "train_data_getter": "load_segmentation_data",
-    "inference_patches_getter": "load_inference_segmentation_patches",
-    "inference_target_getter": "load_inference_segmentation_target",
+    "data_getter": "get_segmentation_data",
     "batch_recorder": "record_segmentation_batch",
     "inference_recorder": "record_segmentation_inference"
 }
