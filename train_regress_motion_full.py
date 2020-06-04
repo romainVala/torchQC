@@ -41,7 +41,8 @@ par_model = {'network_name': 'ConvN',
              'losstype': 'L1',
              'lr': 1e-4,
               'conv_block': [16, 32, 64, 128, 256], 'linear_block': [40, 50],
-             'dropout': 0.4, 'batch_norm': True, 'drop_conv':0,
+             'dropout': 0.4, 'batch_norm': True,
+
              'validation_droupout': True,
              'in_size': in_size,
              'cuda': cuda, 'max_epochs': max_epochs}
