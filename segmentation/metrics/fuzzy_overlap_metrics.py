@@ -17,33 +17,36 @@ def product_t_norm(prediction, target, background=False):
     return prediction * target
 
 
-def fuzzy_true_positives(prediction, target, t_norm=minimum_t_norm):
-    return t_norm(prediction, target, background=False).sum()
+class FuzzyOverlapMetric:
+    """
+        Implements the different fuzzy overlap based metrics (TP, TN, FP, FN) using a given t_norm.
 
+        Args:
+            t_norm: the t_norm to use to compute the agreement between the volumes.
+        """
+    def __init__(self, t_norm=minimum_t_norm):
+        self.t_norm = t_norm
 
-def fuzzy_true_negatives(prediction, target, t_norm=minimum_t_norm):
-    return t_norm(1 - prediction, 1 - target, background=False).sum()
+    def fuzzy_true_positives(self, prediction, target):
+        return self.t_norm(prediction, target, background=False).sum()
 
+    def fuzzy_true_negatives(self, prediction, target):
+        return self.t_norm(1 - prediction, 1 - target, background=False).sum()
 
-def fuzzy_false_positives(prediction, target, t_norm=minimum_t_norm):
-    return t_norm(prediction, target, background=True).sum()
+    def fuzzy_false_positives(self, prediction, target):
+        return self.t_norm(prediction, target, background=True).sum()
 
+    def fuzzy_false_negatives(self, prediction, target):
+        return self.t_norm(1 - prediction, 1 - target, background=True).sum()
 
-def fuzzy_false_negatives(prediction, target, t_norm=minimum_t_norm):
-    return t_norm(1 - prediction, 1 - target, background=True).sum()
+    def mean_fuzzy_true_positives(self, prediction, target):
+        return mean_metric(prediction, target, self.fuzzy_true_positives)
 
+    def mean_fuzzy_true_negatives(self, prediction, target):
+        return mean_metric(prediction, target, self.fuzzy_true_negatives)
 
-def mean_fuzzy_true_positives(prediction, target, t_norm=minimum_t_norm):
-    return mean_metric(prediction, target, lambda p, t: fuzzy_true_positives(p, t, t_norm))
+    def mean_fuzzy_false_positives(self, prediction, target):
+        return mean_metric(prediction, target, self.fuzzy_false_positives)
 
-
-def mean_fuzzy_true_negatives(prediction, target, t_norm=minimum_t_norm):
-    return mean_metric(prediction, target, lambda p, t: fuzzy_true_negatives(p, t, t_norm))
-
-
-def mean_fuzzy_false_positives(prediction, target, t_norm=minimum_t_norm):
-    return mean_metric(prediction, target, lambda p, t: fuzzy_false_positives(p, t, t_norm))
-
-
-def mean_fuzzy_false_negatives(prediction, target, t_norm=minimum_t_norm):
-    return mean_metric(prediction, target, lambda p, t: fuzzy_false_negatives(p, t, t_norm))
+    def mean_fuzzy_false_negatives(self, prediction, target):
+        return mean_metric(prediction, target, self.fuzzy_false_negatives)

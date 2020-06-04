@@ -11,11 +11,14 @@ from pathlib import Path
 import torchio
 from torch.utils.data import DataLoader
 from segmentation.utils import parse_object_import, parse_function_import, to_var, summary, save_checkpoint, \
-    instantiate_logger, to_numpy, set_dict_value, check_mandatory_keys
+    instantiate_logger, to_numpy, set_dict_value, check_mandatory_keys, parse_method_import
 from segmentation.visualization import report_loss
 
 
 class ArrayTensorJSONEncoder(json.JSONEncoder):
+    """
+    JSONEncoder extension to be able to stringify NumPy arrays and Torch tensors.
+    """
     def default(self, o):
         if isinstance(o, (torch.Tensor, np.ndarray)):
             return o.tolist()
@@ -31,6 +34,9 @@ VALIDATION_KEYS = ['batch_size', 'patch_size', 'eval_frequency', 'out_channels']
 
 
 class RunModel:
+    """
+    Handle training, evaluation and saving of a model from a json configuration file.
+    """
     def __init__(self, model, train_loader, val_loader, val_set, folder, run_filename='run.json'):
         with open(folder + run_filename) as file:
             info = json.load(file)
@@ -59,11 +65,31 @@ class RunModel:
         self.label_key_name = info['label_key_name']
         self.title = info['title']
 
+        # Define which methods will be used to retrieve data
+        self.train_data_getter = getattr(self, info.get('train_data_getter') or 'load_segmentation_data')
+        self.inference_patches_getter = getattr(
+            self, info.get('inference_patches_getter') or 'load_inference_segmentation_patches'
+        )
+        self.inference_target_getter = getattr(
+            self, info['inference_target_getter'] or 'load_inference_segmentation_target'
+        )
+
+        # Define which methods will be used to record information
+        self.batch_recorder = getattr(self, info['batch_recorder'] or 'record_segmentation_batch')
+        self.inference_recorder = getattr(self, info['inference_recorder'] or 'record_segmentation_inference')
+
+        # Set attributes to keep track of information during training
+        self.epoch = 0
+        self.iteration = 0
+        self.train_df = None
+        self.val_df = None
+        self.save = False
+
     @staticmethod
     def parse_criteria(criterion_list):
         c_list = []
         for criterion in criterion_list:
-            c = parse_function_import(criterion)
+            c = parse_method_import(criterion)
             c_list.append(c)
         return c_list
 
@@ -104,33 +130,56 @@ class RunModel:
         metrics = self.parse_criteria(validation_dict['reporting_metrics'])
         return validation_dict, metrics
 
+    def load_segmentation_data(self, sample):
+        volumes = sample[self.image_key_name]
+        targets = sample[self.label_key_name]
+
+        volumes = to_var(volumes[torchio.DATA].float(), self.device)
+        targets = to_var(targets[torchio.DATA].float(), self.device)
+        return volumes, targets
+
+    def load_inference_segmentation_patches(self, batch):
+        volumes = batch[self.image_key_name]
+        volumes = to_var(volumes[torchio.DATA].float(), self.device)
+        return volumes
+
+    def load_inference_segmentation_target(self, sample):
+        target = sample[self.label_key_name]
+        target = to_var(target[torchio.DATA].float(), self.device)
+        return target
+
     def train(self):
         # Log session title
         session_name = f'{self.title}_{time.strftime("%m.%d %Hh%M")}'
         self.logger.log(logging.INFO, session_name)
+
+        # Log model
+        self.logger.log(logging.INFO, '******** Model  ********')
+        self.logger.log(logging.INFO, self.model)
 
         # Set seed for reproducibility
         if self.seed is not None:
             torch.manual_seed(self.seed)
 
         for epoch in range(1, self.n_epochs + 1):
-            self.logger.log(logging.INFO, '******** Epoch [{}/{}]  ********'.format(epoch, self.n_epochs))
+            self.epoch = epoch
+            self.logger.log(logging.INFO, '******** Epoch [{}/{}]  ********'.format(self.epoch, self.n_epochs))
 
             # Train for one epoch
             self.model.train()
             self.logger.log(logging.INFO, 'Training')
-            self.train_loop(epoch)
+            self.train_loop()
 
             # Evaluate on whole images of the validation set
             with torch.no_grad():
                 self.model.eval()
-                if epoch % self.validation_dict['whole_image_inference_frequency'] == 0:
+                if self.epoch % self.validation_dict['whole_image_inference_frequency'] == 0:
                     self.logger.log(logging.INFO, 'Validation')
-                    self.whole_image_loop(epoch)
+                    self.whole_image_loop()
 
             # Save model
-            if self.save_dict['save_model'] and epoch % self.save_dict['save_frequency'] == 0:
-                state = {'epoch': epoch,
+            if self.save_dict['save_model'] and self.epoch % self.save_dict['save_frequency'] == 0:
+                state = {'epoch': self.epoch,
                          'state_dict': self.model.state_dict(),
                          'optimizer': self.optimizer.state_dict()}
                 save_checkpoint(state, self.save_dict['save_path'], self.save_dict['custom_save'], self.model)
@@ -143,13 +192,15 @@ class RunModel:
         # Report loss
         report_loss(self.save_dict['save_path'])
 
-    def train_loop(self, epoch, iterations=None):
+    def train_loop(self, iterations=None):
         if self.model.training:
             model_mode = 'Train'
             loader = self.train_loader
+            self.train_df = pd.DataFrame()
         else:
             model_mode = 'Val'
             loader = self.val_loader
+            self.val_df = pd.DataFrame()
 
         batch_size = loader.batch_size
 
@@ -157,15 +208,13 @@ class RunModel:
         time_sum, loss_sum = 0, 0
 
         average_loss = None
-        df = pd.DataFrame()
 
         for i, sample in enumerate(loader, 1):
-            # Take variables and make sure they are tensors on the right device
-            volumes = sample[self.image_key_name]
-            targets = sample[self.label_key_name]
+            if self.model.training:
+                self.iteration = i
 
-            volumes = to_var(volumes[torchio.DATA].float(), self.device)
-            targets = to_var(targets[torchio.DATA].float(), self.device)
+            # Take variables and make sure they are tensors on the right device
+            volumes, targets = self.train_data_getter(sample)
 
             # Compute output
             predictions = self.model(volumes)
@@ -193,30 +242,28 @@ class RunModel:
 
             # Log training or validation information every log_frequency iterations
             if i % self.logger_dict['log_frequency'] == 0:
-                to_log = summary(epoch, i, len(loader), loss, batch_time, average_loss, average_time, model_mode)
+                to_log = summary(self.epoch, i, len(loader), loss, batch_time, average_loss, average_time, model_mode)
                 self.logger.log(logging.INFO, to_log)
 
             # Run model on validation set every eval_frequency iteration
             if self.model.training and i % self.validation_dict['eval_frequency'] == 0:
                 with torch.no_grad():
                     self.model.eval()
-                    self.train_loop(epoch, iterations=i)
+                    self.train_loop()
                     self.model.train()
 
             # Update DataFrame and record it every record_frequency iterations or every iteration at validation time
             if self.model.training and i % self.save_dict['record_frequency'] == 0:
-                self.record_batch(df, i, sample, predictions, targets, batch_time, batch_size, epoch, True)
-                df = pd.DataFrame()
+                self.batch_recorder(sample, predictions, targets, batch_time, batch_size, True)
+                self.train_df = pd.DataFrame()
             elif self.model.training:
-                df = self.record_batch(df, i, sample, predictions, targets, batch_time, batch_size, epoch, False)
+                self.train_df = self.batch_recorder(sample, predictions, targets, batch_time, batch_size, False)
             else:
-                df = self.record_batch(
-                    df, iterations, sample, predictions, targets, batch_time, batch_size, epoch, True
-                )
+                self.val_df = self.batch_recorder(sample, predictions, targets, batch_time, batch_size, True)
 
         # Save model after an evaluation on the whole validation set
         if not self.model.training:
-            state = {'epoch': epoch,
+            state = {'epoch': self.epoch,
                      'iterations': iterations,
                      'val_loss': average_loss,
                      'state_dict': self.model.state_dict(),
@@ -225,7 +272,7 @@ class RunModel:
 
         return average_loss
 
-    def whole_image_loop(self, epoch):
+    def whole_image_loop(self):
         start = time.time()
         time_sum, loss_sum = 0, 0
 
@@ -242,10 +289,8 @@ class RunModel:
 
             for patches_batch in patch_loader:
                 # Take variables and make sure they are tensors on the right device
-                volumes = patches_batch[self.image_key_name]
+                volumes = self.inference_patches_getter(patches_batch)
                 locations = patches_batch[torchio.LOCATION]
-
-                volumes = to_var(volumes[torchio.DATA].float(), self.device)
 
                 # Compute output
                 predictions = self.model(volumes)
@@ -255,13 +300,12 @@ class RunModel:
             predictions = to_var(aggregator.get_output_tensor(), self.device)
 
             # Load target for the whole image
-            target = sample[self.label_key_name]
-            target = to_var(target[torchio.DATA].float(), self.device)
+            target = self.inference_target_getter(sample)
 
             # Compute loss
             sample_loss = 0
             for criterion in self.criteria:
-                sample_loss += criterion(predictions, target)
+                sample_loss += criterion(predictions.unsqueeze(0), target.unsqueeze(0))
 
             # Measure elapsed time
             sample_time = time.time() - start
@@ -275,17 +319,26 @@ class RunModel:
 
             # Log validation information every log_frequency iterations
             if i % self.logger_dict['log_frequency'] == 0:
-                to_log = summary(
-                    epoch, i, len(self.val_set), sample_loss, sample_time, average_loss, average_time, 'Val', 'Sample'
-                )
+                to_log = summary(self.epoch, i, len(self.val_set), sample_loss, sample_time, average_loss,
+                                 average_time, 'Val', 'Sample')
                 self.logger.log(logging.INFO, to_log)
 
             # Record information about the sample and the performances of the model on this sample after every iteration
-            self.record_whole_image(sample, predictions, target, sample_time, epoch)
+            self.inference_recorder(sample, predictions, target, sample_time)
         return average_loss
 
-    def record_batch(self, df, i, sample, predictions, targets, batch_time, batch_size, epoch, save=False):
-        model_mode = 'Train' if self.model.training else 'Val'
+    def record_segmentation_batch(self, sample, predictions, targets, batch_time, batch_size, save=False):
+        """
+        Record information about the patches the model was trained or evaluated on during the segmentation task.
+        At evaluation time, additional reporting metrics are recorded.
+        """
+        if self.model.training:
+            model_mode = 'Train'
+            df = self.train_df
+        else:
+            model_mode = 'Val'
+            df = self.val_df
+
         location = sample.get('index_ini')
         shape = sample[self.label_key_name]['data'].shape
         size = np.product(shape[2:])
@@ -297,23 +350,27 @@ class RunModel:
                 'image_filename': sample[self.image_key_name]['path'][idx],
                 'label_filename': sample[self.label_key_name]['path'][idx],
                 'shape': to_numpy(shape[2:]),
-                'occupied_volume': to_numpy(sample[self.label_key_name]['data'][idx].sum() / size),
                 'batch_time': batch_time,
                 'batch_size': batch_size
             }
+
+            for channel in list(range(shape[1])):
+                info[f'occupied_volume{channel}'] = to_numpy(
+                    sample[self.label_key_name]['data'][idx, channel].sum() / size
+                )
 
             if location is not None:
                 info['location'] = to_numpy(location[idx])
 
             loss = 0
             for criterion in self.criteria:
-                loss += criterion(predictions[idx].reshape(1, *shape[1:]), targets[idx].reshape(1, *shape[1:]))
+                loss += criterion(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
             info['loss'] = to_numpy(loss)
 
             if not self.model.training:
                 for metric in self.metrics:
                     info[f'metric_{metric.__name__}'] = to_numpy(
-                        metric(predictions[idx].reshape(1, *shape[1:]), targets[idx].reshape(1, *shape[1:]))
+                        metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
                     )
 
             if history is not None:
@@ -327,41 +384,48 @@ class RunModel:
             if not os.path.isdir(save_path):
                 os.makedirs(save_path)
 
-            filename = f'{save_path}/{model_mode}_ep{epoch}_it{i}.csv'
+            filename = f'{save_path}/{model_mode}_ep{self.epoch}_it{self.iteration}.csv'
             df.to_csv(filename)
 
         return df
 
-    def record_whole_image(self, sample, predictions, target, sample_time, epoch):
+    def record_segmentation_inference(self, sample, predictions, target, sample_time):
+        """
+        Record information about the samples the model was evaluated on during the segmentation task.
+        """
         save_path = self.save_dict['save_path']
         if not os.path.isdir(save_path):
             os.makedirs(save_path)
 
-        filename = f'{save_path}/Val_inference_ep{epoch}.csv'
+        filename = f'{save_path}/Val_inference_ep{self.epoch}.csv'
         if Path(filename).is_file():
             df = pd.read_csv(filename, index_col=0)
         else:
             df = pd.DataFrame()
 
-        shape = sample[self.label_key_name]['data'].shape[1:]
-        size = np.product(shape)
+        shape = sample[self.label_key_name]['data'].shape
+        size = np.product(shape[1:])
 
         info = {
             'name': sample['name'],
             'image_filename': sample[self.image_key_name]['path'],
             'label_filename': sample[self.label_key_name]['path'],
-            'shape': to_numpy(shape),
-            'occupied_volume': to_numpy(sample[self.label_key_name]['data'].sum() / size),
+            'shape': to_numpy(shape[1:]),
             'sample_time': sample_time
         }
 
+        for channel in list(range(shape[0])):
+            info[f'occupied_volume{channel}'] = to_numpy(
+                sample[self.label_key_name]['data'][channel].sum() / size
+            )
+
         loss = 0
         for criterion in self.criteria:
-            loss += criterion(predictions, target)
+            loss += criterion(predictions.unsqueeze(0), target.unsqueeze(0))
         info['loss'] = to_numpy(loss)
 
         for metric in self.metrics:
-            info[f'metric_{metric.__name__}'] = to_numpy(metric(predictions, target))
+            info[f'metric_{metric.__name__}'] = to_numpy(metric(predictions.unsqueeze(0), target.unsqueeze(0)))
 
         df = df.append(info, ignore_index=True)
         df.to_csv(filename)

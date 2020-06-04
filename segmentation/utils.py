@@ -37,6 +37,14 @@ def parse_object_import(object_dict):
     return object_class(**attributes), object_class
 
 
+def parse_method_import(method_dict):
+    """
+    Import a method from a class instance using a dictionary that specifies where to find it.
+    """
+    object_instance, _ = parse_object_import(method_dict)
+    return getattr(object_instance, method_dict['method'])
+
+
 def generate_json_document(filename, **kwargs):
     with open(filename, 'w') as file:
         json.dump(kwargs, file)
@@ -111,17 +119,7 @@ def save_checkpoint(state, save_path, custom_save=False, model=None):
 
 def mean_metric(prediction, target, metric):
     if target.shape[1] == 1:
-        return mean_metric_1d(prediction, target, metric)
-    else:
-        return mean_metric_nd(prediction, target, metric)
-
-
-def mean_metric_1d(prediction, target, metric):
-    prediction = torch.sigmoid(prediction)
-    return metric(prediction[:, 0, ...], target[:, 0, ...])
-
-
-def mean_metric_nd(prediction, target, metric):
+        target = torch.cat([target, 1 - target], dim=1)
     prediction = F.softmax(prediction, dim=1)
     channels = list(range(target.shape[1]))
     res = 0

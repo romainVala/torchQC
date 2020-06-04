@@ -247,14 +247,17 @@ set,
 - how often inference on whole images is done, this is relevant only if patches are
  used during training (`"whole_image_inference_frequency"` in `"validation"`, this frequency is
  in number of epochs),
-- the number of epochs.
+- the number of epochs,
+- which methods are used to get tensors from data,
+- which methods are used to record information about training and evaluation.
 ```json
 {
     "criteria": 
     [
         {
-            "module":"segmentation.losses.dice_loss", 
-            "name": "mean_dice_loss"
+            "module": "segmentation.losses.dice_loss", 
+            "name": "Dice",
+            "method": "mean_dice_loss"
         }
     ], 
     "optimizer": 
@@ -288,15 +291,21 @@ set,
         "reporting_metrics": 
         [
             {
-                "module":"segmentation.losses.dice_loss", 
-                "name": "mean_dice_loss"
+                "module": "segmentation.losses.dice_loss", 
+                "name": "Dice",
+                "method": "mean_dice_loss"
             }
         ]
     }, 
     "seed": 0, 
     "image_key_name": "t1", 
     "label_key_name": "label", 
-    "n_epochs": 500
+    "n_epochs": 500,
+    "train_data_getter": "load_segmentation_data",
+    "inference_patches_getter": "load_inference_segmentation_patches",
+    "inference_target_getter": "load_inference_segmentation_target",
+    "batch_recorder": "record_segmentation_batch",
+    "inference_recorder": "record_segmentation_inference"
 }
 ```
 `"criteria"`, `"optimizer"`, `"logger"`, `"save"`, `"validation"`, `"image_key_name"`, 
