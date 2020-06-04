@@ -44,6 +44,9 @@ def history_collate(batch):
     elif isinstance(elem, string_classes):
         return batch
     elif isinstance(elem, container_abcs.Mapping):
+        # The only change to the original function is here:
+        # if elem has attribute 'history', then a key 'history' is added to the batch
+        # which value is the list of the history of the elements of the batch
         dictionary = {key: history_collate([d[key] for d in batch]) for key in elem}
         if hasattr(elem, 'history'):
             dictionary.update({
