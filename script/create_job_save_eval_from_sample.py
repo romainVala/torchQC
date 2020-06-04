@@ -29,6 +29,7 @@ saved_models = gfile(model, '_ep9_.*000.pt$'); saved_models = saved_models[0:10]
 #saved_models = gfile(model, '_ep(24|46|48)_.*000.pt$');
 #saved_models = gfile(model, '_ep(10|11)_.*000.pt$');
 #saved_models = gfile(model, '_ep(10|9)_.*000.pt$');
+saved_models = gfile(model, '_ep([789]|10)_.*4500.pt$');
 saved_models=[]
 for mm in model:
     ss_models = gfile(mm, '_ep.*pt$');
@@ -48,12 +49,13 @@ name_list_val = ['mvt_val_hcp200_ms']
 
 options_test = ['', '--add_affine_zoom 0.8', '--add_affine_zoom 1.2', '--add_affine_rot 10', '--add_bias'  ]
 options_test = ['--add_affine_zoom 0.8', '--add_affine_zoom 1.2', '--add_affine_rot 10'  ]
+options_test = ['--transfo_list 1'  ]
 
 #options_test = [ot + ' --add_rescal_Imax ' for ot in options_test ]
 options_test = [ot + ' --add_cut_mask ' for ot in options_test ]
 #options_test = [ot + ' --add_mask_brain ' for ot in options_test ]
 
-job_id = "eval_ela1_cati_ms_train_cati_ms_DC01"
+job_id = "eval_hcpT1_train_hcp_T1_mask_rescal_ela1"
 
 dir_cache = '/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache_new/'
 
