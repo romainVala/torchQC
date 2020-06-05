@@ -1,4 +1,4 @@
-import json
+import commentjson as json
 from importlib import import_module
 import numpy as np
 import torch
@@ -65,7 +65,7 @@ def generate_json_document(filename, **kwargs):
     Generate a json file from a dictionary.
     """
     with open(filename, 'w') as file:
-        json.dump(kwargs, file)
+        json.dump(kwargs, file, indent=4, sort_keys=True)
 
 
 def to_var(x, device):

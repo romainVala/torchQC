@@ -2,6 +2,7 @@
 
 import os
 import json
+import commentjson
 import torch
 import time
 import logging
@@ -39,7 +40,7 @@ class RunModel:
     """
     def __init__(self, model, train_loader, val_loader, val_set, folder, run_filename='run.json'):
         with open(folder + run_filename) as file:
-            info = json.load(file)
+            info = commentjson.load(file)
 
         check_mandatory_keys(info, RUN_KEYS, folder + run_filename)
         set_dict_value(info, 'seed')

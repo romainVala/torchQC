@@ -1,5 +1,5 @@
 """ End-to-end segmentation pipeline """
-import json
+import commentjson as json
 import argparse
 import matplotlib.pyplot as plt
 from segmentation.utils import check_mandatory_keys

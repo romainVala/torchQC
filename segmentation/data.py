@@ -1,7 +1,7 @@
 """ Load and preprocess data """
 
 import glob
-import json
+import commentjson as json
 import re
 import multiprocessing
 import numpy as np
@@ -81,7 +81,7 @@ def load_data(folder, data_filename='data.json'):
         check_modalities(info['modalities'], pattern['modalities'], pattern['root'])
 
         relevant_dict = get_relevant_list(subjects, train_subjects, val_subjects, test_subjects, pattern['list_name'])
-        for folder_path in glob.glob(pattern['root']):
+        for folder_path in sorted(glob.glob(pattern['root'])): #so that we get alphabetic order if no shuffel
             name = get_name(pattern['name_pattern'], folder_path)
             subject = relevant_dict.get(name) or {}
 

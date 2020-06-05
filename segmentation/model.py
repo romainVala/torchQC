@@ -1,6 +1,6 @@
 """ Load model """
 
-import json
+import commentjson as json
 import torch
 from segmentation.utils import parse_object_import, set_dict_value, check_mandatory_keys
 
