@@ -260,7 +260,8 @@ is saved after every evaluation loop on the validation set,
     "save": 
     {
         "record_frequency": 10,
-        "batch_recorder": "record_segmentation_batch"
+        "batch_recorder": "record_segmentation_batch",
+        "prediction_saver": "save_segmentation_prediction"
     }, 
     "validation": 
     {

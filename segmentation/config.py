@@ -239,6 +239,7 @@ class Config:
         # Save
         self.check_mandatory_keys(struct['save'], SAVE_KEYS, 'SAVE')
         self.set_struct_value(struct['save'], 'batch_recorder', 'record_segmentation_batch')
+        self.set_struct_value(struct['save'], 'prediction_saver', 'save_segmentation_prediction')
 
         # Validation
         self.set_struct_value(struct['validation'], 'eval_frequency', np.inf)

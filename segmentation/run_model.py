@@ -62,6 +62,7 @@ class RunModel:
         # Define which methods will be used to retrieve data and record information
         self.data_getter = getattr(self, struct['data_getter'])
         self.batch_recorder = getattr(self, struct['save']['batch_recorder'])
+        self.prediction_saver = getattr(self, struct['save']['prediction_saver'])
 
         # Set attributes to keep track of information during training
         self.epoch = struct['current_epoch']
@@ -103,7 +104,7 @@ class RunModel:
             # Evaluate on whole images of the validation set
             with torch.no_grad():
                 self.model.eval()
-                if self.epoch % self.whole_image_inference_frequency == 0:
+                if self.patch_size is not None and self.epoch % self.whole_image_inference_frequency == 0:
                     self.logger.log(logging.INFO, 'Validation')
                     self.whole_image_evaluation_loop()
 
@@ -136,7 +137,7 @@ class RunModel:
                 self.logger.log(logging.INFO, 'Evaluation on patches')
                 self.train_loop()
 
-            if self.whole_image_inference_frequency != np.inf:
+            if self.patch_size is not None and self.whole_image_inference_frequency != np.inf:
                 self.logger.log(logging.INFO, 'Evaluation on whole images')
                 self.whole_image_evaluation_loop()
 
@@ -145,7 +146,7 @@ class RunModel:
         self.epoch -= 1
         with torch.no_grad():
             self.model.eval()
-            self.whole_image_inference_loop()
+            self.inference_loop()
 
     def train_loop(self):
         if self.model.training:
@@ -264,12 +265,16 @@ class RunModel:
             )
         return average_loss
 
-    def whole_image_inference_loop(self):
+    def inference_loop(self):
         start = time.time()
         time_sum = 0
 
         for i, sample in enumerate(self.test_set, 1):
-            predictions = self.make_prediction_on_whole_volume(sample)
+            if self.patch_size is not None:
+                predictions = self.make_prediction_on_whole_volume(sample)
+            else:
+                volume, _ = self.data_getter(sample)
+                predictions = self.model(volume.unsqueeze(0))[0]
 
             # Measure elapsed time
             sample_time = time.time() - start
@@ -282,9 +287,7 @@ class RunModel:
                 to_log = summary('/', i, len(self.test_set), '/', sample_time, '/', average_time, 'Val', 'Sample')
                 self.logger.log(logging.INFO, to_log)
 
-            affine = sample[self.image_key_name]['affine']
-            predictions = nib.Nifti1Image(to_numpy(predictions), affine)
-            nib.save(predictions, f'{self.results_dir}/predictions_suj{sample["name"]}.nii.gz')
+            self.prediction_saver(sample, predictions)
 
     def record_segmentation_batch(self, sample, predictions, targets, batch_time, save=False, mode=None):
         """
@@ -380,6 +383,10 @@ class RunModel:
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions
 
+    def save_segmentation_prediction(self, sample, prediction):
+        affine = sample[self.image_key_name]['affine']
+        prediction = nib.Nifti1Image(to_numpy(prediction), affine)
+        nib.save(prediction, f'{self.results_dir}/predictions_suj{sample["name"]}.nii.gz')
 
     def get_regress_random_noise_data(self, data):
         return self.get_regression_data(data, 'random_noise')
