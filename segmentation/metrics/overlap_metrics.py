@@ -1,4 +1,4 @@
-from segmentation.utils import mean_metric
+from segmentation.utils import channel_metrics
 
 
 class OverlapMetric:
@@ -31,14 +31,14 @@ class OverlapMetric:
         target_mask = target > self.cut
         return ((predicted_mask != target_mask) * target_mask).sum()
 
-    def mean_true_positives(self, prediction, target):
-        return mean_metric(prediction, target, self.true_positives)
+    def per_channel_true_positives(self, prediction, target):
+        return channel_metrics(prediction, target, self.true_positives)
 
-    def mean_true_negatives(self, prediction, target):
-        return mean_metric(prediction, target, self.true_negatives)
+    def per_channel_true_negatives(self, prediction, target):
+        return channel_metrics(prediction, target, self.true_negatives)
 
-    def mean_false_positives(self, prediction, target):
-        return mean_metric(prediction, target, self.false_positives)
+    def per_channel_false_positives(self, prediction, target):
+        return channel_metrics(prediction, target, self.false_positives)
 
-    def mean_false_negatives(self, prediction, target):
-        return mean_metric(prediction, target, self.false_negatives)
+    def per_channel_false_negatives(self, prediction, target):
+        return channel_metrics(prediction, target, self.false_negatives)

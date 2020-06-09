@@ -7,23 +7,6 @@ import logging
 import os
 
 
-def check_mandatory_keys(dictionary, mandatory_keys, name):
-    """
-    Check that all keys mentioned as mandatory are present in a given dictionary.
-    """
-    for key in mandatory_keys:
-        if key not in dictionary.keys():
-            raise KeyError(f'Mandatory key {key} not in dictionary keys {dictionary.keys()} from {name}')
-
-
-def set_dict_value(dictionary, key, default_value=None):
-    """
-    Give a default value to a key of a dictionary is this key was not in the dictionary.
-    """
-    value = dictionary.get(key) or default_value
-    dictionary[key] = value
-
-
 def import_object(module, name, package=''):
     """
     Import an object from a given module.
@@ -98,8 +81,12 @@ def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time, mo
     """
     string = f'[{str(mode)}] Epoch: [{epoch}][{i}/{nb_batch}]\t'
 
-    string += f'{granularity} Loss {loss:.4f} '
-    string += f'(Average {average_loss:.4f}) \t'
+    if isinstance(loss, str):
+        string += f'{granularity} Loss {loss} '
+        string += f'(Average {average_loss}) \t'
+    else:
+        string += f'{granularity} Loss {loss:.4f} '
+        string += f'(Average {average_loss:.4f}) \t'
     string += f'{granularity} Time {batch_time:.4f} '
     string += f'(Average {average_time:.4f}) \t'
 
@@ -122,7 +109,7 @@ def instantiate_logger(logger_name, log_level, log_filename):
     return logger
 
 
-def save_checkpoint(state, save_path, custom_save=False, model=None):
+def save_checkpoint(state, save_path, model):
     """
     Save the current model.
     """
@@ -140,10 +127,25 @@ def save_checkpoint(state, save_path, custom_save=False, model=None):
         filename += f'_loss{val_loss:0.4f}'
     filename += '.pth.tar'
 
-    if custom_save:
+    if hasattr(model, 'save'):
         model.save(filename)
     else:
         torch.save(state, filename)
+
+
+def channel_metrics(prediction, target, metric):
+    """
+    Compute a given metric on every channel of the volumes.
+    """
+    if target.shape[1] == 1:
+        target = torch.cat([target, 1 - target], dim=1)
+    prediction = F.softmax(prediction, dim=1)
+    channels = list(range(target.shape[1]))
+    res = []
+    for channel in channels:
+        res.append(metric(prediction[:, channel, ...], target[:, channel, ...]))
+
+    return torch.tensor(res)
 
 
 def mean_metric(prediction, target, metric):

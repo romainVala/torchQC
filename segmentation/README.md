@@ -11,25 +11,27 @@ in the `main.json` file (the name of the file is not important).
 This file references all the configuration files needed to run the code.
 ```json
 {
-    "folder": "/path_to_task_folder/",
-    "data": "data.json",
-    "transform": "transform.json",
-    "loader": "loader.json",
-    "model": "model.json",
-    "train": "train.json",
-    "visualization": "visualization.json",
-    "test": "test.json"
+    "data": "some_path/data.json",
+    "transform": "some_path/transform.json",
+    "model": "some_path/model.json",
+    "run": "some_path/run.json"
 }
 ```
-`"folder"`, `"data"`, `"transform"`, `"loader"`, `"model"` and `"train"` are mandatory. `"test"`
-does not do anything so far.
+`"data"`, `"transform"`, `and `"model"` are mandatory. Depending on the mode the program is run
+in, one additional key is needed:
+- `"run"` if mode is `"train"`,`"eval"` or`"infer"`,
+- `"visualization"` if mode is`"viz"` (not implemented yet).
 
 #### data.json
 This file tells the code where to find the data to use in the segmentation task and the repartition
-between train, validation and test data. If `"shuffle"` is `true`, subjects are shuffled before
-being assigned to train, validation and test sets. <br>
+between train, validation and test data. If `"subject_shuffle"` is `true`, subjects are shuffled
+before being assigned to train, validation and test sets. <br>
 Either patterns using unix regular expressions or explicit paths can be used to list subjects.
-Both can be used at the same time (patterns are read first).
+Both can be used at the same time (patterns are read first). <br>
+This file also defines the behaviour of the `DataLoader`, using patches or not, the 
+number of workers used to load data (`-1` means all available workers are used) and 
+the batch size. Finally it sets which keys will be used to retrieve images and labels 
+from subjects.
 ```json
 {
     "modalities": 
@@ -51,8 +53,38 @@ Both can be used at the same time (patterns are read first).
         }
     ], 
     "repartition": [0.7, 0.15, 0.15],
-    "shuffle": true,
-    "seed": 0
+    "subject_shuffle": true,
+    "subject_seed": 0,
+    "image_key_name": "t1",
+    "label_key_name": "label",
+    "batch_size": 2,
+    "num_workers": 0,
+    "queue": 
+    {
+        "attributes": 
+        {
+            "max_length": 8, 
+            "samples_per_volume": 4
+        }, 
+        "sampler": 
+        {
+            "name": "LabelSampler",
+            "module": "torchio.data.sampler",
+            "attributes": 
+            {
+                "patch_size": 64,
+                "label_name": "label",
+                "label_probabilities": {"0": 0.1, "1": 0.9}
+            }
+        }
+    },
+    "collate_fn": 
+    {
+        "name": "history_collate",
+        "module": "segmentation.collate_functions"
+    },
+    "batch_shuffle": true,
+    "batch_seed": 0
 }
 ```
 
@@ -83,20 +115,30 @@ Both can be used at the same time (patterns are read first).
         }
     ], 
     "repartition": [0.7, 0.15, 0.15],
-    "shuffle": true,
-    "seed": 0
+    "subject_shuffle": true,
+    "subject_seed": 0,
+    "image_key_name": "t1",
+    "label_key_name": "label",
+    "batch_size": 2,
+    "num_workers": 0,
+    "batch_shuffle": true,
+    "batch_seed": 0
 }
 ```
-`"modalities"` is mandatory. If `"patterns"` are not empty, each pattern must have keys
-`"root"` and `"modalities"`. If `"paths"` are not empty, each path must have keys `"name"`
-and `"modalities"`. 
+`"modalities"`, `"batch_size"`, `"image_key_name"` and `"label_key_name"` are mandatory. 
+If `"patterns"` are not empty, each pattern must have keys `"root"` and `"modalities"`.
+If `"paths"` are not empty, each path must have keys `"name"` and `"modalities"`. 
+If `"queue"` is not empty, it must have the attribute `"sampler"` which must have keys
+`"name"`, `"module"` and `"attributes"`. In such case, `"attributes"` must define the
+attribute `"patch_size"`.
+
 
 Any modality present in a pattern or a path must be present in `"modalities"` and
 each subject must have every modality of `"modalities"`.
 
 #### transform.json
-This file defines which transforms (preprocessing and data augmentation) are applied to train
-and validation samples.
+This file defines which transforms (preprocessing and data augmentation) are applied to train,
+validation and test samples. The same transforms are applied to validation and test samples.
 ```json
 {
     "train_transforms": 
@@ -117,14 +159,14 @@ and validation samples.
             "transforms":
             [
                 {
-                    "proba": 0.8, 
+                    "prob": 0.8, 
                     "transform":
                     {
                         "name":"RandomAffine"
                     }
                 }, 
                 {
-                    "proba": 0.2,
+                    "prob": 0.2,
                     "transform":
                     {
                         "name":"RandomElasticDeformation"
@@ -133,123 +175,72 @@ and validation samples.
             ]
         }
     ], 
-    "val_transforms": [],
-    "seed":0
+    "val_transforms": []
 }
 ```
 `"train_transforms"` and `"val_transforms"` are mandatory.
 
-#### loader.json
-This file defines the behaviour of the `DataLoader`, using patches or not, the number of workers
-used to load data (`-1` means all available workers are used) and the batch size.
-```json
-{
-    "batch_size": 2, 
-    "num_workers": 0, 
-    "queue": 
-    {
-        "attributes": 
-        {
-            "max_length": 8, 
-            "samples_per_volume": 4
-        }, 
-        "sampler": 
-        {
-            "name": "LabelSampler",
-            "module": "torchio.data.sampler",
-            "attributes": 
-            {
-                "patch_size": 64,
-                "label_name": "label",
-                "label_probabilities": {"0":0.1, "1": 0.9}
-            }
-        }
-    },
-    "collate_fn": 
-    {
-        "name": "history_collate",
-        "module": "segmentation.collate_functions"
-    }
-}
-```
-`"batch_size"` is mandatory.
-
-In the `"queue"` dictionary, if `"sampler"` is mandatory and must
-have `"name"`, `"module"` and `"patch_size"` in `"attributes"`.
-
 #### model.json
 This file defines the model to use, its parameters and if it is loaded from a saved model.
-If attribute `"custom"` is `true`, it means that model was saved using `BaseNet` saving
-method. 
+If attribute `"last_one"` is `true`, it means that last saved model will be used. If no model
+has been saved so far, a new model will be used. To use a model saved at a specific path,
+`"last_one"` must be set to `false` and `"path"` must be filled with the path to the model.
 ```json
 {
-    "model": 
+    "module": "unet", 
+    "name": "UNet3D", 
+    "attributes": 
     {
-        "module": "unet", 
-        "name": "UNet3D", 
-        "attributes": 
-        {
-            "in_channels": 1, 
-            "out_classes": 1, 
-            "padding": 1, 
-            "residual": true, 
-            "num_encoding_blocks": 5, 
-            "encoder_out_channel_lists": 
-            [
-                [30, 30, 30], 
-                [60, 60, 60], 
-                [120, 120, 120], 
-                [240, 240, 240], 
-                [320, 320, 320]
-            ], 
-            "decoder_out_channel_lists":
-            [
-                [240, 240, 240], 
-                [120, 120, 120],
-                [60, 60, 60],
-                [30, 30, 30]
-            ]
-        }
+        "in_channels": 1, 
+        "out_classes": 1, 
+        "padding": 1, 
+        "residual": true, 
+        "num_encoding_blocks": 5, 
+        "encoder_out_channel_lists": 
+        [
+            [30, 30, 30], 
+            [60, 60, 60], 
+            [120, 120, 120], 
+            [240, 240, 240], 
+            [320, 320, 320]
+        ], 
+        "decoder_out_channel_lists":
+        [
+            [240, 240, 240], 
+            [120, 120, 120],
+            [60, 60, 60],
+            [30, 30, 30]
+        ]
     },
+    "last_one": true,
     "device": "cuda"
 }
 ```
 
 ```json
 {
-    "model": 
-    {
-        "module": "unet",
-        "name": "UNet3D", 
-        "load": 
-        {
-            "custom": true, 
-            "path": "/path_to_model"
-        }
-    }
+    "module": "unet",
+    "name": "UNet3D", 
+    "last_one": false,
+    "path": "/path_to_model"
 }
 ```
-`"model"` is mandatory.
+`"name"` and `"module"` are mandatory.
 
-In the `"model"` dictionary, `"name"` and `"module"` are mandatory.
-
-#### train.json
+#### run.json
 This file defines
 - the losses used to train the model (`"criteria"`),
 - the optimizer (`"optimizer"`),
-- the parameters of the logger to print and save logs (`"logger"`),
-- where and how often the model and its performances are saved (`"save"`, the `"save_frequency"`
-is in number of epochs while the `"record_frequency"` is in number of iterations),
+- the frequency at which logs are printed (`"log_frequency"`),
+- how often the performances of the model are saved and which method is used for that (`"save"`),
 - how often the model is evaluated on the validation set and which metrics are used to assess the 
-quality of the segmentation on the validation set (`"validation"`, `"eval_frequency"` is in
-number of iterations). The model is saved after every evaluation loop on the validation
-set,
+quality of the segmentation on the validation set (`"validation"`). The model 
+is saved after every evaluation loop on the validation set,
 - how often inference on whole images is done, this is relevant only if patches are
  used during training (`"whole_image_inference_frequency"` in `"validation"`, this frequency is
  in number of epochs),
 - the number of epochs,
-- which methods are used to get tensors from data,
-- which methods are used to record information about training and evaluation.
+- which methods are used to get tensors from data.
 ```json
 {
     "criteria": 
@@ -266,27 +257,15 @@ set,
         "name": "Adam", 
         "attributes": {"lr": 0.0001}
     }, 
-    "logger": 
-    {
-        "log_frequency": 10, 
-        "filename": "/path_to_save_logs/train_log.txt", 
-        "name": "train_log"
-    }, 
     "save": 
     {
-        "save_model": true,
-        "save_frequency": 1,
-        "save_path": "/path_to_save_results/",
-        "custom_save": true, 
-        "record_frequency": 10
+        "record_frequency": 10,
+        "batch_recorder": "record_segmentation_batch"
     }, 
     "validation": 
     {
         "whole_image_inference_frequency": 100, 
-        "patch_size": 64, 
-        "patch_overlap": 0, 
-        "out_channels": 2, 
-        "batch_size": 2, 
+        "patch_overlap": 8, 
         "eval_frequency": 100, 
         "reporting_metrics": 
         [
@@ -298,41 +277,43 @@ set,
         ]
     }, 
     "seed": 0, 
-    "image_key_name": "t1", 
-    "label_key_name": "label", 
+    "log_frequency": 10,
     "n_epochs": 500,
-    "data_getter": "get_segmentation_data",
-    "batch_recorder": "record_segmentation_batch",
-    "inference_recorder": "record_segmentation_inference"
+    "data_getter": "get_segmentation_data"
 }
 ```
-`"criteria"`, `"optimizer"`, `"logger"`, `"save"`, `"validation"`, `"image_key_name"`, 
-`"label_key_name"`, and `"n_epochs"` are mandatory.
+`"criteria"`, `"optimizer"`, `"save"`, `"validation"` and `"n_epochs"` are mandatory.
 
 In the `"optimizer"` dictionary, `"name"` and `"module"` are mandatory. <br>
-In the `"logger"` dictionary, `"name"`, `"log_frequency"` and `"filename"` are mandatory. <br>
-In the `"save"` dictionary, `"save_model"`, `"save_path"`, `"save_frequency"`, 
-`"record_frequency"` are mandatory. <br>
-In the `"validation"` dictionary, `"batch_size"`, `"patch_size"`, `"eval_frequency"`, 
-`"out_channels"` are mandatory.
+In the `"save"` dictionary, `"record_frequency"` is mandatory. <br>
 
 #### visualization.json
 This file defines the visualization parameters. It uses `PlotDataset` to make plots.
 ```json
 {
-    "image_key_name": "t1",
-    "label_key_name": "label",
     "subject_idx": [0, 1, 2, 3, 4], 
     "update_all_on_scroll": true
 }
 ```
-`"image_key_name"` and `"label_key_name"` are mandatory.
 
 ## Run the program
 The main entry point of the program is the `segmentation_pipeline.py` file.
 Therefore, in order to run the program, one can run the following command:
 ```shell script
-python ./segmentation/segmentation_pipeline.py -f '/path_to_main_config_file/main.json'
+python ./segmentation/segmentation_pipeline.py -f '/path_to_main_config_file/main.json' -r '/results_dir'
 ```
-The `--visualization` argument can be used to visualize samples, patches or both at the same 
-time with the values 1, 2 or higher. Only samples and patches from the train set are used.
+`-f` is the path to the main json configuration file.
+
+`-r` is the path to the results directory. All saved files are saved to this directory,
+including log files.
+
+The `--mode` argument can take the following values:
+- `"train"` (default value): the selected model is trained on training data and evaluated
+on validation data;
+- `"eval"`: the selected model is evaluated on validation data;
+- `"infer"`: the selected model is used to make predictions on test data;
+- `"viz"`: not implemented yet.
+
+The `--debug` argument's default value is 0, if a different value is given, a debug logger will
+be created to record some debugging information like running times of different steps of the 
+pipeline.
