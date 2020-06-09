@@ -260,9 +260,7 @@ class RunModel:
                 self.logger.log(logging.INFO, to_log)
 
             # Record information about the sample and the performances of the model on this sample after every iteration
-            self.val_df = self.batch_recorder(
-                sample, predictions.unsqueeze(0), target.unsqueeze(0), sample_time, True, 'Whole_image'
-            )
+            self.val_df = self.batch_recorder(sample, predictions.unsqueeze(0), target.unsqueeze(0), sample_time, True)
         return average_loss
 
     def inference_loop(self):
@@ -289,19 +287,17 @@ class RunModel:
 
             self.prediction_saver(sample, predictions)
 
-    def record_segmentation_batch(self, sample, predictions, targets, batch_time, save=False, mode=None):
+    def record_segmentation_batch(self, sample, predictions, targets, batch_time, save=False):
         """
-        Record information about the patches the model was trained or evaluated on during the segmentation task.
+        Record information about the batches the model was trained or evaluated on during the segmentation task.
         At evaluation time, additional reporting metrics are recorded.
         """
-        if mode is None:
-            if self.model.training:
-                mode = 'Train'
-                df = self.train_df
-            else:
-                mode = 'Val'
-                df = self.val_df
+        is_batch = not isinstance(sample, torchio.Subject)
+        if self.model.training:
+            mode = 'Train'
+            df = self.train_df
         else:
+            mode = 'Val' if is_batch else 'Whole_image'
             df = self.val_df
 
         shape = targets.shape
@@ -311,23 +307,19 @@ class RunModel:
         batch_size = shape[0]
 
         for idx in range(batch_size):
-            if batch_size > 1:
-                info = {
-                    'name': sample['name'][idx],
-                    'image_filename': sample[self.image_key_name]['path'][idx],
-                    'label_filename': sample[self.label_key_name]['path'][idx],
-                    'shape': to_numpy(shape[2:]),
-                    'batch_time': batch_time,
-                    'batch_size': batch_size
-                }
-            else:
-                info = {
-                    'name': sample['name'],
-                    'image_filename': sample[self.image_key_name]['path'],
-                    'label_filename': sample[self.label_key_name]['path'],
-                    'shape': to_numpy(shape[2:]),
-                    'sample_time': batch_time
-                }
+            name = sample['name'][idx] if is_batch else sample['name']
+            image_path = sample[self.image_key_name]['path'][idx] if is_batch else sample[self.image_key_name]['path']
+            label_path = sample[self.label_key_name]['path'][idx] if is_batch else sample[self.label_key_name]['path']
+            time_key = 'batch_time' if is_batch else 'sample_time'
+            info = {
+                'name': name,
+                'image_filename': image_path,
+                'label_filename': label_path,
+                'shape': to_numpy(shape[2:]),
+                time_key: batch_time
+            }
+            if is_batch:
+                info['batch_size'] = batch_size
 
             for channel in list(range(shape[1])):
                 info[f'occupied_volume{channel}'] = to_numpy(
