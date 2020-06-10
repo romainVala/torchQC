@@ -9,7 +9,7 @@ import torch
 import multiprocessing
 from pathlib import Path
 from torch.utils.data import DataLoader
-from segmentation.utils import parse_object_import, parse_function_import, parse_method_import
+from segmentation.utils import parse_object_import, parse_function_import, parse_method_import, generate_json_document
 from segmentation.run_model import RunModel
 from torch_summary import summary_string
 
@@ -34,15 +34,16 @@ SAVE_KEYS = ['record_frequency']
 
 
 class Config:
-    def __init__(self, main_file, results_dir, logger, debug_logger=None, mode='train'):
+    def __init__(self, main_file, results_dir, logger, debug_logger, mode='train'):
         self.mode = mode
         self.logger = logger
         self.debug_logger = debug_logger
-        self.main_structure = self.parse_main_file(main_file)
 
         self.results_dir = results_dir
         if not os.path.isdir(self.results_dir):
             os.makedirs(self.results_dir)
+
+        self.main_structure = self.parse_main_file(main_file)
 
         data_structure, patch_size = self.parse_data_file(self.main_structure['data'])
         transform_structure = self.parse_transform_file(self.main_structure['transform'])
@@ -74,27 +75,31 @@ class Config:
         value = struct.get(key) or default_value
         struct[key] = value
 
-    def load_json(self, file, name):
-        with open(file) as f:
-            struct = json.load(f)
-            self.logger.log(logging.INFO, f'******** {name} ********')
-            self.logger.log(logging.INFO, json.dumps(struct, indent=4, sort_keys=True))
-        return struct
+    def save_json(self, struct, name):
+        self.debug(f'******** {name.upper()} ********')
+        self.debug(json.dumps(struct, indent=4, sort_keys=True))
+        generate_json_document(f'{self.results_dir}/{name}', **struct)
 
     def debug(self, info):
         if self.debug_logger is not None:
             self.debug_logger.log(logging.DEBUG, info)
 
     def parse_main_file(self, file):
-        struct = self.load_json(file, 'MAIN CONFIG FILE')
+        with open(file) as f:
+            struct = json.load(f)
+
         additional_key = []
         if self.mode in ['train', 'eval', 'infer']:
             additional_key = ['run']
         self.check_mandatory_keys(struct, MAIN_KEYS + additional_key, 'MAIN CONFIG FILE')
+        self.save_json(struct, 'main.json')
+
         return struct
 
     def parse_data_file(self, file):
-        struct = self.load_json(file, 'DATA CONFIG FILE')
+        with open(file) as f:
+            struct = json.load(f)
+
         self.check_mandatory_keys(struct, DATA_KEYS, 'DATA CONFIG FILE')
         self.set_struct_value(struct, 'patterns', [])
         self.set_struct_value(struct, 'paths', [])
@@ -111,12 +116,6 @@ class Config:
         total = sum(struct['repartition'])
         struct['repartition'] = list(map(lambda x: x / total, struct['repartition']))
 
-        if struct['num_workers'] == -1:
-            struct['num_workers'] = multiprocessing.cpu_count()
-
-        if struct['collate_fn'] is not None:
-            struct['collate_fn'] = parse_function_import(struct['collate_fn'])
-
         for modality in struct['modalities'].values():
             self.check_mandatory_keys(modality, MODALITY_KEYS, 'MODALITY')
             self.set_struct_value(modality, 'attributes', {})
@@ -131,7 +130,7 @@ class Config:
             self.set_struct_value(path, 'name')
             self.set_struct_value(path, 'list_name')
 
-        patch_size = None
+        patch_size, sampler = None, None
         if struct['queue'] is not None:
             self.check_mandatory_keys(struct['queue'], QUEUE_KEYS, 'QUEUE')
             self.check_mandatory_keys(struct['queue']['sampler'], SAMPLER_KEYS, 'SAMPLER')
@@ -148,6 +147,13 @@ class Config:
                         del struct['queue']['sampler']['attributes']['label_probabilities'][key]
                         struct['queue']['sampler']['attributes']['label_probabilities'][int(key)] = value
 
+        self.save_json(struct, 'data.json')
+
+        # Make imports
+        if struct['collate_fn'] is not None:
+            struct['collate_fn'] = parse_function_import(struct['collate_fn'])
+
+        if struct['queue'] is not None:
             sampler, _ = parse_object_import(struct['queue']['sampler'])
             struct['queue']['sampler'] = sampler
             struct['queue']['attributes'].update({'num_workers': struct['num_workers'], 'sampler': sampler})
@@ -169,8 +175,13 @@ class Config:
             else:
                 return t_class(**attributes)
 
-        struct = self.load_json(file, 'TRANSFORM CONFIG FILE')
+        with open(file) as f:
+            struct = json.load(f)
+
         self.check_mandatory_keys(struct, TRANSFORM_KEYS, 'TRANSFORM CONFIG FILE')
+        self.save_json(struct, 'transform.json')
+
+        # Make imports
         transform_list = []
         for transform in struct['train_transforms']:
             transform_list.append(parse_transform(transform))
@@ -184,18 +195,24 @@ class Config:
         return struct
 
     def parse_model_file(self, file):
-        struct = self.load_json(file, 'MODEL CONFIG FILE')
+        with open(file) as f:
+            struct = json.load(f)
+
         self.check_mandatory_keys(struct, MODEL_KEYS, 'MODEL CONFIG FILE')
 
         self.set_struct_value(struct, 'last_one', True)
-        self.set_struct_value(struct, 'path', None)
+        self.set_struct_value(struct, 'path')
         self.set_struct_value(struct, 'device', 'cuda')
+        self.set_struct_value(struct, 'input_shape')
+
+        self.save_json(struct, 'model.json')
 
         if struct['device'] == 'cuda' and torch.cuda.is_available():
             struct['device'] = torch.device('cuda')
         else:
             struct['device'] = torch.device('cpu')
 
+        # Make imports
         struct['model'], struct['model_class'] = parse_object_import(struct)
 
         return struct
@@ -208,16 +225,16 @@ class Config:
                 c_list.append(c)
             return c_list
 
-        struct = self.load_json(file, 'RUN CONFIG FILE')
+        with open(file) as f:
+            struct = json.load(f)
+
         self.check_mandatory_keys(struct, RUN_KEYS, 'RUN CONFIG FILE')
         self.set_struct_value(struct, 'data_getter', 'get_segmentation_data')
         self.set_struct_value(struct, 'seed')
         self.set_struct_value(struct, 'current_epoch')
         self.set_struct_value(struct, 'log_frequency', 10)
 
-        struct['criteria'] = parse_criteria(struct['criteria'])
-
-        files = glob.glob(self.results_dir + '/model*')
+        files = glob.glob(self.results_dir + '/model_ep*')
         if len(files) == 0:
             struct['current_epoch'] = 1
         else:
@@ -231,11 +248,6 @@ class Config:
         self.set_struct_value(struct['optimizer'], 'learning_rate_strategy')
         self.set_struct_value(struct['optimizer'], 'learning_rate_strategy_attributes', {})
 
-        struct['optimizer']['optimizer_class'] = parse_function_import(struct['optimizer'])
-        strategy = struct['optimizer']['learning_rate_strategy']
-        if strategy is not None:
-            struct['optimizer']['learning_rate_strategy'] = parse_function_import(strategy)
-
         # Save
         self.check_mandatory_keys(struct['save'], SAVE_KEYS, 'SAVE')
         self.set_struct_value(struct['save'], 'batch_recorder', 'record_segmentation_batch')
@@ -247,6 +259,19 @@ class Config:
         self.set_struct_value(struct['validation'], 'patch_overlap', 8)
         self.set_struct_value(struct['validation'], 'reporting_metrics', [])
 
+        self.save_json(struct, 'run.json')
+
+        # Make imports
+        # Criteria
+        struct['criteria'] = parse_criteria(struct['criteria'])
+
+        # Optimizer
+        struct['optimizer']['optimizer_class'] = parse_function_import(struct['optimizer'])
+        strategy = struct['optimizer']['learning_rate_strategy']
+        if strategy is not None:
+            struct['optimizer']['learning_rate_strategy'] = parse_function_import(strategy)
+
+        # Validation
         struct['validation']['reporting_metrics'] = parse_criteria(struct['validation']['reporting_metrics'])
 
         return struct
@@ -362,6 +387,9 @@ class Config:
         return train_set, val_set, test_set
 
     def generate_data_loaders(self, struct):
+        if struct['num_workers'] == -1:
+            struct['num_workers'] = multiprocessing.cpu_count()
+
         if struct['batch_seed'] is not None:
             torch.manual_seed(struct['batch_seed'])
 
@@ -384,13 +412,14 @@ class Config:
             else:
                 self.logger.log(logging.INFO, 'Using new model')
             device = struct['device']
-            self.logger.log(logging.INFO, 'Model description:')
-            self.logger.log(logging.INFO, model)
+            self.debug('Model description:')
+            self.debug(model)
 
             m.to(device)
 
-            if self.patch_size is not None:
-                summary, _ = summary_string(model, (1, *self.patch_size), self.batch_size, device)
+            input_shape = self.patch_size or struct['input_shape']
+            if input_shape is not None:
+                summary, _ = summary_string(model, (1, *input_shape), self.batch_size, device)
                 self.logger.log(logging.INFO, 'Model summary:')
                 self.logger.log(logging.INFO, summary)
             return m, device
@@ -401,7 +430,7 @@ class Config:
         model_class = struct['model_class']
 
         if struct['last_one']:
-            files = glob.glob(self.results_dir + '/model*.pth*')
+            files = glob.glob(self.results_dir + '/model_ep*')
             if len(files) == 0:
                 return return_model(model)
             file = max(files, key=os.path.getctime)
