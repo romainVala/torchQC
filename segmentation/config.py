@@ -282,8 +282,7 @@ class Config:
             return patch_size, patch_size, patch_size
         return patch_size
 
-    @staticmethod
-    def load_subjects(struct):
+    def load_subjects(self, struct):
         def update_subject(subject_to_update, ref_modalities, mod_name, mod_path):
             image_type = ref_modalities[mod_name]['type']
             image_attributes = ref_modalities[mod_name]['attributes']
@@ -372,6 +371,10 @@ class Config:
         train_subjects += subjects[:end_train]
         val_subjects += subjects[end_train:end_val]
         test_subjects += subjects[end_val:]
+
+        self.logger.log(logging.INFO, f'{len(train_subjects)} subjects in the train set')
+        self.logger.log(logging.INFO, f'{len(val_subjects)} subjects in the validation set')
+        self.logger.log(logging.INFO, f'{len(test_subjects)} subjects in the test set')
 
         return train_subjects, val_subjects, test_subjects
 
