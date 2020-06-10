@@ -223,7 +223,7 @@ class Config:
         else:
             last_model = max(files, key=os.path.getctime)
             matches = re.findall('ep([0-9]+)', last_model)
-            struct['current_epoch'] = int(matches[-1]) + 1
+            struct['current_epoch'] = int(matches[-1]) + 1 if matches else 1
 
         # Optimizer
         self.check_mandatory_keys(struct['optimizer'], OPTIMIZER_KEYS, 'OPTIMIZER')
@@ -400,7 +400,7 @@ class Config:
         model_class = struct['model_class']
 
         if struct['last_one']:
-            files = glob.glob(self.results_dir + '/model*')
+            files = glob.glob(self.results_dir + '/model*.pth*')
             if len(files) == 0:
                 return return_model(model)
             file = max(files, key=os.path.getctime)

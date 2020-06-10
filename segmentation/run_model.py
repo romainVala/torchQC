@@ -379,3 +379,98 @@ class RunModel:
         # Aggregate predictions for the whole image
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions
+
+
+    def get_regress_random_noise_data(self, data):
+        return self.get_regression_data(data, 'random_noise')
+
+    def get_regress_motion_data(self, data):
+        return self.get_regression_data(data, 'ssim')
+
+    def get_regression_data(self, data, target):
+
+        if isinstance(data, list):  # case where callate_fn is used
+            inputs = torch.cat([sample[self.image_key_name]['data'].unsqueeze(0) for sample in data])
+        else:
+            inputs = data[self.image_key_name]['data']
+
+        if target == 'ssim':
+            labels = data[self.image_key_name]['metrics']['ssim'].unsqueeze(1)
+        elif target == 'random_noise':
+            histo = data['history']
+            lab = []
+            for hh in histo: #length = batch size
+                for hhh in hh : #length: number of transfo that lead history info
+                    if 'RandomNoise' in hhh:
+                        lab.append(hhh[1][self.image_key_name]['std'])
+            labels = torch.Tensor(lab).unsqueeze(1)
+
+        inputs = to_var(inputs.float(), self.device)
+        labels = to_var(labels.float(), self.device)
+
+        return inputs, labels
+
+    def record_regression_batch(self, sample, predictions, targets, batch_time, save=False,  mode=None):
+        """
+        Record information about the the model was trained or evaluated on during the regression task.
+        At evaluation time, additional reporting metrics are recorded.
+        """
+        if mode is None:
+            if self.model.training:
+                mode = 'Train'
+                df = self.train_df
+            else:
+                mode = 'Val'
+                df = self.val_df
+        else:
+            df = self.val_df
+
+        location = sample.get('index_ini')
+        shape = sample[self.image_key_name]['data'].shape
+        history = sample.get('history')
+        batch_size = shape[0]
+
+        for idx in range(batch_size):
+            info = {
+                'name': sample['name'][idx],
+                'image_filename': sample[self.image_key_name]['path'][idx],
+                'shape': to_numpy(shape[2:]),
+                'batch_time': batch_time,
+                'batch_size': batch_size
+            }
+
+            if location is not None:
+                info['location'] = to_numpy(location[idx])
+
+            loss = 0
+            for criterion in self.criteria:
+                loss += criterion(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+            info['loss'] = to_numpy(loss)
+            info['prediction'] = to_numpy(predictions[idx])[0]
+            info['targets'] = to_numpy(targets[idx])[0]
+
+            if 'metrics' in sample[self.image_key_name]:
+                #dicm = sample[self.image_key_name]['metrics']
+                dics = sample[self.image_key_name]['simu_param']
+                dicm={}
+                for key,val in dics.items():
+                    dicm[key] = to_numpy(val[idx])
+                info.update(dicm)
+
+            if not self.model.training:
+                for metric in self.metrics:
+                    info[f'metric_{metric.__name__}'] = to_numpy(
+                        metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+                    )
+
+            if history is not None:
+                for hist in history[idx]:
+                    info['T_{}'.format(hist[0])] = json.dumps(hist[1], cls=ArrayTensorJSONEncoder)
+
+            df = df.append(info, ignore_index=True)
+
+        if save:
+            filename = '{}/{}_ep{:03d}_it{:04d}.csv'.format(self.results_dir, mode, self.epoch, self.iteration)
+            df.to_csv(filename)
+
+        return df
