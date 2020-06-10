@@ -378,7 +378,7 @@ class Config:
     def generate_datasets(self, struct):
         def create_dataset(subjects, transforms):
             if len(subjects) == 0:
-                return
+                return []
             transform = torchio.transforms.Compose(transforms)
             return torchio.ImagesDataset(subjects, transform=transform)
         train_set = create_dataset(self.train_subjects, struct['train_transforms'])
@@ -387,6 +387,8 @@ class Config:
         return train_set, val_set, test_set
 
     def generate_data_loaders(self, struct):
+        train_loader, val_loader = None, None
+
         if struct['num_workers'] == -1:
             struct['num_workers'] = multiprocessing.cpu_count()
 
@@ -394,15 +396,19 @@ class Config:
             torch.manual_seed(struct['batch_seed'])
 
         if struct['queue'] is None:
-            train_loader = DataLoader(self.train_set, self.batch_size, shuffle=struct['batch_shuffle'],
-                                      num_workers=struct['num_workers'], collate_fn=struct['collate_fn'])
-            val_loader = DataLoader(self.val_set, self.batch_size, shuffle=struct['batch_shuffle'],
-                                    num_workers=struct['num_workers'], collate_fn=struct['collate_fn'])
+            if len(self.train_set) > 0:
+                train_loader = DataLoader(self.train_set, self.batch_size, shuffle=struct['batch_shuffle'],
+                                          num_workers=struct['num_workers'], collate_fn=struct['collate_fn'])
+            if len(self.val_set) > 0:
+                val_loader = DataLoader(self.val_set, self.batch_size, shuffle=struct['batch_shuffle'],
+                                        num_workers=struct['num_workers'], collate_fn=struct['collate_fn'])
         else:
-            train_queue = torchio.Queue(self.train_set, **struct['queue']['attributes'])
-            train_loader = DataLoader(train_queue, self.batch_size, collate_fn=struct['collate_fn'])
-            val_queue = torchio.Queue(self.val_set, **struct['queue']['attributes'])
-            val_loader = DataLoader(val_queue, self.batch_size, collate_fn=struct['collate_fn'])
+            if len(self.train_set) > 0:
+                train_queue = torchio.Queue(self.train_set, **struct['queue']['attributes'])
+                train_loader = DataLoader(train_queue, self.batch_size, collate_fn=struct['collate_fn'])
+            if len(self.val_set) > 0:
+                val_queue = torchio.Queue(self.val_set, **struct['queue']['attributes'])
+                val_loader = DataLoader(val_queue, self.batch_size, collate_fn=struct['collate_fn'])
         return train_loader, val_loader
 
     def load_model(self, struct):
