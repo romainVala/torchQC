@@ -135,7 +135,7 @@ class RunModel:
             self.model.eval()
             if self.eval_frequency != np.inf:
                 self.logger.log(logging.INFO, 'Evaluation on patches')
-                self.train_loop()
+                self.train_loop(save_model=False)
 
             if self.patch_size is not None and self.whole_image_inference_frequency != np.inf:
                 self.logger.log(logging.INFO, 'Evaluation on whole images')
@@ -148,7 +148,7 @@ class RunModel:
             self.model.eval()
             self.inference_loop()
 
-    def train_loop(self):
+    def train_loop(self, save_model=True):
         if self.model.training:
             model_mode = 'Train'
             loader = self.train_loader
@@ -216,7 +216,7 @@ class RunModel:
                 self.val_df = self.batch_recorder(sample, predictions, targets, batch_time, True)
 
         # Save model after an evaluation on the whole validation set
-        if not self.model.training:
+        if save_model and not self.model.training:
             state = {'epoch': self.epoch,
                      'iterations': self.iteration,
                      'val_loss': average_loss,
