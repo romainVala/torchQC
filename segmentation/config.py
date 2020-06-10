@@ -72,8 +72,8 @@ class Config:
         """
         Give a default value to a key of a dictionary is this key was not in the dictionary.
         """
-        value = struct.get(key) or default_value
-        struct[key] = value
+        if struct.get(key) is None:
+            struct[key] = default_value
 
     def save_json(self, struct, name):
         self.debug(f'******** {name.upper()} ********')
