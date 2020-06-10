@@ -67,8 +67,6 @@ class RunModel:
         # Set attributes to keep track of information during training
         self.epoch = struct['current_epoch']
         self.iteration = 0
-        self.train_df = None
-        self.val_df = None
 
     def get_optimizer(self, optimizer_dict):
         optimizer_dict['attributes'].update({'params': self.model.parameters()})
@@ -154,12 +152,12 @@ class RunModel:
             self.logger.log(logging.INFO, 'Training')
             model_mode = 'Train'
             loader = self.train_loader
-            self.train_df = pd.DataFrame()
         else:
             self.logger.log(logging.INFO, 'Validation')
             model_mode = 'Val'
             loader = self.val_loader
-            self.val_df = pd.DataFrame()
+
+        df = pd.DataFrame()
 
         batch_size = loader.batch_size
         start = time.time()
@@ -210,13 +208,10 @@ class RunModel:
                     self.model.train()
 
             # Update DataFrame and record it every record_frequency iterations or every iteration at validation time
-            if self.model.training and i % self.record_frequency == 0:
-                self.batch_recorder(sample, predictions, targets, batch_time, True)
-                self.train_df = pd.DataFrame()
-            elif self.model.training:
-                self.train_df = self.batch_recorder(sample, predictions, targets, batch_time, False)
+            if i % self.record_frequency == 0 or i == len(loader):
+                df = self.batch_recorder(df, sample, predictions, targets, batch_time, True)
             else:
-                self.val_df = self.batch_recorder(sample, predictions, targets, batch_time, True)
+                df = self.batch_recorder(df, sample, predictions, targets, batch_time, False)
 
         # Save model after an evaluation on the whole validation set
         if save_model and not self.model.training:
@@ -230,7 +225,7 @@ class RunModel:
         return average_loss
 
     def whole_image_evaluation_loop(self):
-        self.val_df = pd.DataFrame()
+        df = pd.DataFrame()
         start = time.time()
         time_sum, loss_sum = 0, 0
         average_loss = None
@@ -263,7 +258,7 @@ class RunModel:
                 self.logger.log(logging.INFO, to_log)
 
             # Record information about the sample and the performances of the model on this sample after every iteration
-            self.val_df = self.batch_recorder(sample, predictions.unsqueeze(0), target.unsqueeze(0), sample_time, True)
+            df = self.batch_recorder(df, sample, predictions.unsqueeze(0), target.unsqueeze(0), sample_time, True)
         return average_loss
 
     def inference_loop(self):
@@ -290,7 +285,7 @@ class RunModel:
 
             self.prediction_saver(sample, predictions)
 
-    def record_segmentation_batch(self, sample, predictions, targets, batch_time, save=False):
+    def record_segmentation_batch(self, df, sample, predictions, targets, batch_time, save=False):
         """
         Record information about the batches the model was trained or evaluated on during the segmentation task.
         At evaluation time, additional reporting metrics are recorded.
@@ -298,10 +293,8 @@ class RunModel:
         is_batch = not isinstance(sample, torchio.Subject)
         if self.model.training:
             mode = 'Train'
-            df = self.train_df
         else:
             mode = 'Val' if is_batch else 'Whole_image'
-            df = self.val_df
 
         shape = targets.shape
         size = np.product(shape[2:])
@@ -354,7 +347,10 @@ class RunModel:
             df = df.append(info, ignore_index=True)
 
         if save:
-            filename = f'{self.results_dir}/{mode}_ep{self.epoch}_it{self.iteration}.csv'
+            if mode == 'Train':
+                filename = f'{self.results_dir}/{mode}_ep{self.epoch}.csv'
+            else:
+                filename = f'{self.results_dir}/{mode}_ep{self.epoch}_it{self.iteration}.csv'
             df.to_csv(filename)
 
         return df
@@ -413,20 +409,13 @@ class RunModel:
 
         return inputs, labels
 
-    def record_regression_batch(self, sample, predictions, targets, batch_time, save=False,  mode=None):
+    def record_regression_batch(self, df, sample, predictions, targets, batch_time, save=False):
         """
         Record information about the the model was trained or evaluated on during the regression task.
         At evaluation time, additional reporting metrics are recorded.
         """
-        if mode is None:
-            if self.model.training:
-                mode = 'Train'
-                df = self.train_df
-            else:
-                mode = 'Val'
-                df = self.val_df
-        else:
-            df = self.val_df
+
+        mode = 'Train' if self.model.training else 'Val'
 
         location = sample.get('index_ini')
         shape = sample[self.image_key_name]['data'].shape
