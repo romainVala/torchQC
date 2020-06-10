@@ -98,7 +98,6 @@ class RunModel:
 
             # Train for one epoch
             self.model.train()
-            self.logger.log(logging.INFO, 'Training')
             self.train_loop()
 
             # Evaluate on whole images of the validation set
@@ -131,6 +130,7 @@ class RunModel:
     def eval(self):
         """ Evaluate the model on the validation set. """
         self.epoch -= 1
+        self.logger.log(logging.INFO, 'Evaluation')
         with torch.no_grad():
             self.model.eval()
             if self.eval_frequency != np.inf:
@@ -144,16 +144,19 @@ class RunModel:
     def infer(self):
         """ Use the model to make predictions on the test set. """
         self.epoch -= 1
+        self.logger.log(logging.INFO, 'Inference')
         with torch.no_grad():
             self.model.eval()
             self.inference_loop()
 
     def train_loop(self, save_model=True):
         if self.model.training:
+            self.logger.log(logging.INFO, 'Training')
             model_mode = 'Train'
             loader = self.train_loader
             self.train_df = pd.DataFrame()
         else:
+            self.logger.log(logging.INFO, 'Validation')
             model_mode = 'Val'
             loader = self.val_loader
             self.val_df = pd.DataFrame()
