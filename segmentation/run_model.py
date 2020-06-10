@@ -9,7 +9,7 @@ import pandas as pd
 import nibabel as nib
 import torchio
 from torch.utils.data import DataLoader
-from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
+from segmentation.utils import to_var, summary, save_checkpoint, to_numpy, get_class_name_from_method
 
 
 class ArrayTensorJSONEncoder(json.JSONEncoder):
@@ -339,12 +339,13 @@ class RunModel:
 
             if not self.model.training:
                 for metric in self.metrics:
+                    name = f'metric_{get_class_name_from_method(metric)}{metric.__name__}'
                     value = to_numpy(metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0)))
                     if value.size == 1:
-                        info[f'metric_{metric.__name__}'] = value
+                        info[name] = value
                     else:
                         for i, v in enumerate(value):
-                            info[f'metric_{metric.__name__}{i}'] = v
+                            info[name] = v
 
             if history is not None:
                 for hist in history[idx]:
