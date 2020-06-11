@@ -462,7 +462,11 @@ class RunModel:
             df = df.append(info, ignore_index=True)
 
         if save:
-            filename = '{}/{}_ep{:03d}_it{:04d}.csv'.format(self.results_dir, mode, self.epoch, self.iteration)
+            if mode == 'Train':
+                filename = '{}/{}_ep{:03d}.csv'.format(self.results_dir, mode, self.epoch)
+            else:
+                filename = '{}/{}_ep{:03d}_it{:04d}.csv'.format(self.results_dir, mode, self.epoch, self.iteration)
+
             df.to_csv(filename)
 
         return df
