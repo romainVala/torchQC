@@ -94,8 +94,8 @@ class Config:
         self.check_mandatory_keys(struct, MAIN_KEYS + additional_key, 'MAIN CONFIG FILE')
 
         #replace relative path if needed
+        dir_file = get_parent_path(file)[0] + '/'
         for key, val in struct.items():
-            dir_file = get_parent_path(file)[0] + '/'
             if not val[0]=='/':
                 struct[key] = dir_file + val
 
