@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from segmentation.utils import parse_object_import, parse_function_import, parse_method_import, generate_json_document
 from segmentation.run_model import RunModel
 from torch_summary import summary_string
-
+from utils_file import get_parent_path
 
 MAIN_KEYS = ['data', 'transform', 'model']
 
@@ -92,6 +92,13 @@ class Config:
         if self.mode in ['train', 'eval', 'infer']:
             additional_key = ['run']
         self.check_mandatory_keys(struct, MAIN_KEYS + additional_key, 'MAIN CONFIG FILE')
+
+        #replace relative path if needed
+        for key, val in struct.items():
+            dir_file = get_parent_path(file)[0] + '/'
+            if not val[0]=='/':
+                struct[key] = dir_file + val
+
         self.save_json(struct, 'main.json')
 
         return struct
