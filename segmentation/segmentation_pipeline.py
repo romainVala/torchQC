@@ -17,6 +17,10 @@ if __name__ == "__main__":
                                                                    'debug messages will be printed in the console')
     args = parser.parse_args()
 
+    import resource
+    rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (2048*8, rlimit[1]))
+
     resdir = args.results_dir
     conf_file = args.file
     if not resdir[0]=='/':
