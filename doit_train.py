@@ -15,7 +15,7 @@ from torchvision.transforms import Compose
 import torchvision
 
 from utils_file import get_log_file, gfile, get_parent_path, gdir
-from utils import apply_conditions_on_dataset
+#from utils import apply_conditions_on_dataset
 
 from torchio.transforms.metrics import SSIM3D, ssim3D
 from smallunet_pytorch import ConvN_FC3, SmallUnet, load_existing_weights_if_exist
