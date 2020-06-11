@@ -93,7 +93,7 @@ def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time, mo
     return string
 
 
-def instantiate_logger(logger_name, log_level, log_filename):
+def instantiate_logger(logger_name, log_level, log_filename, console=True):
     """
     Create a logger that will both write to console and to a log file.
     """
@@ -101,10 +101,11 @@ def instantiate_logger(logger_name, log_level, log_filename):
     logger.setLevel(log_level)
 
     file_handler = logging.FileHandler(log_filename)
-    console_handler = logging.StreamHandler()
-
     logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+
+    if console:
+        console_handler = logging.StreamHandler()
+        logger.addHandler(console_handler)
 
     return logger
 
@@ -161,3 +162,10 @@ def mean_metric(prediction, target, metric):
         res += metric(prediction[:, channel, ...], target[:, channel, ...])
 
     return res / len(channels)
+
+
+def get_class_name_from_method(method):
+    cls = method.__self__.__class__
+    # str(cls) gives something like "<class 'the_class_name'>"
+    cls_name = str(cls)[8:-2]
+    return cls_name.split('.')[-1]

@@ -260,7 +260,8 @@ is saved after every evaluation loop on the validation set,
     "save": 
     {
         "record_frequency": 10,
-        "batch_recorder": "record_segmentation_batch"
+        "batch_recorder": "record_segmentation_batch",
+        "prediction_saver": "save_segmentation_prediction"
     }, 
     "validation": 
     {
@@ -314,6 +315,5 @@ on validation data;
 - `"infer"`: the selected model is used to make predictions on test data;
 - `"viz"`: not implemented yet.
 
-The `--debug` argument's default value is 0, if a different value is given, a debug logger will
-be created to record some debugging information like running times of different steps of the 
-pipeline.
+The `--debug` argument's default value is 0, if a different value is given, debug information
+will be printed in the console.
