@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import logging
+import sys
 import os
 
 
@@ -104,7 +105,7 @@ def instantiate_logger(logger_name, log_level, log_filename, console=True):
     logger.addHandler(file_handler)
 
     if console:
-        console_handler = logging.StreamHandler()
+        console_handler = logging.StreamHandler(sys.stdout)
         logger.addHandler(console_handler)
 
     return logger
