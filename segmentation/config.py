@@ -113,8 +113,9 @@ class Config:
         self.set_struct_value(struct, 'collate_fn')
         self.set_struct_value(struct, 'batch_seed')
 
-        total = sum(struct['repartition'])
-        struct['repartition'] = list(map(lambda x: x / total, struct['repartition']))
+        #let the user decide, if he does not want to use the all dataset
+        #total = sum(struct['repartition'])
+        #struct['repartition'] = list(map(lambda x: x / total, struct['repartition']))
 
         for modality in struct['modalities'].values():
             self.check_mandatory_keys(modality, MODALITY_KEYS, 'MODALITY')
