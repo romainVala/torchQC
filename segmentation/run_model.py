@@ -68,6 +68,10 @@ class RunModel:
         self.epoch = struct['current_epoch']
         self.iteration = 0
 
+    def log(self, info):
+        if self.logger is not None:
+            self.logger.log(logging.INFO, info)
+
     def get_optimizer(self, optimizer_dict):
         optimizer_dict['attributes'].update({'params': self.model.parameters()})
         optimizer = optimizer_dict['optimizer_class'](**optimizer_dict['attributes'])
@@ -92,7 +96,7 @@ class RunModel:
 
         for epoch in range(self.epoch, self.n_epochs + 1):
             self.epoch = epoch
-            self.logger.log(logging.INFO, '******** Epoch [{}/{}]  ********'.format(self.epoch, self.n_epochs))
+            self.log('******** Epoch [{}/{}]  ********'.format(self.epoch, self.n_epochs))
 
             # Train for one epoch
             self.model.train()
@@ -102,7 +106,7 @@ class RunModel:
             with torch.no_grad():
                 self.model.eval()
                 if self.patch_size is not None and self.epoch % self.whole_image_inference_frequency == 0:
-                    self.logger.log(logging.INFO, 'Validation')
+                    self.log('Validation')
                     self.whole_image_evaluation_loop()
 
                     # Save model after inference
@@ -128,32 +132,32 @@ class RunModel:
     def eval(self):
         """ Evaluate the model on the validation set. """
         self.epoch -= 1
-        self.logger.log(logging.INFO, 'Evaluation')
+        self.log('Evaluation')
         with torch.no_grad():
             self.model.eval()
             if self.eval_frequency != np.inf:
-                self.logger.log(logging.INFO, 'Evaluation on patches')
+                self.log('Evaluation on patches')
                 self.train_loop(save_model=False)
 
             if self.patch_size is not None and self.whole_image_inference_frequency != np.inf:
-                self.logger.log(logging.INFO, 'Evaluation on whole images')
+                self.log('Evaluation on whole images')
                 self.whole_image_evaluation_loop()
 
     def infer(self):
         """ Use the model to make predictions on the test set. """
         self.epoch -= 1
-        self.logger.log(logging.INFO, 'Inference')
+        self.log('Inference')
         with torch.no_grad():
             self.model.eval()
             self.inference_loop()
 
     def train_loop(self, save_model=True):
         if self.model.training:
-            self.logger.log(logging.INFO, 'Training')
+            self.log('Training')
             model_mode = 'Train'
             loader = self.train_loader
         else:
-            self.logger.log(logging.INFO, 'Validation')
+            self.log('Validation')
             model_mode = 'Val'
             loader = self.val_loader
 
@@ -198,7 +202,7 @@ class RunModel:
             # Log training or validation information every log_frequency iterations
             if i % self.log_frequency == 0:
                 to_log = summary(self.epoch, i, len(loader), loss, batch_time, average_loss, average_time, model_mode)
-                self.logger.log(logging.INFO, to_log)
+                self.log(to_log)
 
             # Run model on validation set every eval_frequency iteration
             if self.model.training and i % self.eval_frequency == 0:
@@ -255,7 +259,7 @@ class RunModel:
             if i % self.log_frequency == 0:
                 to_log = summary(self.epoch, i, len(self.val_set), sample_loss, sample_time, average_loss,
                                  average_time, 'Val', 'Sample')
-                self.logger.log(logging.INFO, to_log)
+                self.log(to_log)
 
             # Record information about the sample and the performances of the model on this sample after every iteration
             df = self.batch_recorder(df, sample, predictions.unsqueeze(0), target.unsqueeze(0), sample_time, True)
@@ -281,7 +285,7 @@ class RunModel:
             # Log time information every log_frequency iterations
             if i % self.log_frequency == 0:
                 to_log = summary('/', i, len(self.test_set), '/', sample_time, '/', average_time, 'Val', 'Sample')
-                self.logger.log(logging.INFO, to_log)
+                self.log(to_log)
 
             self.prediction_saver(sample, predictions)
 

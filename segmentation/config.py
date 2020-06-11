@@ -35,7 +35,7 @@ SAVE_KEYS = ['record_frequency']
 
 
 class Config:
-    def __init__(self, main_file, results_dir, logger, debug_logger, mode='train'):
+    def __init__(self, main_file, results_dir, logger=None, debug_logger=None, mode='train'):
         self.mode = mode
         self.logger = logger
         self.debug_logger = debug_logger
@@ -80,6 +80,10 @@ class Config:
         self.debug(f'******** {name.upper()} ********')
         self.debug(json.dumps(struct, indent=4, sort_keys=True))
         generate_json_document(f'{self.results_dir}/{name}', **struct)
+
+    def log(self, info):
+        if self.logger is not None:
+            self.logger.log(logging.INFO, info)
 
     def debug(self, info):
         if self.debug_logger is not None:
@@ -407,9 +411,9 @@ class Config:
         val_subjects += subjects[end_train:end_val]
         test_subjects += subjects[end_val:]
 
-        self.logger.log(logging.INFO, f'{len(train_subjects)} subjects in the train set')
-        self.logger.log(logging.INFO, f'{len(val_subjects)} subjects in the validation set')
-        self.logger.log(logging.INFO, f'{len(test_subjects)} subjects in the test set')
+        self.log(f'{len(train_subjects)} subjects in the train set')
+        self.log(f'{len(val_subjects)} subjects in the validation set')
+        self.log(f'{len(test_subjects)} subjects in the test set')
 
         return train_subjects, val_subjects, test_subjects
 
@@ -454,9 +458,9 @@ class Config:
     def load_model(self, struct):
         def return_model(m, f=None):
             if f is not None:
-                self.logger.log(logging.INFO, f'Using model from file {f}')
+                self.log(f'Using model from file {f}')
             else:
-                self.logger.log(logging.INFO, 'Using new model')
+                self.log('Using new model')
             device = struct['device']
             self.debug('Model description:')
             self.debug(model)
@@ -466,11 +470,11 @@ class Config:
             input_shape = self.patch_size or struct['input_shape']
             if input_shape is not None:
                 summary, _ = summary_string(model, (1, *input_shape), self.batch_size, device)
-                self.logger.log(logging.INFO, 'Model summary:')
-                self.logger.log(logging.INFO, summary)
+                self.log('Model summary:')
+                self.log(summary)
             return m, device
 
-        self.logger.log(logging.INFO, '******** Model  ********')
+        self.log('******** Model  ********')
 
         model = struct['model']
         model_class = struct['model_class']
