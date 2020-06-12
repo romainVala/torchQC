@@ -20,6 +20,7 @@ DATA_KEYS = ['modalities', 'batch_size', 'image_key_name', 'label_key_name']
 MODALITY_KEYS = ['type']
 PATTERN_KEYS = ['root', 'modalities']
 PATH_KEYS = ['name', 'modalities']
+LOAD_FROM_DIR_KEYS = ['root', 'list_name']
 QUEUE_KEYS = ['sampler']
 SAMPLER_KEYS = ['name', 'module', 'attributes']
 SAMPLER_ATTRIBUTES_KEYS = ['patch_size']
@@ -110,6 +111,7 @@ class Config:
         self.check_mandatory_keys(struct, DATA_KEYS, 'DATA CONFIG FILE')
         self.set_struct_value(struct, 'patterns', [])
         self.set_struct_value(struct, 'paths', [])
+        self.set_struct_value(struct, 'load_sample_from_dir', [])
         self.set_struct_value(struct, 'subject_shuffle')
         self.set_struct_value(struct, 'subject_seed')
         self.set_struct_value(struct, 'repartition', [0.7, 0.15, 0.15])
@@ -137,6 +139,11 @@ class Config:
             self.check_mandatory_keys(path, PATH_KEYS, 'PATH')
             self.set_struct_value(path, 'name')
             self.set_struct_value(path, 'list_name')
+
+        for dir in struct['load_sample_from_dir']:
+            self.check_mandatory_keys(dir, LOAD_FROM_DIR_KEYS, 'load_sample_from_dir')
+            self.set_struct_value(dir, 'name')
+            self.set_struct_value(dir, 'list_name')
 
         patch_size, sampler = None, None
         if struct['queue'] is not None:
@@ -364,25 +371,21 @@ class Config:
 
         # Retrieve subjects using load_sample_from_dir
         if 'load_sample_from_dir' in struct:
-            #for sample_dir in struct['load_sample_from_dir']:
-            #argg pas reussit la boucle for en changent train / val
-            sample_dir = struct['load_sample_from_dir'][0]
-            fsample = gfile(sample_dir['root'], 'sample.*pt')
-            self.logger.log(logging.INFO, f'{len(fsample)} subjects in the train set')
-            transform = torchio.transforms.Compose(struct_transfo['train_transforms'])
-            train_subjects = torchio.ImagesDataset(fsample,
-                                                  load_from_dir=sample_dir['root'], transform=transform,
-                                                  add_to_load=sample_dir['add_to_load'],
-                                                  add_to_load_regexp=sample_dir['add_to_load_regexp'])
+            for sample_dir in struct['load_sample_from_dir']:
 
-            sample_dir = struct['load_sample_from_dir'][1]
-            fsample = gfile(sample_dir['root'], 'sample.*pt')
-            self.logger.log(logging.INFO, f'{len(fsample)} subjects in the val set')
-            transform = torchio.transforms.Compose(struct_transfo['val_transforms'])
-            val_subjects = torchio.ImagesDataset(fsample,
-                                                  load_from_dir=sample_dir['root'], transform=transform,
-                                                  add_to_load=sample_dir['add_to_load'],
-                                                  add_to_load_regexp=sample_dir['add_to_load_regexp'])
+                fsample = glob.glob(sample_dir['root'] + '/sample*pt')
+                self.logger.log(logging.INFO, f'{len(fsample)} subjects in the {sample_dir["list_name"]} set')
+                transform = torchio.transforms.Compose(struct_transfo[f'{sample_dir["list_name"]}_transforms'])
+                the_dataset = torchio.ImagesDataset(fsample,
+                                                      load_from_dir=True, transform=transform,
+                                                      add_to_load=sample_dir['add_to_load'],
+                                                      add_to_load_regexp=sample_dir['add_to_load_regexp'])
+                if sample_dir["list_name"] == 'train':
+                    train_subjects = the_dataset
+                elif sample_dir["list_name"] == 'val':
+                    val_subjects = the_dataset
+                else:
+                    raise ('error list_name attribute from load_from_dir must be either train or val')
 
             return train_subjects, val_subjects, test_subjects
 
