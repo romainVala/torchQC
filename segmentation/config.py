@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from segmentation.utils import parse_object_import, parse_function_import, parse_method_import, generate_json_document
 from segmentation.run_model import RunModel
 from torch_summary import summary_string
-from utils_file import get_parent_path
+from utils_file import get_parent_path, gfile
 
 MAIN_KEYS = ['data', 'transform', 'model']
 
@@ -53,7 +53,7 @@ class Config:
         self.image_key_name = data_structure['image_key_name']
         self.label_key_name = data_structure['label_key_name']
 
-        self.train_subjects, self.val_subjects, self.test_subjects = self.load_subjects(data_structure)
+        self.train_subjects, self.val_subjects, self.test_subjects = self.load_subjects(data_structure, transform_structure)
 
         self.train_set, self.val_set, self.test_set = self.generate_datasets(transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(data_structure)
@@ -290,7 +290,7 @@ class Config:
             return patch_size, patch_size, patch_size
         return patch_size
 
-    def load_subjects(self, struct):
+    def load_subjects(self, struct, struct_transfo=None):
         def update_subject(subject_to_update, ref_modalities, mod_name, mod_path):
             image_type = ref_modalities[mod_name]['type']
             image_attributes = ref_modalities[mod_name]['attributes']
@@ -362,6 +362,30 @@ class Config:
             subject['name'] = name
             relevant_dict[name] = subject
 
+        # Retrieve subjects using load_sample_from_dir
+        if 'load_sample_from_dir' in struct:
+            #for sample_dir in struct['load_sample_from_dir']:
+            #argg pas reussit la boucle for en changent train / val
+            sample_dir = struct['load_sample_from_dir'][0]
+            fsample = gfile(sample_dir['root'], 'sample.*pt')
+            self.logger.log(logging.INFO, f'{len(fsample)} subjects in the train set')
+            transform = torchio.transforms.Compose(struct_transfo['train_transforms'])
+            train_subjects = torchio.ImagesDataset(fsample,
+                                                  load_from_dir=sample_dir['root'], transform=transform,
+                                                  add_to_load=sample_dir['add_to_load'],
+                                                  add_to_load_regexp=sample_dir['add_to_load_regexp'])
+
+            sample_dir = struct['load_sample_from_dir'][1]
+            fsample = gfile(sample_dir['root'], 'sample.*pt')
+            self.logger.log(logging.INFO, f'{len(fsample)} subjects in the val set')
+            transform = torchio.transforms.Compose(struct_transfo['val_transforms'])
+            val_subjects = torchio.ImagesDataset(fsample,
+                                                  load_from_dir=sample_dir['root'], transform=transform,
+                                                  add_to_load=sample_dir['add_to_load'],
+                                                  add_to_load_regexp=sample_dir['add_to_load_regexp'])
+
+            return train_subjects, val_subjects, test_subjects
+
         # Create torchio.Subjects from dictionaries
         subjects = dict2subjects(subjects, struct['modalities'])
         train_subjects = dict2subjects(train_subjects, struct['modalities'])
@@ -388,6 +412,8 @@ class Config:
 
     def generate_datasets(self, struct):
         def create_dataset(subjects, transforms):
+            if isinstance(subjects,torchio.data.dataset.ImagesDataset):
+                return subjects
             if len(subjects) == 0:
                 return []
             transform = torchio.transforms.Compose(transforms)

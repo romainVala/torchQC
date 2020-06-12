@@ -424,7 +424,7 @@ class RunModel:
 
         for idx in range(batch_size):
             info = {
-                'name': sample['name'][idx],
+                'name': sample['name'][idx] if "name" in sample else 'toto',
                 'image_filename': sample[self.image_key_name]['path'][idx],
                 'shape': to_numpy(shape[2:]),
                 'batch_time': batch_time,

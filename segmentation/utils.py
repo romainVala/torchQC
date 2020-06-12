@@ -70,6 +70,8 @@ def to_numpy(x):
         if hasattr(x, 'cuda') and x.is_cuda:
             x = x.data.cpu()
         if hasattr(x, 'numpy'):
+            if hasattr(x,'grad'):
+                x = x.detach()
             x = x.numpy()
         else:
             x = np.array(x)
