@@ -142,8 +142,8 @@ class Config:
 
         for dir in struct['load_sample_from_dir']:
             self.check_mandatory_keys(dir, LOAD_FROM_DIR_KEYS, 'load_sample_from_dir')
-            self.set_struct_value(dir, 'name')
-            self.set_struct_value(dir, 'list_name')
+            self.set_struct_value(dir, 'add_to_load_regexp')
+            self.set_struct_value(dir, 'add_to_load')
 
         patch_size, sampler = None, None
         if struct['queue'] is not None:
@@ -370,7 +370,7 @@ class Config:
             relevant_dict[name] = subject
 
         # Retrieve subjects using load_sample_from_dir
-        if 'load_sample_from_dir' in struct:
+        if len(struct['load_sample_from_dir']) >0:
             for sample_dir in struct['load_sample_from_dir']:
 
                 fsample = glob.glob(sample_dir['root'] + '/sample*pt')
