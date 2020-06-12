@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from segmentation.utils import parse_object_import, parse_function_import, parse_method_import, generate_json_document
 from segmentation.run_model import RunModel
 from torch_summary import summary_string
-from utils_file import get_parent_path
+from utils_file import get_parent_path, gfile
 
 MAIN_KEYS = ['data', 'transform', 'model']
 
@@ -20,6 +20,7 @@ DATA_KEYS = ['modalities', 'batch_size', 'image_key_name', 'label_key_name']
 MODALITY_KEYS = ['type']
 PATTERN_KEYS = ['root', 'modalities']
 PATH_KEYS = ['name', 'modalities']
+LOAD_FROM_DIR_KEYS = ['root', 'list_name']
 QUEUE_KEYS = ['sampler']
 SAMPLER_KEYS = ['name', 'module', 'attributes']
 SAMPLER_ATTRIBUTES_KEYS = ['patch_size']
@@ -53,7 +54,7 @@ class Config:
         self.image_key_name = data_structure['image_key_name']
         self.label_key_name = data_structure['label_key_name']
 
-        self.train_subjects, self.val_subjects, self.test_subjects = self.load_subjects(data_structure)
+        self.train_subjects, self.val_subjects, self.test_subjects = self.load_subjects(data_structure, transform_structure)
 
         self.train_set, self.val_set, self.test_set = self.generate_datasets(transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(data_structure)
@@ -110,6 +111,7 @@ class Config:
         self.check_mandatory_keys(struct, DATA_KEYS, 'DATA CONFIG FILE')
         self.set_struct_value(struct, 'patterns', [])
         self.set_struct_value(struct, 'paths', [])
+        self.set_struct_value(struct, 'load_sample_from_dir', [])
         self.set_struct_value(struct, 'subject_shuffle')
         self.set_struct_value(struct, 'subject_seed')
         self.set_struct_value(struct, 'repartition', [0.7, 0.15, 0.15])
@@ -137,6 +139,11 @@ class Config:
             self.check_mandatory_keys(path, PATH_KEYS, 'PATH')
             self.set_struct_value(path, 'name')
             self.set_struct_value(path, 'list_name')
+
+        for dir in struct['load_sample_from_dir']:
+            self.check_mandatory_keys(dir, LOAD_FROM_DIR_KEYS, 'load_sample_from_dir')
+            self.set_struct_value(dir, 'add_to_load_regexp')
+            self.set_struct_value(dir, 'add_to_load')
 
         patch_size, sampler = None, None
         if struct['queue'] is not None:
@@ -290,7 +297,7 @@ class Config:
             return patch_size, patch_size, patch_size
         return patch_size
 
-    def load_subjects(self, struct):
+    def load_subjects(self, struct, struct_transfo=None):
         def update_subject(subject_to_update, ref_modalities, mod_name, mod_path):
             image_type = ref_modalities[mod_name]['type']
             image_attributes = ref_modalities[mod_name]['attributes']
@@ -362,6 +369,26 @@ class Config:
             subject['name'] = name
             relevant_dict[name] = subject
 
+        # Retrieve subjects using load_sample_from_dir
+        if len(struct['load_sample_from_dir']) >0:
+            for sample_dir in struct['load_sample_from_dir']:
+
+                fsample = glob.glob(sample_dir['root'] + '/sample*pt')
+                self.logger.log(logging.INFO, f'{len(fsample)} subjects in the {sample_dir["list_name"]} set')
+                transform = torchio.transforms.Compose(struct_transfo[f'{sample_dir["list_name"]}_transforms'])
+                the_dataset = torchio.ImagesDataset(fsample,
+                                                      load_from_dir=True, transform=transform,
+                                                      add_to_load=sample_dir['add_to_load'],
+                                                      add_to_load_regexp=sample_dir['add_to_load_regexp'])
+                if sample_dir["list_name"] == 'train':
+                    train_subjects = the_dataset
+                elif sample_dir["list_name"] == 'val':
+                    val_subjects = the_dataset
+                else:
+                    raise ('error list_name attribute from load_from_dir must be either train or val')
+
+            return train_subjects, val_subjects, test_subjects
+
         # Create torchio.Subjects from dictionaries
         subjects = dict2subjects(subjects, struct['modalities'])
         train_subjects = dict2subjects(train_subjects, struct['modalities'])
@@ -388,6 +415,8 @@ class Config:
 
     def generate_datasets(self, struct):
         def create_dataset(subjects, transforms):
+            if isinstance(subjects,torchio.data.dataset.ImagesDataset):
+                return subjects
             if len(subjects) == 0:
                 return []
             transform = torchio.transforms.Compose(transforms)

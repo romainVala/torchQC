@@ -424,7 +424,7 @@ class RunModel:
 
         for idx in range(batch_size):
             info = {
-                'name': sample['name'][idx],
+                'name': sample['name'][idx] if "name" in sample else 'toto',
                 'image_filename': sample[self.image_key_name]['path'][idx],
                 'shape': to_numpy(shape[2:]),
                 'batch_time': batch_time,
@@ -434,12 +434,13 @@ class RunModel:
             if location is not None:
                 info['location'] = to_numpy(location[idx])
 
-            loss = 0
-            for criterion in self.criteria:
-                loss += criterion(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
-            info['loss'] = to_numpy(loss)
-            info['prediction'] = to_numpy(predictions[idx])[0]
-            info['targets'] = to_numpy(targets[idx])[0]
+            with torch.no_grad():
+                loss = 0
+                for criterion in self.criteria:
+                    loss += criterion(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+                info['loss'] = to_numpy(loss)
+                info['prediction'] = to_numpy(predictions[idx])[0]
+                info['targets'] = to_numpy(targets[idx])[0]
 
             if 'metrics' in sample[self.image_key_name]:
                 #dicm = sample[self.image_key_name]['metrics']
