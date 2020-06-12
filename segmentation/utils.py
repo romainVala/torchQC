@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import logging
+import sys
 import os
 
 
@@ -99,12 +100,14 @@ def instantiate_logger(logger_name, log_level, log_filename, console=True):
     """
     logger = logging.getLogger(logger_name)
     logger.setLevel(log_level)
+    formatter = logging.Formatter("%(asctime)-2s: %(levelname)-2s : %(message)s")
 
     file_handler = logging.FileHandler(log_filename)
+    file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
     if console:
-        console_handler = logging.StreamHandler()
+        console_handler = logging.StreamHandler(sys.stdout)
         logger.addHandler(console_handler)
 
     return logger
