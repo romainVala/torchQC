@@ -1,12 +1,12 @@
 import math
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+from matplotlib.widgets import Slider
 from typing import Sequence
 from functools import reduce
 from itertools import product
-import copy
-from torch.utils.data import Dataset
-
+from torch.utils.data import DataLoader
 
 vox_views = [['sag', 'vox', 50], ['ax', 'vox', 50], ['cor', 'vox', 50]]
 
@@ -16,7 +16,7 @@ class PlotDataset:
     Scrolling on the different images enable to navigate sections.
 
     Args:
-        dataset: a torchio.ImagesDataset or a batch generated from a torchio.ImagesDataset using pytorch DataLoader.
+        dataset: a torchio.ImagesDataset or a DataLoader constructed from torchio.
         views: None or a sequence of views, each view is given as (view_type, coordinate_system, position),
             view_type is one among "sag", "ax" and "cor" which corresponds to sagittal, axial and coronal slices;
             coordinate_system is one among "vox" or "mm" and is responsible for placing the slice using position
@@ -39,14 +39,19 @@ class PlotDataset:
             when scrolling on one of them. Doing so supposes that they all have the same shape. Default is False.
         add_text: Boolean to choose if you want the axis legend to be printed default True.
         label_key_name: a string that gives the key of the label of the volume of interest in the dataset's samples.
-        alpha: overlay opacity, used when plotting label.
-        batch: a batch of patches to plot over the subjects.
-        batch_mapping_key: the key on which to map patches to subjects.
+        alpha: overlay opacity, used when plotting label, default is 0.2.
+        cmap: the colormap used to plot label, default is 'RdBu'.
+        patch_sampler: a sampler used to generate patches from the volumes, if sampler is not None,
+            the patches are superimposed on the volumes with white borders. Default is None.
+        nb_patches: the number of patches to draw from each sample. Used only if patch_sampler is not None.
+        threshold: the threshold below which label are not shown.
     """
+
     def __init__(self, dataset, views=None, view_org=None, image_key_name='image',
                  subject_idx=5, subject_org=None, figsize=(16, 9), update_all_on_scroll=False,
-                 add_text=True, label_key_name=None, alpha=0.2, batch=None, batch_mapping_key='name'):
-        self.dataset = copy.deepcopy(dataset)
+                 add_text=True, label_key_name=None, alpha=0.2, cmap='RdBu', patch_sampler=None, nb_patches=4,
+                 threshold=0.01):
+        self.dataset = dataset
         self.add_text = add_text
         self.views = views if views is not None else vox_views
         self.view_org = self.parse_view_org(view_org)
@@ -56,18 +61,21 @@ class PlotDataset:
         self.cached_images_and_affines = {}
         self.cached_labels = {}
 
-        if batch is not None:
-            subject_idx = self.parse_batch(copy.deepcopy(batch), batch_mapping_key)
+        self.threshold = threshold
 
         self.subject_idx = self.parse_subject_idx(subject_idx)
+
         self.subject_org = self.parse_subject_org(subject_org)
         self.figsize = figsize
         self.update_all_on_scroll = update_all_on_scroll
 
         self.alpha = alpha
+        self.cmap = cm.get_cmap(cmap)
+        self.cmap.set_under(color='k', alpha=0)
 
         self.imgs = {}
         self.figs_and_axes = []
+        self.sliders = []
         self.axes2view = {}
 
         self.coordinate_system_list = ["vox", "mm"]
@@ -75,8 +83,14 @@ class PlotDataset:
 
         self.check_views()
 
+        if patch_sampler is not None:
+            self.sample_patches(patch_sampler, nb_patches)
+
+        self.load_subjects()
+
         self.init_plot()
         self.scrolling = False
+        self.sliding = False
 
     def parse_view_org(self, view_org):
         if isinstance(view_org, Sequence) and len(view_org) == 2:
@@ -84,41 +98,10 @@ class PlotDataset:
         else:
             return len(self.views), 1
 
-    def parse_batch(self, batch, mapping_key):
-        subject_idx = []
-        for subject in filter(lambda s: s[mapping_key] in batch[mapping_key], self.dataset):
-            sub_idx = next(i for i, x in enumerate(self.dataset) if x[mapping_key] == subject[mapping_key])
-            subject_idx.append(sub_idx)
-            patch_indexes = [i for i, x in enumerate(batch[mapping_key]) if x == subject[mapping_key]]
-            for patch_index in patch_indexes:
-                patch = batch[self.image_key_name]['data'].numpy()[patch_index][0]
-                x, y, z = batch['index_ini'][patch_index]
-                w, h, d = patch.shape
-
-                patch[0, :, :] = 1
-                patch[-1, :, :] = 1
-                patch[:, 0, :] = 1
-                patch[:, -1, :] = 1
-                patch[:, :, 0] = 1
-                patch[:, :, -1] = 1
-
-                subject[self.image_key_name]['data'].numpy()[0][x:x + w, y:y + h, z:z + d] = patch
-
-                self.cached_images_and_affines[sub_idx] = (subject[self.image_key_name]['data'].numpy()[0],
-                                                           subject[self.image_key_name]['affine'])
-
-                if self.label_key_name is not None:
-                    patch_label = batch[self.label_key_name]['data'].numpy()[patch_index][0]
-                    subject[self.label_key_name]['data'].numpy()[0][x:x + w, y:y + h, z:z + d] = patch_label
-
-                    self.cached_labels[sub_idx] = subject[self.label_key_name]['data'].numpy()[0]
-        return subject_idx
-
     def parse_subject_idx(self, subject_idx):
-        if isinstance(self.dataset, Dataset):
-            data_len = len(self.dataset)
-        else:
-            data_len = len(self.dataset[self.image_key_name]['affine'])
+        data_len = len(self.dataset)
+        if hasattr(self.dataset, 'batch_size'):
+            data_len *= self.dataset.batch_size
         if isinstance(subject_idx, Sequence):
             valid = reduce(lambda acc, val: acc and 0 <= val < data_len, subject_idx, True)
             if not valid:
@@ -134,6 +117,69 @@ class PlotDataset:
             return subject_org
         else:
             return 1, len(self.subject_idx)
+
+    def sample_patches(self, patch_sampler, nb_patches):
+        for idx in self.subject_idx:
+            subject = self.dataset[int(idx)]
+            im = subject[self.image_key_name]['data'].numpy()[0].copy()
+            label = None
+
+            if self.label_key_name is not None:
+                label = subject[self.label_key_name]['data'].numpy()[0].copy()
+
+            for _ in range(nb_patches):
+                patch = next(patch_sampler(subject))
+                i_ini, j_ini, k_ini = patch['index_ini']
+                i_fin, j_fin, k_fin = patch['index_ini'] + np.array(patch.spatial_shape)
+                im_patch = patch[self.image_key_name]['data'].numpy()[0].copy()
+
+                im_patch[:2, :, :] = 1
+                im_patch[-2:, :, :] = 1
+                im_patch[:, :2, :] = 1
+                im_patch[:, -2:, :] = 1
+                im_patch[:, :, :2] = 1
+                im_patch[:, :, -2:] = 1
+
+                im[i_ini:i_fin, j_ini:j_fin, k_ini:k_fin] = im_patch
+
+                if self.label_key_name is not None:
+                    label_patch = patch[self.label_key_name]['data'].numpy()[0].copy()
+                    label[i_ini:i_fin, j_ini:j_fin, k_ini:k_fin] = label_patch
+
+            self.cached_images_and_affines[idx] = (im, subject[self.image_key_name]['affine'].copy())
+
+            if self.label_key_name is not None:
+                self.cached_labels[idx] = label
+
+    def load_subjects(self):
+        if isinstance(self.dataset, DataLoader):
+            self.subject_idx = list(range(len(self.subject_idx)))
+            max_idx = max(self.subject_idx)
+
+            current_idx = 0
+            for _, batch in enumerate(self.dataset):
+                im = batch[self.image_key_name]['data']
+                batch_len = len(im)
+                for i in range(batch_len):
+                    idx = current_idx + i
+                    if idx > max_idx:
+                        break
+                    if idx not in self.cached_images_and_affines.keys():
+                        self.cached_images_and_affines[idx] = im[i].numpy()[0].copy(), \
+                            batch[self.image_key_name]['affine'][i].numpy().copy()
+                        if self.label_key_name is not None:
+                            self.cached_labels[idx] = batch[self.label_key_name]['data'][i].numpy()[0].copy()
+                current_idx += batch_len
+                if current_idx > max_idx:
+                    break
+        else:
+            for idx in self.subject_idx:
+                if idx not in self.cached_images_and_affines.keys():
+                    subject = self.dataset[int(idx)]
+                    self.cached_images_and_affines[idx] = subject[self.image_key_name]['data'].numpy()[0].copy(), \
+                        subject[self.image_key_name]['affine'].copy()
+                    if self.label_key_name is not None:
+                        self.cached_labels[idx] = subject[self.label_key_name]['data'].numpy()[0].copy()
 
     @staticmethod
     def view2slice(view_idx, idx, img):
@@ -180,11 +226,22 @@ class PlotDataset:
             self.figs_and_axes.append([fig, axes])
             fig.canvas.mpl_connect('scroll_event', self.on_scroll)
 
+            # Add sliders to set overlay display threshold
+            if self.label_key_name is not None:
+                axis = plt.axes([0.03, 0.05, 0.02, 0.9])
+                slider = Slider(axis, 'Threshold', 0, 1, valinit=self.threshold, valstep=0.01, orientation='vertical')
+                slider.on_changed(self.on_slide)
+                self.sliders.append(slider)
+
             # Remove axis for all subplots
             for axis in axes.ravel():
                 axis.axis('off')
-        #no space between subplot !
-        plt.subplots_adjust( left=0, right=1, bottom=0, top=1, wspace=0, hspace=0)
+
+            # Remove space between subplots
+            if self.label_key_name is None:
+                plt.subplots_adjust(left=0, right=1, bottom=0, top=1, wspace=0, hspace=0)
+            else:
+                plt.subplots_adjust(left=0.04, right=0.96, bottom=0, top=1, wspace=0, hspace=0)
 
         # Assign each view to its figure and axis
         for i, subject in enumerate(self.subject_idx):
@@ -206,6 +263,16 @@ class PlotDataset:
         for subject, view in product(self.subject_idx, self.views):
             self.render_view(subject, view, init=True)
 
+        # Display colorbar
+        if self.label_key_name is not None:
+            # Create a fake label to make the colorbar invariant to threshold changes
+            axis = plt.axes([0., 0., 0., 0.])
+            label = axis.imshow(np.linspace(0, 1, 100).reshape(10, 10), cmap=self.cmap, alpha=self.alpha)
+            label.set_visible(False)
+            for fig, axes in self.figs_and_axes:
+                color_bar_axis = fig.add_axes([0.95, 0.05, 0.02, 0.9])
+                fig.colorbar(label, cax=color_bar_axis)
+
     def render_view(self, subject, view, init=False):
         """
         Generate the slice of interest from a view and render it.
@@ -218,14 +285,14 @@ class PlotDataset:
         """
         view_type, coordinate_system, position = view
         view_idx = self.view_type_list.index(view_type)
-        img, affine = self.get_image_and_affine(subject)
+        img, affine = self.cached_images_and_affines[subject]
         mapped_position, position = self.map_position(img, affine, position, view_idx, coordinate_system)
         view_slice = self.view2slice(view_idx, mapped_position, img)
 
         # Load label
         label_slice = None
         if self.label_key_name is not None:
-            label_slice = self.view2slice(view_idx, mapped_position, self.get_label(subject))
+            label_slice = self.view2slice(view_idx, mapped_position, self.cached_labels[subject])
 
         # Update image
         img_key = (subject, view_type, coordinate_system)
@@ -239,7 +306,8 @@ class PlotDataset:
                 axis.text(0.5, -0.1, text, size=8, ha="center", transform=axis.transAxes)
             self.imgs[img_key]['img'] = axis.imshow(view_slice, cmap='gray')
             if self.label_key_name is not None:
-                self.imgs[img_key]['label'] = axis.imshow(label_slice, cmap='jet', alpha=self.alpha)
+                self.imgs[img_key]['label'] = axis.imshow(label_slice, cmap=self.cmap, alpha=self.alpha,
+                                                          clim=[self.threshold, 1])
         else:
             if self.update_all_on_scroll:
                 self.update_imgs(view_type, coordinate_system, position, mapped_position, view_idx)
@@ -248,24 +316,6 @@ class PlotDataset:
                     text_box = axis.texts[0]
                     text_box.set_text(text)
                 self.update_img(img_key, view_slice, label_slice)
-
-    def get_image_and_affine(self, subject):
-        if subject not in self.cached_images_and_affines.keys():
-            if isinstance(self.dataset, Dataset):
-                obj = self.dataset[int(subject)][self.image_key_name]
-                self.cached_images_and_affines[subject] = (obj['data'].numpy()[0], obj['affine'])
-            else:
-                obj = self.dataset[self.image_key_name]
-                self.cached_images_and_affines[subject] = (obj['data'].numpy()[subject][0], obj['affine'][subject])
-        return self.cached_images_and_affines[subject]
-
-    def get_label(self, subject):
-        if subject not in self.cached_labels.keys():
-            if isinstance(self.dataset, Dataset):
-                self.cached_labels[subject] = self.dataset[int(subject)][self.label_key_name]['data'].numpy()[0]
-            else:
-                self.cached_labels[subject] = self.dataset[self.label_key_name]['data'].numpy()[subject][0]
-        return self.cached_labels[subject]
 
     @staticmethod
     def map_position(img, affine, position, view_idx, coordinate_system):
@@ -306,6 +356,16 @@ class PlotDataset:
 
                 self.render_view(subject, view)
 
+    def on_slide(self, val):
+        if not self.sliding:
+            self.sliding = True
+            for slider in self.sliders:
+                slider.set_val(val)
+            self.threshold = val
+            for key in self.imgs.keys():
+                self.imgs[key]['label'].set_clim([self.threshold, 1])
+            self.sliding = False
+
     def update_img(self, img_idx, view_slice, label_slice=None):
         img_dict = self.imgs[img_idx]
         img_dict['img'].set_data(view_slice)
@@ -328,11 +388,11 @@ class PlotDataset:
                 text_box = axis.texts[0]
                 text_box.set_text(text)
 
-            img, _ = self.get_image_and_affine(key[0])
+            img, _ = self.cached_images_and_affines[key[0]]
             view_slice = self.view2slice(view_idx, mapped_position, img)
 
             if self.label_key_name is not None:
-                label_slice = self.view2slice(view_idx, mapped_position, self.get_label(key[0]))
+                label_slice = self.view2slice(view_idx, mapped_position, self.cached_labels[key[0]])
                 img_dict['label'].set_data(label_slice)
 
             img_dict['img'].set_data(view_slice)
