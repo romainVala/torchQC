@@ -162,8 +162,6 @@ class RunModel:
             loader = self.val_loader
 
         df = pd.DataFrame()
-
-        batch_size = loader.batch_size
         start = time.time()
         time_sum, loss_sum = 0, 0
         average_loss = None
@@ -192,12 +190,10 @@ class RunModel:
             # Measure elapsed time
             batch_time = time.time() - start
 
-            time_sum += batch_size * batch_time
-            loss_sum += batch_size * loss
-            average_loss = loss_sum / (i * batch_size)
-            average_time = time_sum / (i * batch_size)
-
-            start = time.time()
+            time_sum += batch_time
+            loss_sum += loss
+            average_loss = loss_sum / i
+            average_time = time_sum / i
 
             # Log training or validation information every log_frequency iterations
             if i % self.log_frequency == 0:
@@ -216,6 +212,8 @@ class RunModel:
                 df = self.batch_recorder(df, sample, predictions, targets, batch_time, True)
             else:
                 df = self.batch_recorder(df, sample, predictions, targets, batch_time, False)
+
+            start = time.time()
 
         # Save model after an evaluation on the whole validation set
         if save_model and not self.model.training:
@@ -306,17 +304,18 @@ class RunModel:
         history = sample.get('history')
         batch_size = shape[0]
 
+        sample_time = batch_time / batch_size
+
         for idx in range(batch_size):
             name = sample['name'][idx] if is_batch else sample['name']
             image_path = sample[self.image_key_name]['path'][idx] if is_batch else sample[self.image_key_name]['path']
             label_path = sample[self.label_key_name]['path'][idx] if is_batch else sample[self.label_key_name]['path']
-            time_key = 'batch_time' if is_batch else 'sample_time'
             info = {
                 'name': name,
                 'image_filename': image_path,
                 'label_filename': label_path,
                 'shape': to_numpy(shape[2:]),
-                time_key: batch_time
+                'sample_time': sample_time
             }
             if is_batch:
                 info['batch_size'] = batch_size
