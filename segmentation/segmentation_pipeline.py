@@ -13,6 +13,7 @@ if __name__ == "__main__":
     parser.add_argument('-r', '--results_dir', type=str, help='Path to results directory if it does not start with / '
                                                               'the config file dir is prepend')
     parser.add_argument('-m', '--mode', type=str, default='train', help='Training, visualization or inference mode')
+    parser.add_argument('-e', '--extra_file', type=str, help='Extra configuration file')
     parser.add_argument('-d', '--debug', type=int, default=0, help='Debug option, value different from 0 means that '
                                                                    'debug messages will be printed in the console')
     parser.add_argument('-viz', '--visualization', type=int, default=0, choices=[0, 1, 2, 3, 4, 5],
@@ -42,5 +43,5 @@ if __name__ == "__main__":
     logger = instantiate_logger('info', logging.INFO, results_dir + '/info.txt')
     debug_logger = instantiate_logger('debug', logging.DEBUG, results_dir + '/debug.txt', args.debug != 0)
 
-    config = Config(file, results_dir, logger, debug_logger, args.mode, args.visualization)
+    config = Config(file, results_dir, logger, debug_logger, args.mode, args.visualization, args.extra_file)
     config.run()

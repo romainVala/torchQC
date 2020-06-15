@@ -207,7 +207,7 @@ class RunModel:
                     self.train_loop()
                     self.model.train()
 
-            # Update DataFrame and record it every record_frequency iterations or every iteration at validation time
+            # Update DataFrame and record it every record_frequency iterations
             if i % self.record_frequency == 0 or i == len(loader):
                 df = self.batch_recorder(df, sample, predictions, targets, batch_time, True)
             else:
@@ -333,7 +333,7 @@ class RunModel:
 
             if not self.model.training:
                 for metric in self.metrics:
-                    name = f'metric_{get_class_name_from_method(metric)}{metric.__name__}'
+                    name = f'metric_{get_class_name_from_method(metric)}_{metric.__name__}'
                     value = to_numpy(metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0)))
                     if value.size == 1:
                         info[name] = value
@@ -452,7 +452,8 @@ class RunModel:
 
             if not self.model.training:
                 for metric in self.metrics:
-                    info[f'metric_{metric.__name__}'] = to_numpy(
+                    name = f'metric_{get_class_name_from_method(metric)}_{metric.__name__}'
+                    info[name] = to_numpy(
                         metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
                     )
 

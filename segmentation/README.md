@@ -302,6 +302,32 @@ This file defines the visualization parameters. It uses `PlotDataset` to make pl
 }
 ```
 
+#### extra_file.json
+This file can overwrites `data.json`, `transform.json`, `model.json` and/or the results directory.
+```json
+{
+    "transform": 
+    {
+        "train_transforms": [],
+        "val_transforms": 
+        [
+            {
+                "name": "RandomBiasField"
+            }, 
+            {
+                "name": "RescaleIntensity", 
+                "attributes": 
+                {
+                    "out_min_max": [0, 1],
+                    "percentiles": [0.5, 99.5]
+                }
+            }
+        ]
+    },
+    "results_dir": "eval_with_bias_field"
+}
+```
+
 ## Run the program
 The main entry point of the program is the `segmentation_pipeline.py` file.
 Therefore, in order to run the program, one can run the following command:
@@ -333,3 +359,7 @@ The `--viz` argument is only used when `--mode` is `"visualization"`. Values ran
 - If value is 4: a volume with the fuzzy false positive map between the model prediction and 
 the ground truth is shown,
 - If value is 5: the model prediction and the ground truth on the same volume are shown.
+
+The `--extra_file` argument allows to give a new configuration file to overwrite the
+data, transform and model configuration files as well as the result directory. This aims
+to allow evaluation on new data or transform without creating a whole new folder.

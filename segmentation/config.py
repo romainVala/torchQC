@@ -40,18 +40,19 @@ SAVE_KEYS = ['record_frequency']
 
 
 class Config:
-    def __init__(self, main_file, results_dir, logger=None, debug_logger=None, mode='train', viz=0):
+    def __init__(self, main_file, results_dir, logger=None, debug_logger=None, mode='train', viz=0, extra_file=None):
         self.mode = mode
         self.logger = logger
         self.debug_logger = debug_logger
         self.viz = viz
 
         self.results_dir = results_dir
-
         self.main_structure = self.parse_main_file(main_file)
 
-        data_structure, patch_size, sampler = self.parse_data_file(self.main_structure['data'])
-        transform_structure = self.parse_transform_file(self.main_structure['transform'])
+        data_structure, transform_structure, self.model_structure, self.results_dir = self.parse_extra_file(extra_file)
+
+        data_structure, patch_size, sampler = self.parse_data_file(data_structure)
+        transform_structure = self.parse_transform_file(transform_structure)
 
         self.batch_size = data_structure['batch_size']
         self.patch_size = self.parse_patch_size(patch_size)
@@ -79,6 +80,14 @@ class Config:
         if struct.get(key) is None:
             struct[key] = default_value
 
+    @staticmethod
+    def read_json(file):
+        if isinstance(file, str):
+            with open(file) as f:
+                return json.load(f)
+        else:
+            return file
+
     def save_json(self, struct, name):
         self.debug(f'******** {name.upper()} ********')
         self.debug(json.dumps(struct, indent=4, sort_keys=True))
@@ -93,8 +102,7 @@ class Config:
             self.debug_logger.log(logging.DEBUG, info)
 
     def parse_main_file(self, file):
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         additional_key = []
         if self.mode in ['train', 'eval', 'infer']:
@@ -111,9 +119,35 @@ class Config:
 
         return struct
 
+    def parse_extra_file(self, file):
+        data_structure = self.main_structure['data']
+        transform_structure = self.main_structure['transform']
+        model_structure = self.main_structure['model']
+        results_dir = self.results_dir
+
+        if file is not None:
+            struct = self.read_json(file)
+
+            if struct.get('data') is not None:
+                data_structure = struct['data']
+            if struct.get('transform') is not None:
+                transform_structure = struct['transform']
+            if struct.get('model') is not None:
+                model_structure = struct['model']
+            if struct.get('results_dir') is not None:
+                results_dir = struct['results_dir']
+
+                # Replace relative path if needed
+                if os.path.dirname(results_dir) == '':
+                    results_dir = os.path.join(os.path.dirname(file), results_dir)
+
+                if not os.path.isdir(results_dir):
+                    os.makedirs(results_dir)
+
+        return data_structure, transform_structure, model_structure, results_dir
+
     def parse_data_file(self, file):
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, DATA_KEYS, 'DATA CONFIG FILE')
         self.set_struct_value(struct, 'patterns', [])
@@ -196,8 +230,7 @@ class Config:
             else:
                 return t_class(**attributes)
 
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, TRANSFORM_KEYS, 'TRANSFORM CONFIG FILE')
         self.save_json(struct, 'transform.json')
@@ -216,8 +249,7 @@ class Config:
         return struct
 
     def parse_model_file(self, file):
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, MODEL_KEYS, 'MODEL CONFIG FILE')
 
@@ -246,8 +278,7 @@ class Config:
                 c_list.append(c)
             return c_list
 
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, RUN_KEYS, 'RUN CONFIG FILE')
         self.set_struct_value(struct, 'data_getter', 'get_segmentation_data')
@@ -298,8 +329,7 @@ class Config:
         return struct
 
     def parse_visualization_file(self, file):
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         self.set_struct_value(struct, 'kwargs', {})
         sig = signature(PlotDataset)
@@ -512,7 +542,7 @@ class Config:
 
     def run(self):
         if self.mode in ['train', 'eval', 'infer']:
-            model_structure = self.parse_model_file(self.main_structure['model'])
+            model_structure = self.parse_model_file(self.model_structure)
             run_structure = self.parse_run_file(self.main_structure['run'])
             model, device = self.load_model(model_structure)
 
@@ -555,7 +585,7 @@ class Config:
                     })
 
             if self.viz >= 4:
-                model_structure = self.parse_model_file(self.main_structure['model'])
+                model_structure = self.parse_model_file(self.model_structure)
                 run_structure = self.parse_run_file(self.main_structure['run'])
                 model, device = self.load_model(model_structure)
 
