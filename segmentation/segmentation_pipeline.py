@@ -5,7 +5,6 @@ import os
 import resource
 from segmentation.utils import instantiate_logger
 from segmentation.config import Config
-from utils_file import get_parent_path
 
 
 if __name__ == "__main__":
@@ -30,16 +29,18 @@ if __name__ == "__main__":
     rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
     resource.setrlimit(resource.RLIMIT_NOFILE, (2048*8, rlimit[1]))
 
-    resdir = args.results_dir
-    conf_file = args.file
-    if not resdir[0]=='/':
-        resdir = get_parent_path(conf_file)[0] + '/' + resdir + '/'
+    results_dir = args.results_dir
+    file = args.file
 
-    if not os.path.isdir(resdir):
-        os.makedirs(resdir)
+    # Replace relative path if needed
+    if os.path.dirname(results_dir) == '':
+        results_dir = os.path.join(os.path.dirname(file), results_dir)
 
-    logger = instantiate_logger('info', logging.INFO,resdir + '/info.txt')
-    debug_logger = instantiate_logger('debug', logging.DEBUG, resdir + '/debug.txt', args.debug != 0)
+    if not os.path.isdir(results_dir):
+        os.makedirs(results_dir)
 
-    config = Config(conf_file, resdir, logger, debug_logger, args.mode, args.visualization)
+    logger = instantiate_logger('info', logging.INFO, results_dir + '/info.txt')
+    debug_logger = instantiate_logger('debug', logging.DEBUG, results_dir + '/debug.txt', args.debug != 0)
+
+    config = Config(file, results_dir, logger, debug_logger, args.mode, args.visualization)
     config.run()

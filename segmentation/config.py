@@ -16,7 +16,6 @@ from segmentation.utils import parse_object_import, parse_function_import, parse
 from segmentation.run_model import RunModel
 from segmentation.metrics.fuzzy_overlap_metrics import minimum_t_norm
 from torch_summary import summary_string
-from utils_file import get_parent_path, gfile
 from plot_dataset import PlotDataset
 
 
@@ -48,8 +47,6 @@ class Config:
         self.viz = viz
 
         self.results_dir = results_dir
-        if not os.path.isdir(self.results_dir):
-            os.makedirs(self.results_dir)
 
         self.main_structure = self.parse_main_file(main_file)
 
@@ -62,9 +59,7 @@ class Config:
         self.image_key_name = data_structure['image_key_name']
         self.label_key_name = data_structure['label_key_name']
 
-        self.train_subjects, self.val_subjects, self.test_subjects = self.load_subjects(data_structure, transform_structure)
-
-        self.train_set, self.val_set, self.test_set = self.generate_datasets(transform_structure)
+        self.train_set, self.val_set, self.test_set = self.load_subjects(data_structure, transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(data_structure)
 
     @staticmethod
@@ -87,7 +82,7 @@ class Config:
     def save_json(self, struct, name):
         self.debug(f'******** {name.upper()} ********')
         self.debug(json.dumps(struct, indent=4, sort_keys=True))
-        generate_json_document(f'{self.results_dir}/{name}', **struct)
+        generate_json_document(os.path.join(self.results_dir, name), **struct)
 
     def log(self, info):
         if self.logger is not None:
@@ -106,11 +101,11 @@ class Config:
             additional_key = ['run']
         self.check_mandatory_keys(struct, MAIN_KEYS + additional_key, 'MAIN CONFIG FILE')
 
-        #replace relative path if needed
-        dir_file = get_parent_path(file)[0] + '/'
+        # Replace relative path if needed
+        dir_file = os.path.dirname(file)
         for key, val in struct.items():
-            if not val[0]=='/':
-                struct[key] = dir_file + val
+            if os.path.dirname(val) == '':
+                struct[key] = os.path.join(dir_file, val)
 
         self.save_json(struct, 'main.json')
 
@@ -151,10 +146,10 @@ class Config:
             self.set_struct_value(path, 'name')
             self.set_struct_value(path, 'list_name')
 
-        for dir in struct['load_sample_from_dir']:
-            self.check_mandatory_keys(dir, LOAD_FROM_DIR_KEYS, 'load_sample_from_dir')
-            self.set_struct_value(dir, 'add_to_load_regexp')
-            self.set_struct_value(dir, 'add_to_load')
+        for directory in struct['load_sample_from_dir']:
+            self.check_mandatory_keys(directory, LOAD_FROM_DIR_KEYS, 'DIRECTORY')
+            self.set_struct_value(directory, 'add_to_load_regexp')
+            self.set_struct_value(directory, 'add_to_load')
 
         patch_size, sampler = None, None
         if struct['queue'] is not None:
@@ -260,7 +255,7 @@ class Config:
         self.set_struct_value(struct, 'current_epoch')
         self.set_struct_value(struct, 'log_frequency', 10)
 
-        files = glob.glob(self.results_dir + '/model_ep*')
+        files = glob.glob(os.path.join(self.results_dir, 'model_ep*'))
         if len(files) == 0:
             struct['current_epoch'] = 1
         else:
@@ -324,7 +319,7 @@ class Config:
             return patch_size, patch_size, patch_size
         return patch_size
 
-    def load_subjects(self, struct, struct_transfo=None):
+    def load_subjects(self, data_struct, transform_struct):
         def update_subject(subject_to_update, ref_modalities, mod_name, mod_path):
             image_type = ref_modalities[mod_name]['type']
             image_attributes = ref_modalities[mod_name]['attributes']
@@ -352,8 +347,7 @@ class Config:
 
         def get_name(name_pattern, string):
             if name_pattern is None:
-                string_split = string.split('/')
-                return string_split[-1] if len(string_split[-1]) > 0 else string_split[-2]
+                return os.path.relpath(string, os.path.dirname(string))
             else:
                 matches = re.findall(name_pattern, string)
                 return matches[-1]
@@ -363,11 +357,39 @@ class Config:
                 raise KeyError(f'At least one modality of {modalities.keys()} from {subject_name} is not in the '
                                f'reference modalities {ref_modalities.keys()}')
 
+        def create_dataset(subject_list, transforms):
+            if len(subject_list) == 0:
+                return []
+            final_transform = torchio.transforms.Compose(transforms)
+            return torchio.ImagesDataset(subject_list, transform=final_transform)
+
+        train_set, val_set, test_set = [], [], []
+
+        # Retrieve subjects using load_sample_from_dir
+        if len(data_struct['load_sample_from_dir']) > 0:
+            for sample_dir in data_struct['load_sample_from_dir']:
+
+                sample_files = glob.glob(sample_dir['root'] + '/sample*pt')
+                self.logger.log(logging.INFO, f'{len(sample_files)} subjects in the {sample_dir["list_name"]} set')
+                transform = torchio.transforms.Compose(transform_struct[f'{sample_dir["list_name"]}_transforms'])
+                dataset = torchio.ImagesDataset(sample_files,
+                                                load_from_dir=True, transform=transform,
+                                                add_to_load=sample_dir['add_to_load'],
+                                                add_to_load_regexp=sample_dir['add_to_load_regexp'])
+                if sample_dir["list_name"] == 'train':
+                    train_set = dataset
+                elif sample_dir["list_name"] == 'val':
+                    val_set = dataset
+                else:
+                    raise ValueError('list_name attribute from load_from_dir must be either train or val')
+
+            return train_set, val_set, test_set
+
         subjects, train_subjects, val_subjects, test_subjects = {}, {}, {}, {}
 
         # Retrieve subjects using patterns
-        for pattern in struct['patterns']:
-            check_modalities(struct['modalities'], pattern['modalities'], pattern['root'])
+        for pattern in data_struct['patterns']:
+            check_modalities(data_struct['modalities'], pattern['modalities'], pattern['root'])
 
             relevant_dict = get_relevant_dict(subjects, train_subjects, val_subjects, test_subjects,
                                               pattern['list_name'])
@@ -377,57 +399,37 @@ class Config:
 
                 for modality_name, modality_path in pattern['modalities'].items():
                     modality_path = glob.glob(folder_path + modality_path)[0]
-                    update_subject(subject, struct['modalities'], modality_name, modality_path)
+                    update_subject(subject, data_struct['modalities'], modality_name, modality_path)
 
                 relevant_dict[name] = subject
 
         # Retrieve subjects using paths
-        for path in struct['paths']:
+        for path in data_struct['paths']:
             default_name = f'{len(subjects) + len(train_subjects) + len(val_subjects) + len(test_subjects):0>6}'
             name = path['name'] or default_name
-            check_modalities(struct['modalities'], path['modalities'], name)
+            check_modalities(data_struct['modalities'], path['modalities'], name)
             relevant_dict = get_relevant_dict(subjects, train_subjects, val_subjects, test_subjects, path['list_name'])
             subject = relevant_dict.get(name) or {}
 
             for modality_name, modality_path in path['modalities'].items():
-                update_subject(subject, struct['modalities'], modality_name, modality_path)
+                update_subject(subject, data_struct['modalities'], modality_name, modality_path)
 
             relevant_dict[name] = subject
 
-        # Retrieve subjects using load_sample_from_dir
-        if len(struct['load_sample_from_dir']) >0:
-            for sample_dir in struct['load_sample_from_dir']:
-
-                fsample = glob.glob(sample_dir['root'] + '/sample*pt')
-                self.logger.log(logging.INFO, f'{len(fsample)} subjects in the {sample_dir["list_name"]} set')
-                transform = torchio.transforms.Compose(struct_transfo[f'{sample_dir["list_name"]}_transforms'])
-                the_dataset = torchio.ImagesDataset(fsample,
-                                                      load_from_dir=True, transform=transform,
-                                                      add_to_load=sample_dir['add_to_load'],
-                                                      add_to_load_regexp=sample_dir['add_to_load_regexp'])
-                if sample_dir["list_name"] == 'train':
-                    train_subjects = the_dataset
-                elif sample_dir["list_name"] == 'val':
-                    val_subjects = the_dataset
-                else:
-                    raise ('error list_name attribute from load_from_dir must be either train or val')
-
-            return train_subjects, val_subjects, test_subjects
-
         # Create torchio.Subjects from dictionaries
-        subjects = dict2subjects(subjects, struct['modalities'])
-        train_subjects = dict2subjects(train_subjects, struct['modalities'])
-        val_subjects = dict2subjects(val_subjects, struct['modalities'])
-        test_subjects = dict2subjects(test_subjects, struct['modalities'])
+        subjects = dict2subjects(subjects, data_struct['modalities'])
+        train_subjects = dict2subjects(train_subjects, data_struct['modalities'])
+        val_subjects = dict2subjects(val_subjects, data_struct['modalities'])
+        test_subjects = dict2subjects(test_subjects, data_struct['modalities'])
 
-        if struct['subject_shuffle']:
-            np.random.seed(struct['subject_seed'])
+        if data_struct['subject_shuffle']:
+            np.random.seed(data_struct['subject_seed'])
             np.random.shuffle(subjects)
         n_subjects = len(subjects)
 
         # Split between train, validation and test sets
-        end_train = int(round(struct['repartition'][0] * n_subjects))
-        end_val = end_train + int(round(struct['repartition'][1] * n_subjects))
+        end_train = int(round(data_struct['repartition'][0] * n_subjects))
+        end_val = end_train + int(round(data_struct['repartition'][1] * n_subjects))
         train_subjects += subjects[:end_train]
         val_subjects += subjects[end_train:end_val]
         test_subjects += subjects[end_val:]
@@ -436,19 +438,9 @@ class Config:
         self.log(f'{len(val_subjects)} subjects in the validation set')
         self.log(f'{len(test_subjects)} subjects in the test set')
 
-        return train_subjects, val_subjects, test_subjects
-
-    def generate_datasets(self, struct):
-        def create_dataset(subjects, transforms):
-            if isinstance(subjects, torchio.data.dataset.ImagesDataset):
-                return subjects
-            if len(subjects) == 0:
-                return []
-            transform = torchio.transforms.Compose(transforms)
-            return torchio.ImagesDataset(subjects, transform=transform)
-        train_set = create_dataset(self.train_subjects, struct['train_transforms'])
-        val_set = create_dataset(self.val_subjects, struct['val_transforms'])
-        test_set = create_dataset(self.test_subjects, struct['val_transforms'])
+        train_set = create_dataset(train_subjects, transform_struct['train_transforms'])
+        val_set = create_dataset(val_subjects, transform_struct['val_transforms'])
+        test_set = create_dataset(test_subjects, transform_struct['val_transforms'])
         return train_set, val_set, test_set
 
     def generate_data_loaders(self, struct):
@@ -501,7 +493,7 @@ class Config:
         model_class = struct['model_class']
 
         if struct['last_one']:
-            files = glob.glob(self.results_dir + '/model_ep*')
+            files = glob.glob(os.path.join(self.results_dir, 'model_ep*'))
             if len(files) == 0:
                 return return_model(model)
             file = max(files, key=os.path.getctime)
