@@ -32,6 +32,7 @@ if __name__ == "__main__":
 
     results_dir = args.results_dir
     file = args.file
+    extra_file = args.extra_file
 
     # Replace relative path if needed
     if os.path.dirname(results_dir) == '':
@@ -40,8 +41,11 @@ if __name__ == "__main__":
     if not os.path.isdir(results_dir):
         os.makedirs(results_dir)
 
+    if extra_file is not None and os.path.dirname(extra_file) == '':
+        extra_file = os.path.join(os.path.dirname(file), extra_file)
+
     logger = instantiate_logger('info', logging.INFO, results_dir + '/info.txt')
     debug_logger = instantiate_logger('debug', logging.DEBUG, results_dir + '/debug.txt', args.debug != 0)
 
-    config = Config(file, results_dir, logger, debug_logger, args.mode, args.visualization, args.extra_file)
+    config = Config(file, results_dir, logger, debug_logger, args.mode, args.visualization, extra_file)
     config.run()
