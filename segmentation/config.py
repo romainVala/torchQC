@@ -8,11 +8,17 @@ import torchio
 import torch
 import multiprocessing
 from pathlib import Path
+from inspect import signature
+from copy import deepcopy
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from segmentation.utils import parse_object_import, parse_function_import, parse_method_import, generate_json_document
 from segmentation.run_model import RunModel
+from segmentation.metrics.fuzzy_overlap_metrics import minimum_t_norm
 from torch_summary import summary_string
 from utils_file import get_parent_path, gfile
+from plot_dataset import PlotDataset
+
 
 MAIN_KEYS = ['data', 'transform', 'model']
 
@@ -35,10 +41,11 @@ SAVE_KEYS = ['record_frequency']
 
 
 class Config:
-    def __init__(self, main_file, results_dir, logger=None, debug_logger=None, mode='train'):
+    def __init__(self, main_file, results_dir, logger=None, debug_logger=None, mode='train', viz=0):
         self.mode = mode
         self.logger = logger
         self.debug_logger = debug_logger
+        self.viz = viz
 
         self.results_dir = results_dir
         if not os.path.isdir(self.results_dir):
@@ -46,11 +53,12 @@ class Config:
 
         self.main_structure = self.parse_main_file(main_file)
 
-        data_structure, patch_size = self.parse_data_file(self.main_structure['data'])
+        data_structure, patch_size, sampler = self.parse_data_file(self.main_structure['data'])
         transform_structure = self.parse_transform_file(self.main_structure['transform'])
 
         self.batch_size = data_structure['batch_size']
         self.patch_size = self.parse_patch_size(patch_size)
+        self.sampler = sampler
         self.image_key_name = data_structure['image_key_name']
         self.label_key_name = data_structure['label_key_name']
 
@@ -126,9 +134,8 @@ class Config:
         self.set_struct_value(struct, 'collate_fn')
         self.set_struct_value(struct, 'batch_seed')
 
-        #let the user decide, if he does not want to use the all dataset
-        #total = sum(struct['repartition'])
-        #struct['repartition'] = list(map(lambda x: x / total, struct['repartition']))
+        total = sum(struct['repartition'])
+        struct['repartition'] = list(map(lambda x: x / total, struct['repartition']))
 
         for modality in struct['modalities'].values():
             self.check_mandatory_keys(modality, MODALITY_KEYS, 'MODALITY')
@@ -177,7 +184,7 @@ class Config:
             struct['queue']['sampler'] = sampler
             struct['queue']['attributes'].update({'num_workers': struct['num_workers'], 'sampler': sampler})
 
-        return struct, patch_size
+        return struct, patch_size, sampler
 
     def parse_transform_file(self, file):
         def parse_transform(t):
@@ -292,6 +299,22 @@ class Config:
 
         # Validation
         struct['validation']['reporting_metrics'] = parse_criteria(struct['validation']['reporting_metrics'])
+
+        return struct
+
+    def parse_visualization_file(self, file):
+        with open(file) as f:
+            struct = json.load(f)
+
+        self.set_struct_value(struct, 'kwargs', {})
+        sig = signature(PlotDataset)
+        for key in struct['kwargs'].keys():
+            if key not in sig.parameters:
+                del struct['kwargs'][key]
+
+        self.set_struct_value(struct, 'set', 'train')
+        self.set_struct_value(struct, 'sample', 0)
+        self.save_json(struct, 'visualization.json')
 
         return struct
 
@@ -419,7 +442,7 @@ class Config:
 
     def generate_datasets(self, struct):
         def create_dataset(subjects, transforms):
-            if isinstance(subjects,torchio.data.dataset.ImagesDataset):
+            if isinstance(subjects, torchio.data.dataset.ImagesDataset):
                 return subjects
             if len(subjects) == 0:
                 return []
@@ -515,5 +538,66 @@ class Config:
                 model_runner.infer()
 
         # Other case would typically be visualization for example
-        else:
-            pass
+        if self.mode == 'visualization':
+            viz_structure = self.parse_visualization_file(self.main_structure['visualization'])
+            viz_structure['kwargs'].update({'image_key_name': self.image_key_name})
+
+            if viz_structure['set'] == 'train':
+                viz_set = self.train_set
+            else:
+                viz_set = self.val_set
+
+            if 0 <= self.viz < 4:
+                if self.viz == 1:
+                    viz_structure['kwargs'].update({
+                        'label_key_name': self.label_key_name
+                    })
+
+                elif self.viz == 2:
+                    viz_structure['kwargs'].update({
+                        'patch_sampler': self.sampler
+                    })
+
+                elif self.viz == 3:
+                    viz_structure['kwargs'].update({
+                        'label_key_name': self.label_key_name,
+                        'patch_sampler': self.sampler
+                    })
+
+            if self.viz >= 4:
+                model_structure = self.parse_model_file(self.main_structure['model'])
+                run_structure = self.parse_run_file(self.main_structure['run'])
+                model, device = self.load_model(model_structure)
+
+                sample = viz_set[viz_structure['sample']]
+                viz_set = [sample]
+
+                model_runner = RunModel(model, [], None, [], viz_set,
+                                        self.image_key_name, self.label_key_name, None, None,
+                                        self.results_dir, self.batch_size, self.patch_size, run_structure)
+
+                with torch.no_grad():
+                    model_runner.model.eval()
+                    volume, target = model_runner.data_getter(sample)
+                    if self.patch_size is not None:
+                        prediction = model_runner.make_prediction_on_whole_volume(sample)
+                    else:
+                        prediction = model_runner.model(volume.unsqueeze(0))[0]
+
+                prediction = F.softmax(prediction, dim=0).to('cpu')
+
+                viz_structure['kwargs'].update({
+                    'label_key_name': self.label_key_name
+                })
+
+                if self.viz == 4:
+                    false_positives = minimum_t_norm(prediction[0], target, True)
+                    sample[self.label_key_name]['data'] = false_positives
+                    viz_set = [sample]
+
+                elif self.viz == 5:
+                    ground_truth = deepcopy(sample)
+                    sample[self.label_key_name]['data'] = prediction[0].unsqueeze(0)
+                    viz_set = [ground_truth, sample]
+
+            return PlotDataset(viz_set, **viz_structure['kwargs'])
