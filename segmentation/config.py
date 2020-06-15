@@ -379,7 +379,6 @@ class Config:
                     modality_path = glob.glob(folder_path + modality_path)[0]
                     update_subject(subject, struct['modalities'], modality_name, modality_path)
 
-                subject['name'] = name
                 relevant_dict[name] = subject
 
         # Retrieve subjects using paths
@@ -393,7 +392,6 @@ class Config:
             for modality_name, modality_path in path['modalities'].items():
                 update_subject(subject, struct['modalities'], modality_name, modality_path)
 
-            subject['name'] = name
             relevant_dict[name] = subject
 
         # Retrieve subjects using load_sample_from_dir

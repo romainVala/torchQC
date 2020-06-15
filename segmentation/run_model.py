@@ -106,7 +106,7 @@ class RunModel:
             with torch.no_grad():
                 self.model.eval()
                 if self.patch_size is not None and self.epoch % self.whole_image_inference_frequency == 0:
-                    self.log('Validation')
+                    self.log('Validation on whole images')
                     self.whole_image_evaluation_loop()
 
                     # Save model after inference
@@ -307,11 +307,9 @@ class RunModel:
         sample_time = batch_time / batch_size
 
         for idx in range(batch_size):
-            name = sample['name'][idx] if is_batch else sample['name']
             image_path = sample[self.image_key_name]['path'][idx] if is_batch else sample[self.image_key_name]['path']
             label_path = sample[self.label_key_name]['path'][idx] if is_batch else sample[self.label_key_name]['path']
             info = {
-                'name': name,
                 'image_filename': image_path,
                 'label_filename': label_path,
                 'shape': to_numpy(shape[2:]),
@@ -427,7 +425,6 @@ class RunModel:
 
         for idx in range(batch_size):
             info = {
-                'name': sample['name'][idx] if "name" in sample else 'toto',
                 'image_filename': sample[self.image_key_name]['path'][idx],
                 'shape': to_numpy(shape[2:]),
                 'batch_time': batch_time,
