@@ -8,11 +8,16 @@ import torchio
 import torch
 import multiprocessing
 from pathlib import Path
+from inspect import signature
+from copy import deepcopy
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from segmentation.utils import parse_object_import, parse_function_import, parse_method_import, generate_json_document
 from segmentation.run_model import RunModel
+from segmentation.metrics.fuzzy_overlap_metrics import minimum_t_norm
 from torch_summary import summary_string
-from utils_file import get_parent_path, gfile
+from plot_dataset import PlotDataset
+
 
 MAIN_KEYS = ['data', 'transform', 'model']
 
@@ -35,28 +40,27 @@ SAVE_KEYS = ['record_frequency']
 
 
 class Config:
-    def __init__(self, main_file, results_dir, logger, debug_logger, mode='train'):
+    def __init__(self, main_file, results_dir, logger=None, debug_logger=None, mode='train', viz=0, extra_file=None):
         self.mode = mode
         self.logger = logger
         self.debug_logger = debug_logger
+        self.viz = viz
 
         self.results_dir = results_dir
-        if not os.path.isdir(self.results_dir):
-            os.makedirs(self.results_dir)
-
         self.main_structure = self.parse_main_file(main_file)
 
-        data_structure, patch_size = self.parse_data_file(self.main_structure['data'])
-        transform_structure = self.parse_transform_file(self.main_structure['transform'])
+        data_structure, transform_structure, self.model_structure, self.results_dir = self.parse_extra_file(extra_file)
+
+        data_structure, patch_size, sampler = self.parse_data_file(data_structure)
+        transform_structure = self.parse_transform_file(transform_structure)
 
         self.batch_size = data_structure['batch_size']
         self.patch_size = self.parse_patch_size(patch_size)
+        self.sampler = sampler
         self.image_key_name = data_structure['image_key_name']
         self.label_key_name = data_structure['label_key_name']
 
-        self.train_subjects, self.val_subjects, self.test_subjects = self.load_subjects(data_structure, transform_structure)
-
-        self.train_set, self.val_set, self.test_set = self.generate_datasets(transform_structure)
+        self.train_set, self.val_set, self.test_set = self.load_subjects(data_structure, transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(data_structure)
 
     @staticmethod
@@ -76,37 +80,74 @@ class Config:
         if struct.get(key) is None:
             struct[key] = default_value
 
+    @staticmethod
+    def read_json(file):
+        if isinstance(file, str):
+            with open(file) as f:
+                return json.load(f)
+        else:
+            return file
+
     def save_json(self, struct, name):
         self.debug(f'******** {name.upper()} ********')
         self.debug(json.dumps(struct, indent=4, sort_keys=True))
-        generate_json_document(f'{self.results_dir}/{name}', **struct)
+        generate_json_document(os.path.join(self.results_dir, name), **struct)
+
+    def log(self, info):
+        if self.logger is not None:
+            self.logger.log(logging.INFO, info)
 
     def debug(self, info):
         if self.debug_logger is not None:
             self.debug_logger.log(logging.DEBUG, info)
 
     def parse_main_file(self, file):
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         additional_key = []
         if self.mode in ['train', 'eval', 'infer']:
             additional_key = ['run']
         self.check_mandatory_keys(struct, MAIN_KEYS + additional_key, 'MAIN CONFIG FILE')
 
-        #replace relative path if needed
-        dir_file = get_parent_path(file)[0] + '/'
+        # Replace relative path if needed
+        dir_file = os.path.dirname(file)
         for key, val in struct.items():
-            if not val[0]=='/':
-                struct[key] = dir_file + val
+            if os.path.dirname(val) == '':
+                struct[key] = os.path.join(dir_file, val)
 
         self.save_json(struct, 'main.json')
 
         return struct
 
+    def parse_extra_file(self, file):
+        data_structure = self.main_structure['data']
+        transform_structure = self.main_structure['transform']
+        model_structure = self.main_structure['model']
+        results_dir = self.results_dir
+
+        if file is not None:
+            struct = self.read_json(file)
+
+            if struct.get('data') is not None:
+                data_structure = struct['data']
+            if struct.get('transform') is not None:
+                transform_structure = struct['transform']
+            if struct.get('model') is not None:
+                model_structure = struct['model']
+            if struct.get('results_dir') is not None:
+                results_dir = struct['results_dir']
+
+                # Replace relative path if needed
+                if os.path.dirname(results_dir) == '':
+                    results_dir = os.path.join(os.path.dirname(file), results_dir)
+
+                if not os.path.isdir(results_dir):
+                    os.makedirs(results_dir)
+
+        return data_structure, transform_structure, model_structure, results_dir
+
     def parse_data_file(self, file):
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, DATA_KEYS, 'DATA CONFIG FILE')
         self.set_struct_value(struct, 'patterns', [])
@@ -122,9 +163,8 @@ class Config:
         self.set_struct_value(struct, 'collate_fn')
         self.set_struct_value(struct, 'batch_seed')
 
-        #let the user decide, if he does not want to use the all dataset
-        #total = sum(struct['repartition'])
-        #struct['repartition'] = list(map(lambda x: x / total, struct['repartition']))
+        total = sum(struct['repartition'])
+        struct['repartition'] = list(map(lambda x: x / total, struct['repartition']))
 
         for modality in struct['modalities'].values():
             self.check_mandatory_keys(modality, MODALITY_KEYS, 'MODALITY')
@@ -140,10 +180,10 @@ class Config:
             self.set_struct_value(path, 'name')
             self.set_struct_value(path, 'list_name')
 
-        for dir in struct['load_sample_from_dir']:
-            self.check_mandatory_keys(dir, LOAD_FROM_DIR_KEYS, 'load_sample_from_dir')
-            self.set_struct_value(dir, 'add_to_load_regexp')
-            self.set_struct_value(dir, 'add_to_load')
+        for directory in struct['load_sample_from_dir']:
+            self.check_mandatory_keys(directory, LOAD_FROM_DIR_KEYS, 'DIRECTORY')
+            self.set_struct_value(directory, 'add_to_load_regexp')
+            self.set_struct_value(directory, 'add_to_load')
 
         patch_size, sampler = None, None
         if struct['queue'] is not None:
@@ -173,7 +213,7 @@ class Config:
             struct['queue']['sampler'] = sampler
             struct['queue']['attributes'].update({'num_workers': struct['num_workers'], 'sampler': sampler})
 
-        return struct, patch_size
+        return struct, patch_size, sampler
 
     def parse_transform_file(self, file):
         def parse_transform(t):
@@ -190,8 +230,7 @@ class Config:
             else:
                 return t_class(**attributes)
 
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, TRANSFORM_KEYS, 'TRANSFORM CONFIG FILE')
         self.save_json(struct, 'transform.json')
@@ -210,8 +249,7 @@ class Config:
         return struct
 
     def parse_model_file(self, file):
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, MODEL_KEYS, 'MODEL CONFIG FILE')
 
@@ -240,8 +278,7 @@ class Config:
                 c_list.append(c)
             return c_list
 
-        with open(file) as f:
-            struct = json.load(f)
+        struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, RUN_KEYS, 'RUN CONFIG FILE')
         self.set_struct_value(struct, 'data_getter', 'get_segmentation_data')
@@ -249,7 +286,7 @@ class Config:
         self.set_struct_value(struct, 'current_epoch')
         self.set_struct_value(struct, 'log_frequency', 10)
 
-        files = glob.glob(self.results_dir + '/model_ep*')
+        files = glob.glob(os.path.join(self.results_dir, 'model_ep*'))
         if len(files) == 0:
             struct['current_epoch'] = 1
         else:
@@ -291,13 +328,28 @@ class Config:
 
         return struct
 
+    def parse_visualization_file(self, file):
+        struct = self.read_json(file)
+
+        self.set_struct_value(struct, 'kwargs', {})
+        sig = signature(PlotDataset)
+        for key in struct['kwargs'].keys():
+            if key not in sig.parameters:
+                del struct['kwargs'][key]
+
+        self.set_struct_value(struct, 'set', 'train')
+        self.set_struct_value(struct, 'sample', 0)
+        self.save_json(struct, 'visualization.json')
+
+        return struct
+
     @staticmethod
     def parse_patch_size(patch_size):
         if isinstance(patch_size, int):
             return patch_size, patch_size, patch_size
         return patch_size
 
-    def load_subjects(self, struct, struct_transfo=None):
+    def load_subjects(self, data_struct, transform_struct):
         def update_subject(subject_to_update, ref_modalities, mod_name, mod_path):
             image_type = ref_modalities[mod_name]['type']
             image_attributes = ref_modalities[mod_name]['attributes']
@@ -325,8 +377,7 @@ class Config:
 
         def get_name(name_pattern, string):
             if name_pattern is None:
-                string_split = string.split('/')
-                return string_split[-1] if len(string_split[-1]) > 0 else string_split[-2]
+                return os.path.relpath(string, os.path.dirname(string))
             else:
                 matches = re.findall(name_pattern, string)
                 return matches[-1]
@@ -336,11 +387,39 @@ class Config:
                 raise KeyError(f'At least one modality of {modalities.keys()} from {subject_name} is not in the '
                                f'reference modalities {ref_modalities.keys()}')
 
+        def create_dataset(subject_list, transforms):
+            if len(subject_list) == 0:
+                return []
+            final_transform = torchio.transforms.Compose(transforms)
+            return torchio.ImagesDataset(subject_list, transform=final_transform)
+
+        train_set, val_set, test_set = [], [], []
+
+        # Retrieve subjects using load_sample_from_dir
+        if len(data_struct['load_sample_from_dir']) > 0:
+            for sample_dir in data_struct['load_sample_from_dir']:
+
+                sample_files = glob.glob(sample_dir['root'] + '/sample*pt')
+                self.logger.log(logging.INFO, f'{len(sample_files)} subjects in the {sample_dir["list_name"]} set')
+                transform = torchio.transforms.Compose(transform_struct[f'{sample_dir["list_name"]}_transforms'])
+                dataset = torchio.ImagesDataset(sample_files,
+                                                load_from_dir=True, transform=transform,
+                                                add_to_load=sample_dir['add_to_load'],
+                                                add_to_load_regexp=sample_dir['add_to_load_regexp'])
+                if sample_dir["list_name"] == 'train':
+                    train_set = dataset
+                elif sample_dir["list_name"] == 'val':
+                    val_set = dataset
+                else:
+                    raise ValueError('list_name attribute from load_from_dir must be either train or val')
+
+            return train_set, val_set, test_set
+
         subjects, train_subjects, val_subjects, test_subjects = {}, {}, {}, {}
 
         # Retrieve subjects using patterns
-        for pattern in struct['patterns']:
-            check_modalities(struct['modalities'], pattern['modalities'], pattern['root'])
+        for pattern in data_struct['patterns']:
+            check_modalities(data_struct['modalities'], pattern['modalities'], pattern['root'])
 
             relevant_dict = get_relevant_dict(subjects, train_subjects, val_subjects, test_subjects,
                                               pattern['list_name'])
@@ -350,80 +429,48 @@ class Config:
 
                 for modality_name, modality_path in pattern['modalities'].items():
                     modality_path = glob.glob(folder_path + modality_path)[0]
-                    update_subject(subject, struct['modalities'], modality_name, modality_path)
+                    update_subject(subject, data_struct['modalities'], modality_name, modality_path)
 
-                subject['name'] = name
                 relevant_dict[name] = subject
 
         # Retrieve subjects using paths
-        for path in struct['paths']:
+        for path in data_struct['paths']:
             default_name = f'{len(subjects) + len(train_subjects) + len(val_subjects) + len(test_subjects):0>6}'
             name = path['name'] or default_name
-            check_modalities(struct['modalities'], path['modalities'], name)
+            check_modalities(data_struct['modalities'], path['modalities'], name)
             relevant_dict = get_relevant_dict(subjects, train_subjects, val_subjects, test_subjects, path['list_name'])
             subject = relevant_dict.get(name) or {}
 
             for modality_name, modality_path in path['modalities'].items():
-                update_subject(subject, struct['modalities'], modality_name, modality_path)
+                update_subject(subject, data_struct['modalities'], modality_name, modality_path)
 
-            subject['name'] = name
             relevant_dict[name] = subject
 
-        # Retrieve subjects using load_sample_from_dir
-        if len(struct['load_sample_from_dir']) >0:
-            for sample_dir in struct['load_sample_from_dir']:
-
-                fsample = glob.glob(sample_dir['root'] + '/sample*pt')
-                self.logger.log(logging.INFO, f'{len(fsample)} subjects in the {sample_dir["list_name"]} set')
-                transform = torchio.transforms.Compose(struct_transfo[f'{sample_dir["list_name"]}_transforms'])
-                the_dataset = torchio.ImagesDataset(fsample,
-                                                      load_from_dir=True, transform=transform,
-                                                      add_to_load=sample_dir['add_to_load'],
-                                                      add_to_load_regexp=sample_dir['add_to_load_regexp'])
-                if sample_dir["list_name"] == 'train':
-                    train_subjects = the_dataset
-                elif sample_dir["list_name"] == 'val':
-                    val_subjects = the_dataset
-                else:
-                    raise ('error list_name attribute from load_from_dir must be either train or val')
-
-            return train_subjects, val_subjects, test_subjects
-
         # Create torchio.Subjects from dictionaries
-        subjects = dict2subjects(subjects, struct['modalities'])
-        train_subjects = dict2subjects(train_subjects, struct['modalities'])
-        val_subjects = dict2subjects(val_subjects, struct['modalities'])
-        test_subjects = dict2subjects(test_subjects, struct['modalities'])
+        subjects = dict2subjects(subjects, data_struct['modalities'])
+        train_subjects = dict2subjects(train_subjects, data_struct['modalities'])
+        val_subjects = dict2subjects(val_subjects, data_struct['modalities'])
+        test_subjects = dict2subjects(test_subjects, data_struct['modalities'])
 
-        if struct['subject_shuffle']:
-            np.random.seed(struct['subject_seed'])
+        if data_struct['subject_shuffle']:
+            np.random.seed(data_struct['subject_seed'])
             np.random.shuffle(subjects)
         n_subjects = len(subjects)
 
         # Split between train, validation and test sets
-        end_train = int(round(struct['repartition'][0] * n_subjects))
-        end_val = end_train + int(round(struct['repartition'][1] * n_subjects))
+        end_train = int(round(data_struct['repartition'][0] * n_subjects))
+        end_val = end_train + int(round(data_struct['repartition'][1] * n_subjects))
         train_subjects += subjects[:end_train]
         val_subjects += subjects[end_train:end_val]
         test_subjects += subjects[end_val:]
 
-        self.logger.log(logging.INFO, f'{len(train_subjects)} subjects in the train set')
-        self.logger.log(logging.INFO, f'{len(val_subjects)} subjects in the validation set')
-        self.logger.log(logging.INFO, f'{len(test_subjects)} subjects in the test set')
+        self.log(f'{len(train_subjects)} subjects in the train set')
+        self.log(f'{len(val_subjects)} subjects in the validation set')
+        self.log(f'{len(test_subjects)} subjects in the test set')
 
-        return train_subjects, val_subjects, test_subjects
-
-    def generate_datasets(self, struct):
-        def create_dataset(subjects, transforms):
-            if isinstance(subjects,torchio.data.dataset.ImagesDataset):
-                return subjects
-            if len(subjects) == 0:
-                return []
-            transform = torchio.transforms.Compose(transforms)
-            return torchio.ImagesDataset(subjects, transform=transform)
-        train_set = create_dataset(self.train_subjects, struct['train_transforms'])
-        val_set = create_dataset(self.val_subjects, struct['val_transforms'])
-        test_set = create_dataset(self.test_subjects, struct['val_transforms'])
+        train_set = create_dataset(train_subjects, transform_struct['train_transforms'])
+        val_set = create_dataset(val_subjects, transform_struct['val_transforms'])
+        test_set = create_dataset(test_subjects, transform_struct['val_transforms'])
         return train_set, val_set, test_set
 
     def generate_data_loaders(self, struct):
@@ -454,9 +501,9 @@ class Config:
     def load_model(self, struct):
         def return_model(m, f=None):
             if f is not None:
-                self.logger.log(logging.INFO, f'Using model from file {f}')
+                self.log(f'Using model from file {f}')
             else:
-                self.logger.log(logging.INFO, 'Using new model')
+                self.log('Using new model')
             device = struct['device']
             self.debug('Model description:')
             self.debug(model)
@@ -466,17 +513,17 @@ class Config:
             input_shape = self.patch_size or struct['input_shape']
             if input_shape is not None:
                 summary, _ = summary_string(model, (1, *input_shape), self.batch_size, device)
-                self.logger.log(logging.INFO, 'Model summary:')
-                self.logger.log(logging.INFO, summary)
+                self.log('Model summary:')
+                self.log(summary)
             return m, device
 
-        self.logger.log(logging.INFO, '******** Model  ********')
+        self.log('******** Model  ********')
 
         model = struct['model']
         model_class = struct['model_class']
 
         if struct['last_one']:
-            files = glob.glob(self.results_dir + '/model_ep*')
+            files = glob.glob(os.path.join(self.results_dir, 'model_ep*'))
             if len(files) == 0:
                 return return_model(model)
             file = max(files, key=os.path.getctime)
@@ -495,7 +542,7 @@ class Config:
 
     def run(self):
         if self.mode in ['train', 'eval', 'infer']:
-            model_structure = self.parse_model_file(self.main_structure['model'])
+            model_structure = self.parse_model_file(self.model_structure)
             run_structure = self.parse_run_file(self.main_structure['run'])
             model, device = self.load_model(model_structure)
 
@@ -511,5 +558,66 @@ class Config:
                 model_runner.infer()
 
         # Other case would typically be visualization for example
-        else:
-            pass
+        if self.mode == 'visualization':
+            viz_structure = self.parse_visualization_file(self.main_structure['visualization'])
+            viz_structure['kwargs'].update({'image_key_name': self.image_key_name})
+
+            if viz_structure['set'] == 'train':
+                viz_set = self.train_set
+            else:
+                viz_set = self.val_set
+
+            if 0 <= self.viz < 4:
+                if self.viz == 1:
+                    viz_structure['kwargs'].update({
+                        'label_key_name': self.label_key_name
+                    })
+
+                elif self.viz == 2:
+                    viz_structure['kwargs'].update({
+                        'patch_sampler': self.sampler
+                    })
+
+                elif self.viz == 3:
+                    viz_structure['kwargs'].update({
+                        'label_key_name': self.label_key_name,
+                        'patch_sampler': self.sampler
+                    })
+
+            if self.viz >= 4:
+                model_structure = self.parse_model_file(self.model_structure)
+                run_structure = self.parse_run_file(self.main_structure['run'])
+                model, device = self.load_model(model_structure)
+
+                sample = viz_set[viz_structure['sample']]
+                viz_set = [sample]
+
+                model_runner = RunModel(model, [], None, [], viz_set,
+                                        self.image_key_name, self.label_key_name, None, None,
+                                        self.results_dir, self.batch_size, self.patch_size, run_structure)
+
+                with torch.no_grad():
+                    model_runner.model.eval()
+                    volume, target = model_runner.data_getter(sample)
+                    if self.patch_size is not None:
+                        prediction = model_runner.make_prediction_on_whole_volume(sample)
+                    else:
+                        prediction = model_runner.model(volume.unsqueeze(0))[0]
+
+                prediction = F.softmax(prediction, dim=0).to('cpu')
+
+                viz_structure['kwargs'].update({
+                    'label_key_name': self.label_key_name
+                })
+
+                if self.viz == 4:
+                    false_positives = minimum_t_norm(prediction[0], target, True)
+                    sample[self.label_key_name]['data'] = false_positives
+                    viz_set = [sample]
+
+                elif self.viz == 5:
+                    ground_truth = deepcopy(sample)
+                    sample[self.label_key_name]['data'] = prediction[0].unsqueeze(0)
+                    viz_set = [ground_truth, sample]
+
+            return PlotDataset(viz_set, **viz_structure['kwargs'])

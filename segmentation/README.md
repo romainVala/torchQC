@@ -292,8 +292,39 @@ In the `"save"` dictionary, `"record_frequency"` is mandatory. <br>
 This file defines the visualization parameters. It uses `PlotDataset` to make plots.
 ```json
 {
-    "subject_idx": [0, 1, 2, 3, 4], 
-    "update_all_on_scroll": true
+    "kwargs": 
+    {
+        "subject_idx": [0, 1, 2, 3, 4], 
+        "update_all_on_scroll": true,
+        "nb_patches": 4
+    },
+    "set": "val"
+}
+```
+
+#### extra_file.json
+This file can overwrites `data.json`, `transform.json`, `model.json` and/or the results directory.
+```json
+{
+    "transform": 
+    {
+        "train_transforms": [],
+        "val_transforms": 
+        [
+            {
+                "name": "RandomBiasField"
+            }, 
+            {
+                "name": "RescaleIntensity", 
+                "attributes": 
+                {
+                    "out_min_max": [0, 1],
+                    "percentiles": [0.5, 99.5]
+                }
+            }
+        ]
+    },
+    "results_dir": "eval_with_bias_field"
 }
 ```
 
@@ -313,7 +344,22 @@ The `--mode` argument can take the following values:
 on validation data;
 - `"eval"`: the selected model is evaluated on validation data;
 - `"infer"`: the selected model is used to make predictions on test data;
-- `"viz"`: not implemented yet.
+- `"visualization"`: a visualization of the data and eventually the predictions made by the
+model is shown.
 
 The `--debug` argument's default value is 0, if a different value is given, debug information
 will be printed in the console.
+
+The `--viz` argument is only used when `--mode` is `"visualization"`. Values ranging from
+0 to 5 are accepted. Default value is 0.
+- If value is 0: volumes are shown,
+- If value is 1: volumes with labels are shown,
+- If value is 2: volumes with patches are shown,
+- If value is 3: volumes with patches and labels are shown,
+- If value is 4: a volume with the fuzzy false positive map between the model prediction and 
+the ground truth is shown,
+- If value is 5: the model prediction and the ground truth on the same volume are shown.
+
+The `--extra_file` argument allows to give a new configuration file to overwrite the
+data, transform and model configuration files as well as the result directory. This aims
+to allow evaluation on new data or transform without creating a whole new folder.

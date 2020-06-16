@@ -68,6 +68,10 @@ class RunModel:
         self.epoch = struct['current_epoch']
         self.iteration = 0
 
+    def log(self, info):
+        if self.logger is not None:
+            self.logger.log(logging.INFO, info)
+
     def get_optimizer(self, optimizer_dict):
         optimizer_dict['attributes'].update({'params': self.model.parameters()})
         optimizer = optimizer_dict['optimizer_class'](**optimizer_dict['attributes'])
@@ -92,7 +96,7 @@ class RunModel:
 
         for epoch in range(self.epoch, self.n_epochs + 1):
             self.epoch = epoch
-            self.logger.log(logging.INFO, '******** Epoch [{}/{}]  ********'.format(self.epoch, self.n_epochs))
+            self.log('******** Epoch [{}/{}]  ********'.format(self.epoch, self.n_epochs))
 
             # Train for one epoch
             self.model.train()
@@ -102,7 +106,7 @@ class RunModel:
             with torch.no_grad():
                 self.model.eval()
                 if self.patch_size is not None and self.epoch % self.whole_image_inference_frequency == 0:
-                    self.logger.log(logging.INFO, 'Validation')
+                    self.log('Validation on whole images')
                     self.whole_image_evaluation_loop()
 
                     # Save model after inference
@@ -128,38 +132,36 @@ class RunModel:
     def eval(self):
         """ Evaluate the model on the validation set. """
         self.epoch -= 1
-        self.logger.log(logging.INFO, 'Evaluation')
+        self.log('Evaluation')
         with torch.no_grad():
             self.model.eval()
             if self.eval_frequency != np.inf:
-                self.logger.log(logging.INFO, 'Evaluation on patches')
+                self.log('Evaluation on patches')
                 self.train_loop(save_model=False)
 
             if self.patch_size is not None and self.whole_image_inference_frequency != np.inf:
-                self.logger.log(logging.INFO, 'Evaluation on whole images')
+                self.log('Evaluation on whole images')
                 self.whole_image_evaluation_loop()
 
     def infer(self):
         """ Use the model to make predictions on the test set. """
         self.epoch -= 1
-        self.logger.log(logging.INFO, 'Inference')
+        self.log('Inference')
         with torch.no_grad():
             self.model.eval()
             self.inference_loop()
 
     def train_loop(self, save_model=True):
         if self.model.training:
-            self.logger.log(logging.INFO, 'Training')
+            self.log('Training')
             model_mode = 'Train'
             loader = self.train_loader
         else:
-            self.logger.log(logging.INFO, 'Validation')
+            self.log('Validation')
             model_mode = 'Val'
             loader = self.val_loader
 
         df = pd.DataFrame()
-
-        batch_size = loader.batch_size
         start = time.time()
         time_sum, loss_sum = 0, 0
         average_loss = None
@@ -188,17 +190,15 @@ class RunModel:
             # Measure elapsed time
             batch_time = time.time() - start
 
-            time_sum += batch_size * batch_time
-            loss_sum += batch_size * loss
-            average_loss = loss_sum / (i * batch_size)
-            average_time = time_sum / (i * batch_size)
-
-            start = time.time()
+            time_sum += batch_time
+            loss_sum += loss
+            average_loss = loss_sum / i
+            average_time = time_sum / i
 
             # Log training or validation information every log_frequency iterations
             if i % self.log_frequency == 0:
                 to_log = summary(self.epoch, i, len(loader), loss, batch_time, average_loss, average_time, model_mode)
-                self.logger.log(logging.INFO, to_log)
+                self.log(to_log)
 
             # Run model on validation set every eval_frequency iteration
             if self.model.training and i % self.eval_frequency == 0:
@@ -207,11 +207,13 @@ class RunModel:
                     self.train_loop()
                     self.model.train()
 
-            # Update DataFrame and record it every record_frequency iterations or every iteration at validation time
+            # Update DataFrame and record it every record_frequency iterations
             if i % self.record_frequency == 0 or i == len(loader):
                 df = self.batch_recorder(df, sample, predictions, targets, batch_time, True)
             else:
                 df = self.batch_recorder(df, sample, predictions, targets, batch_time, False)
+
+            start = time.time()
 
         # Save model after an evaluation on the whole validation set
         if save_model and not self.model.training:
@@ -255,7 +257,7 @@ class RunModel:
             if i % self.log_frequency == 0:
                 to_log = summary(self.epoch, i, len(self.val_set), sample_loss, sample_time, average_loss,
                                  average_time, 'Val', 'Sample')
-                self.logger.log(logging.INFO, to_log)
+                self.log(to_log)
 
             # Record information about the sample and the performances of the model on this sample after every iteration
             df = self.batch_recorder(df, sample, predictions.unsqueeze(0), target.unsqueeze(0), sample_time, True)
@@ -281,7 +283,7 @@ class RunModel:
             # Log time information every log_frequency iterations
             if i % self.log_frequency == 0:
                 to_log = summary('/', i, len(self.test_set), '/', sample_time, '/', average_time, 'Val', 'Sample')
-                self.logger.log(logging.INFO, to_log)
+                self.log(to_log)
 
             self.prediction_saver(sample, predictions)
 
@@ -302,17 +304,16 @@ class RunModel:
         history = sample.get('history')
         batch_size = shape[0]
 
+        sample_time = batch_time / batch_size
+
         for idx in range(batch_size):
-            name = sample['name'][idx] if is_batch else sample['name']
             image_path = sample[self.image_key_name]['path'][idx] if is_batch else sample[self.image_key_name]['path']
             label_path = sample[self.label_key_name]['path'][idx] if is_batch else sample[self.label_key_name]['path']
-            time_key = 'batch_time' if is_batch else 'sample_time'
             info = {
-                'name': name,
                 'image_filename': image_path,
                 'label_filename': label_path,
                 'shape': to_numpy(shape[2:]),
-                time_key: batch_time
+                'sample_time': sample_time
             }
             if is_batch:
                 info['batch_size'] = batch_size
@@ -332,7 +333,7 @@ class RunModel:
 
             if not self.model.training:
                 for metric in self.metrics:
-                    name = f'metric_{get_class_name_from_method(metric)}{metric.__name__}'
+                    name = f'metric_{get_class_name_from_method(metric)}_{metric.__name__}'
                     value = to_numpy(metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0)))
                     if value.size == 1:
                         info[name] = value
@@ -444,7 +445,6 @@ class RunModel:
 
         for idx in range(batch_size):
             info = {
-                'name': sample['name'][idx] if "name" in sample else 'toto',
                 'image_filename': sample[self.image_key_name]['path'][idx],
                 'shape': to_numpy(shape[2:]),
                 'batch_time': batch_time,
@@ -472,7 +472,8 @@ class RunModel:
 
             if not self.model.training:
                 for metric in self.metrics:
-                    info[f'metric_{metric.__name__}'] = to_numpy(
+                    name = f'metric_{get_class_name_from_method(metric)}_{metric.__name__}'
+                    info[name] = to_numpy(
                         metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
                     )
 
