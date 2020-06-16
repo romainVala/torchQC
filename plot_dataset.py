@@ -50,7 +50,7 @@ class PlotDataset:
     def __init__(self, dataset, views=None, view_org=None, image_key_name='image',
                  subject_idx=5, subject_org=None, figsize=(16, 9), update_all_on_scroll=False,
                  add_text=True, label_key_name=None, alpha=0.2, cmap='RdBu', patch_sampler=None, nb_patches=4,
-                 threshold=0.01):
+                 threshold=0.01, datasample_list_size=0):
         self.dataset = dataset
         self.add_text = add_text
         self.views = views if views is not None else vox_views
@@ -86,6 +86,7 @@ class PlotDataset:
         if patch_sampler is not None:
             self.sample_patches(patch_sampler, nb_patches)
 
+        self.datasample_list_size = datasample_list_size
         self.load_subjects()
 
         self.init_plot()
@@ -175,13 +176,11 @@ class PlotDataset:
         else:
             for idx in self.subject_idx:
                 if idx not in self.cached_images_and_affines.keys():
-                    #in case of list, this will be the bad index (and may be bigger thant the dataset, we should find an other way to know if we have list
-                    subject = self.dataset[int(idx)]
-                    if isinstance(subject, list): #happen with ListOf transform
-                        list_length = len(subject)
-                        idx_subject = idx // list_length
+                    if self.datasample_list_size : # should be set when ussing ListOf transform
+                        idx_subject = idx // self.datasample_list_size
                         subject = self.dataset[idx_subject]
-                        print('loadin suj {}'.format(subject[0][self.image_key_name]['path']))
+                        print('loading suj {} with {} transform'.format(subject[0][self.image_key_name]['path'],
+                                                                        len(subject)))
 
                         for idx_list in range(len(subject)):
                             suj = subject[idx_list]
@@ -189,7 +188,9 @@ class PlotDataset:
                                                                   suj[self.image_key_name]['affine'].copy()
                             if self.label_key_name is not None:
                                 self.cached_labels[idx+idx_list] = suj[self.label_key_name]['data'].numpy()[0].copy()
+
                     else:
+                        subject = self.dataset[int(idx)]
                         self.cached_images_and_affines[idx] = subject[self.image_key_name]['data'].numpy()[0].copy(), \
                             subject[self.image_key_name]['affine'].copy()
                         if self.label_key_name is not None:
