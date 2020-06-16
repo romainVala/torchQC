@@ -65,6 +65,13 @@ class PlotDataset:
 
         self.subject_idx = self.parse_subject_idx(subject_idx)
 
+        if patch_sampler is not None:
+            self.sample_patches(patch_sampler, nb_patches)
+
+        self.datasample_list_size = datasample_list_size
+        self.load_subjects()
+
+
         self.subject_org = self.parse_subject_org(subject_org)
         self.figsize = figsize
         self.update_all_on_scroll = update_all_on_scroll
@@ -83,11 +90,6 @@ class PlotDataset:
 
         self.check_views()
 
-        if patch_sampler is not None:
-            self.sample_patches(patch_sampler, nb_patches)
-
-        self.datasample_list_size = datasample_list_size
-        self.load_subjects()
 
         self.init_plot()
         self.scrolling = False
@@ -173,28 +175,34 @@ class PlotDataset:
                 current_idx += batch_len
                 if current_idx > max_idx:
                     break
+        elif self.datasample_list_size:  # should be set when ussing ListOf transform:
+            new_idx = []
+            for idx in self.subject_idx:
+                for list_idx in range(self.datasample_list_size):
+                    new_idx.append(idx*self.datasample_list_size + list_idx)
+            self.subject_idx = new_idx
+            for idx in self.subject_idx:
+                if idx not in self.cached_images_and_affines.keys():
+                    idx_subject = idx // self.datasample_list_size
+                    subject = self.dataset[idx_subject]
+                    print('loading suj {} with {} transform'.format(subject[0][self.image_key_name]['path'],
+                                                                    len(subject)))
+
+                    for idx_list in range(len(subject)):
+                        suj = subject[idx_list]
+                        self.cached_images_and_affines[idx+idx_list] = suj[self.image_key_name]['data'].numpy()[0].copy(), \
+                                                              suj[self.image_key_name]['affine'].copy()
+                        if self.label_key_name is not None:
+                            self.cached_labels[idx+idx_list] = suj[self.label_key_name]['data'].numpy()[0].copy()
+
         else:
             for idx in self.subject_idx:
                 if idx not in self.cached_images_and_affines.keys():
-                    if self.datasample_list_size : # should be set when ussing ListOf transform
-                        idx_subject = idx // self.datasample_list_size
-                        subject = self.dataset[idx_subject]
-                        print('loading suj {} with {} transform'.format(subject[0][self.image_key_name]['path'],
-                                                                        len(subject)))
-
-                        for idx_list in range(len(subject)):
-                            suj = subject[idx_list]
-                            self.cached_images_and_affines[idx+idx_list] = suj[self.image_key_name]['data'].numpy()[0].copy(), \
-                                                                  suj[self.image_key_name]['affine'].copy()
-                            if self.label_key_name is not None:
-                                self.cached_labels[idx+idx_list] = suj[self.label_key_name]['data'].numpy()[0].copy()
-
-                    else:
-                        subject = self.dataset[int(idx)]
-                        self.cached_images_and_affines[idx] = subject[self.image_key_name]['data'].numpy()[0].copy(), \
-                            subject[self.image_key_name]['affine'].copy()
-                        if self.label_key_name is not None:
-                            self.cached_labels[idx] = subject[self.label_key_name]['data'].numpy()[0].copy()
+                    subject = self.dataset[int(idx)]
+                    self.cached_images_and_affines[idx] = subject[self.image_key_name]['data'].numpy()[0].copy(), \
+                        subject[self.image_key_name]['affine'].copy()
+                    if self.label_key_name is not None:
+                        self.cached_labels[idx] = subject[self.label_key_name]['data'].numpy()[0].copy()
 
     @staticmethod
     def view2slice(view_idx, idx, img):
