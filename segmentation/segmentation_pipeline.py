@@ -3,6 +3,7 @@ import logging
 import argparse
 import os
 import resource
+from pathlib import Path
 from segmentation.utils import instantiate_logger
 from segmentation.config import Config
 
@@ -35,7 +36,7 @@ if __name__ == "__main__":
     extra_file = args.extra_file
 
     # Replace relative path if needed
-    if os.path.dirname(results_dir) == '':
+    if Path(results_dir).parent.anchor == '':
         results_dir = os.path.join(os.path.dirname(file), results_dir)
 
     if not os.path.isdir(results_dir):

@@ -138,7 +138,7 @@ class Config:
                 results_dir = struct['results_dir']
 
                 # Replace relative path if needed
-                if os.path.dirname(results_dir) == '':
+                if Path(results_dir).parent.anchor == '':
                     results_dir = os.path.join(os.path.dirname(file), results_dir)
 
                 if not os.path.isdir(results_dir):
@@ -377,7 +377,7 @@ class Config:
 
         def get_name(name_pattern, string):
             if name_pattern is None:
-                return os.path.relpath(string, os.path.dirname(string))
+                return os.path.relpath(string, Path(string).parent)
             else:
                 matches = re.findall(name_pattern, string)
                 return matches[-1]
@@ -399,7 +399,7 @@ class Config:
         if len(data_struct['load_sample_from_dir']) > 0:
             for sample_dir in data_struct['load_sample_from_dir']:
 
-                sample_files = glob.glob(sample_dir['root'] + '/sample*pt')
+                sample_files = glob.glob(os.path.join(sample_dir['root'], '/sample*pt'))
                 self.logger.log(logging.INFO, f'{len(sample_files)} subjects in the {sample_dir["list_name"]} set')
                 transform = torchio.transforms.Compose(transform_struct[f'{sample_dir["list_name"]}_transforms'])
                 dataset = torchio.ImagesDataset(sample_files,
@@ -428,7 +428,7 @@ class Config:
                 subject = relevant_dict.get(name) or {}
 
                 for modality_name, modality_path in pattern['modalities'].items():
-                    modality_path = glob.glob(folder_path + modality_path)[0]
+                    modality_path = glob.glob(os.path.join(folder_path, modality_path))[0]
                     update_subject(subject, data_struct['modalities'], modality_name, modality_path)
 
                 relevant_dict[name] = subject
