@@ -176,10 +176,18 @@ class PlotDataset:
             for idx in self.subject_idx:
                 if idx not in self.cached_images_and_affines.keys():
                     subject = self.dataset[int(idx)]
-                    self.cached_images_and_affines[idx] = subject[self.image_key_name]['data'].numpy()[0].copy(), \
-                        subject[self.image_key_name]['affine'].copy()
-                    if self.label_key_name is not None:
-                        self.cached_labels[idx] = subject[self.label_key_name]['data'].numpy()[0].copy()
+                    if isinstance(subject, list): #haapen with ListOf transform
+                        for idx_list in range(len(subject)):
+                            suj = subject[idx_list]
+                            self.cached_images_and_affines[idx+idx_list] = suj[self.image_key_name]['data'].numpy()[0].copy(), \
+                                                                  suj[self.image_key_name]['affine'].copy()
+                            if self.label_key_name is not None:
+                                self.cached_labels[idx+idx_list] = suj[self.label_key_name]['data'].numpy()[0].copy()
+                    else:
+                        self.cached_images_and_affines[idx] = subject[self.image_key_name]['data'].numpy()[0].copy(), \
+                            subject[self.image_key_name]['affine'].copy()
+                        if self.label_key_name is not None:
+                            self.cached_labels[idx] = subject[self.label_key_name]['data'].numpy()[0].copy()
 
     @staticmethod
     def view2slice(view_idx, idx, img):
