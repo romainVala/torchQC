@@ -175,8 +175,14 @@ class PlotDataset:
         else:
             for idx in self.subject_idx:
                 if idx not in self.cached_images_and_affines.keys():
+                    #in case of list, this will be the bad index (and may be bigger thant the dataset, we should find an other way to know if we have list
                     subject = self.dataset[int(idx)]
-                    if isinstance(subject, list): #haapen with ListOf transform
+                    if isinstance(subject, list): #happen with ListOf transform
+                        list_length = len(subject)
+                        idx_subject = idx // list_length
+                        subject = self.dataset[idx_subject]
+                        print('loadin suj {}'.format(subject[0][self.image_key_name]['path']))
+
                         for idx_list in range(len(subject)):
                             suj = subject[idx_list]
                             self.cached_images_and_affines[idx+idx_list] = suj[self.image_key_name]['data'].numpy()[0].copy(), \
