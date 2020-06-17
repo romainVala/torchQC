@@ -390,7 +390,18 @@ class RunModel:
     def get_regression_data(self, data, target):
 
         if isinstance(data, list):  # case where callate_fn is used
-            inputs = torch.cat([sample[self.image_key_name]['data'].unsqueeze(0) for sample in data])
+            #inputs = torch.cat([sample[self.image_key_name]['data'].unsqueeze(0) for sample in data]) #this was wen lamba collate x:x
+            #inputs = torch.cat([sample[self.image_key_name]['data'] for sample in data])
+            # #this happen when ListOf transform
+            input_list, labels_list = [], []
+            for dd in data:
+                ii, ll = self.get_regression_data(dd, target)
+                input_list.append(ii)
+                labels_list.append(ll)
+            inputs = torch.cat(input_list)
+            labels = torch.cat(labels_list)
+            return inputs, labels
+
         else:
             inputs = data[self.image_key_name]['data']
 
@@ -415,6 +426,15 @@ class RunModel:
         Record information about the the model was trained or evaluated on during the regression task.
         At evaluation time, additional reporting metrics are recorded.
         """
+
+        if isinstance(sample, list):
+            batch_size = predictions.shape[0] // len(sample)
+            targets_split = torch.split(targets, batch_size)
+            pred_split = torch.split(predictions, batch_size)
+            for ss, pp, tt in zip(sample, pred_split, targets_split):
+                df = self.record_regression_batch(df, ss, pp, tt, batch_time, save)
+            return df
+
 
         mode = 'Train' if self.model.training else 'Val'
 
@@ -458,8 +478,11 @@ class RunModel:
                     )
 
             if history is not None:
+                history_order = ''
                 for hist in history[idx]:
                     info['T_{}'.format(hist[0])] = json.dumps(hist[1], cls=ArrayTensorJSONEncoder)
+                    history_order += hist[0] + '_'
+                info['transfo_order'] = history_order
 
             df = df.append(info, ignore_index=True)
 
