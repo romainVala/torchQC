@@ -406,7 +406,10 @@ class RunModel:
             inputs = data[self.image_key_name]['data']
 
         if target == 'ssim':
-            labels = data[self.image_key_name]['metrics']['ssim'].unsqueeze(1)
+            labels = data[self.image_key_name]['metrics']['ssim'].unsqueeze(1) \
+                if 'metrics' in  data[self.image_key_name] else torch.zeros(inputs.shape[0],1)
+                #0 tensor with dim batch size for eval case without ssim
+
         elif target == 'random_noise':
             histo = data['history']
             lab = []
