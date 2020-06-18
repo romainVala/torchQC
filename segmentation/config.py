@@ -49,7 +49,7 @@ class Config:
         self.results_dir = results_dir
         self.main_structure = self.parse_main_file(main_file)
 
-        data_structure, transform_structure, self.model_structure, self.results_dir = self.parse_extra_file(extra_file)
+        data_structure, transform_structure, self.model_structure = self.parse_extra_file(extra_file)
 
         data_structure, patch_size, sampler = self.parse_data_file(data_structure)
         transform_structure = self.parse_transform_file(transform_structure)
@@ -113,9 +113,9 @@ class Config:
         dir_file = os.path.dirname(file)
         for key, val in struct.items():
             if os.path.dirname(val) == '':
-                struct[key] = os.path.join(dir_file, val)
+                struct[key] = os.path.realpath(os.path.join(dir_file, val))
 
-        self.save_json(struct, 'main.json')
+        #self.save_json(struct, 'main.json') #performe in parse_extra_file, since the result_dir can change
 
         return struct
 
@@ -143,8 +143,12 @@ class Config:
 
                 if not os.path.isdir(results_dir):
                     os.makedirs(results_dir)
+                self.results_dir = results_dir
+            self.save_json(struct, 'extra_file.json')
 
-        return data_structure, transform_structure, model_structure, results_dir
+        self.save_json(self.main_structure, 'main.json')
+
+        return data_structure, transform_structure, model_structure
 
     def parse_data_file(self, file):
         struct = self.read_json(file)
