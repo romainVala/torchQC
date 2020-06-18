@@ -146,7 +146,13 @@ class Config:
                 self.results_dir = results_dir
             self.save_json(struct, 'extra_file.json')
 
-        self.save_json(self.main_structure, 'main.json')
+        #save main_struct with relative path and generic name future use
+        main_struct = self.main_structure.copy()
+        for key, val in main_struct.items():
+            main_struct[key] = '{}.json'.format(key)
+
+        self.save_json(self.main_structure, 'main_orig.json')
+        self.save_json(main_struct, 'main.json')
 
         return data_structure, transform_structure, model_structure
 
