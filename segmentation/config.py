@@ -269,6 +269,7 @@ class Config:
         self.set_struct_value(struct, 'path')
         self.set_struct_value(struct, 'device', 'cuda')
         self.set_struct_value(struct, 'input_shape')
+        self.set_struct_value(struct, 'eval_csv_basename')
 
         self.save_json(struct, 'model.json')
 
@@ -567,7 +568,7 @@ class Config:
             if self.mode == 'train':
                 model_runner.train()
             elif self.mode == 'eval':
-                model_runner.eval(self.loaded_model_name)
+                model_runner.eval(model_name=self.loaded_model_name, eval_csv_basename=model_structure['eval_csv_basename'] )
             else:
                 model_runner.infer()
 
