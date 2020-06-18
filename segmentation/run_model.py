@@ -68,6 +68,8 @@ class RunModel:
         self.epoch = struct['current_epoch']
         self.iteration = 0
 
+        self.eval_model_name = None
+
     def log(self, info):
         if self.logger is not None:
             self.logger.log(logging.INFO, info)
@@ -129,10 +131,11 @@ class RunModel:
                  'optimizer': self.optimizer.state_dict() if self.optimizer is not None else {}}
         save_checkpoint(state, self.results_dir, self.model)
 
-    def eval(self):
+    def eval(self, model_name=None):
         """ Evaluate the model on the validation set. """
         self.epoch -= 1
-        self.log('Evaluation')
+        self.eval_model_name = model_name
+        self.log('Evaluation mode')
         with torch.no_grad():
             self.model.eval()
             if self.eval_frequency != np.inf:
@@ -492,6 +495,8 @@ class RunModel:
         if save:
             if mode == 'Train':
                 filename = '{}/{}_ep{:03d}.csv'.format(self.results_dir, mode, self.epoch)
+            elif self.eval_model_name is not None:
+                filename = '{}/{}_from_{}.csv'.format(self.results_dir, mode, self.eval_model_name)
             else:
                 filename = '{}/{}_ep{:03d}_it{:04d}.csv'.format(self.results_dir, mode, self.epoch, self.iteration)
 

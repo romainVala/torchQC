@@ -63,6 +63,8 @@ class Config:
         self.train_set, self.val_set, self.test_set = self.load_subjects(data_structure, transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(data_structure)
 
+        self.loaded_model_name = None
+
     @staticmethod
     def check_mandatory_keys(struct, keys, name):
         """
@@ -548,6 +550,8 @@ class Config:
         else:
             model.load_state_dict(torch.load(file))
 
+        self.loaded_model_name = os.path.basename(file)[:-8] #to remove .pth.tar
+
         return return_model(model, file)
 
     def run(self):
@@ -563,7 +567,7 @@ class Config:
             if self.mode == 'train':
                 model_runner.train()
             elif self.mode == 'eval':
-                model_runner.eval()
+                model_runner.eval(self.loaded_model_name)
             else:
                 model_runner.infer()
 
