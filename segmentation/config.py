@@ -49,7 +49,7 @@ class Config:
         self.results_dir = results_dir
         self.main_structure = self.parse_main_file(main_file)
 
-        data_structure, transform_structure, self.model_structure, self.results_dir = self.parse_extra_file(extra_file)
+        data_structure, transform_structure, self.model_structure = self.parse_extra_file(extra_file)
 
         data_structure, patch_size, sampler = self.parse_data_file(data_structure)
         transform_structure = self.parse_transform_file(transform_structure)
@@ -62,6 +62,8 @@ class Config:
 
         self.train_set, self.val_set, self.test_set = self.load_subjects(data_structure, transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(data_structure)
+
+        self.loaded_model_name = None
 
     @staticmethod
     def check_mandatory_keys(struct, keys, name):
@@ -113,9 +115,9 @@ class Config:
         dir_file = os.path.dirname(file)
         for key, val in struct.items():
             if os.path.dirname(val) == '':
-                struct[key] = os.path.join(dir_file, val)
+                struct[key] = os.path.realpath(os.path.join(dir_file, val))
 
-        self.save_json(struct, 'main.json')
+        #self.save_json(struct, 'main.json') #performe in parse_extra_file, since the result_dir can change
 
         return struct
 
@@ -143,8 +145,18 @@ class Config:
 
                 if not os.path.isdir(results_dir):
                     os.makedirs(results_dir)
+                self.results_dir = results_dir
+            self.save_json(struct, 'extra_file.json')
 
-        return data_structure, transform_structure, model_structure, results_dir
+        #save main_struct with relative path and generic name future use
+        main_struct = self.main_structure.copy()
+        for key, val in main_struct.items():
+            main_struct[key] = '{}.json'.format(key)
+
+        self.save_json(self.main_structure, 'main_orig.json')
+        self.save_json(main_struct, 'main.json')
+
+        return data_structure, transform_structure, model_structure
 
     def parse_data_file(self, file):
         struct = self.read_json(file)
@@ -257,6 +269,7 @@ class Config:
         self.set_struct_value(struct, 'path')
         self.set_struct_value(struct, 'device', 'cuda')
         self.set_struct_value(struct, 'input_shape')
+        self.set_struct_value(struct, 'eval_csv_basename')
 
         self.save_json(struct, 'model.json')
 
@@ -538,6 +551,8 @@ class Config:
         else:
             model.load_state_dict(torch.load(file))
 
+        self.loaded_model_name = os.path.basename(file)[:-8] #to remove .pth.tar
+
         return return_model(model, file)
 
     def run(self):
@@ -553,7 +568,7 @@ class Config:
             if self.mode == 'train':
                 model_runner.train()
             elif self.mode == 'eval':
-                model_runner.eval()
+                model_runner.eval(model_name=self.loaded_model_name, eval_csv_basename=model_structure['eval_csv_basename'] )
             else:
                 model_runner.infer()
 
