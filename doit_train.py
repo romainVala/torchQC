@@ -736,6 +736,21 @@ def write_cati_csv():
     dd = pd.DataFrame({'filename': fs_brain})
     dd.to_csv(data_path + 'cati_cenir_all_brain.csv', index=False)
 
+    #add brain mask in csv
+    allcsv = gfile('/home/romain.valabregue/datal/QCcnn/CATI_datasets','cati_cenir.*csv')
+
+    for onecsv in allcsv:
+        res = pd.read_csv(onecsv)
+        resout = onecsv[:-4] + '_mask.csv'
+        fmask=[]
+        for ft1 in res.filename:
+            d = get_parent_path(ft1)[0]
+            fmask += gfile(d,'^mask',opts={"items":1})
+        res['brain_mask'] = fmask
+        res.to_csv(resout, index=False)
+
+
+
 
 def get_subject_list_from_file_list(fin, mask_regex=None, mask_key='brain'):
     subjects_list=[]
