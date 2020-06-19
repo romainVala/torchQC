@@ -17,7 +17,7 @@ from segmentation.run_model import RunModel
 from segmentation.metrics.fuzzy_overlap_metrics import minimum_t_norm
 from torch_summary import summary_string
 from plot_dataset import PlotDataset
-
+import pandas as pd
 
 MAIN_KEYS = ['data', 'transform', 'model']
 
@@ -382,7 +382,7 @@ class Config:
         def dict2subjects(subject_dict, ref_modalities):
             subject_list = []
             for n, s in subject_dict.items():
-                if not (set(subject.keys())).issuperset(ref_modalities.keys()):
+                if not (set(s.keys())).issuperset(ref_modalities.keys()):
                     raise KeyError(f'A modality is missing for subject {n}, {s.keys()} were found but '
                                    f'at least {ref_modalities.keys()} were expected')
                 subject_list.append(torchio.Subject(s))
@@ -429,6 +429,22 @@ class Config:
             return train_set, val_set, test_set
 
         subjects, train_subjects, val_subjects, test_subjects = {}, {}, {}, {}
+
+        # Retrieve subjects using csv file
+        for csv_file in data_struct['csv_file']:
+            check_modalities(data_struct['modalities'], csv_file['modalities'], csv_file['root'])
+
+            relevant_dict = get_relevant_dict(subjects, train_subjects, val_subjects, test_subjects,
+                                              csv_file['list_name'])
+            res = pd.read_csv(csv_file["root"])
+
+            for suj_idx in range(len(res)):
+                subject = {}
+                for modality_name, modality_column_name in csv_file['modalities'].items():
+                    subject_file_path = res[modality_column_name][suj_idx]
+                    update_subject(subject, data_struct['modalities'], modality_name, subject_file_path)
+
+                relevant_dict[suj_idx] = subject
 
         # Retrieve subjects using patterns
         for pattern in data_struct['patterns']:
