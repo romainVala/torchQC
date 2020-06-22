@@ -411,8 +411,9 @@ class Config:
         # Retrieve subjects using load_sample_from_dir
         if len(data_struct['load_sample_from_dir']) > 0:
             for sample_dir in data_struct['load_sample_from_dir']:
+                #print('parsing sample dir addin {}'.format(sample_dir['root']))
 
-                sample_files = glob.glob(os.path.join(sample_dir['root'], '/sample*pt'))
+                sample_files = glob.glob(os.path.join(sample_dir['root'], 'sample*pt'))
                 self.logger.log(logging.INFO, f'{len(sample_files)} subjects in the {sample_dir["list_name"]} set')
                 transform = torchio.transforms.Compose(transform_struct[f'{sample_dir["list_name"]}_transforms'])
                 dataset = torchio.ImagesDataset(sample_files,
