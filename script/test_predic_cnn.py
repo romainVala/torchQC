@@ -445,8 +445,8 @@ write_image(tensor, affine, '/home/romain/QCcnn//mask_mvt_val_cati_T1/mot_li.nii
 
 ff1 = t.fitpars_interp
 
-suj = [Subject(image=Image('/data/romain/HCPdata/suj_150423/mT1w_1mm_shiftL.nii', INTENSITY),
-         maskk=Image('/data/romain/HCPdata/suj_150423/mask_brain.nii',  LABEL))]
+suj = [Subject(image=Image('/data/romain/HCPdata/suj_150423/mT1w_1mm.nii', INTENSITY),
+         maskk=Image('/data/romain/HCPdata/suj_150423/brain_T1w_1mm.nii.gz',  LABEL))]
 
 dico_p = {'num_control_points': 8, 'deformation_std': (20, 20, 20), 'max_displacement': (4, 4, 4),
               'p': 1, 'image_interpolation': Interpolation.LINEAR}
@@ -498,3 +498,55 @@ suj = [Subject(image=Image(f1,'intensity'))]
 t = torchio.Resample(target=f2)
 d=torchio.ImagesDataset(suj,transform=t)
 d.save_sample(s, dict(image='/tmp/t.nii'))
+
+
+t = Compose([RandomNoise(seed=10)])
+dataset = ImagesDataset(suj, transform=t);
+
+sample=dataset[0]
+for i in range(0, 10):
+    sample = dataset[0]
+    h=sample.history
+    print(h[0][1]['image']['std'])
+
+suj = [Subject(image=Image('/data/romain/data_exemple/suj_274542/T1w_acpc_dc_restore.nii.gz', INTENSITY))]
+t = Compose([RandomAffineFFT(scales=(1/0.7, 1/0.7), degrees=(0, 0), oversampling_pct=0)])
+t = Compose([RandomAffineFFT(scales=(1, 1), degrees=(0, 0), oversampling_pct=0)])
+dataset = ImagesDataset(suj) #, transform=t);
+#ov(s['image']['data'][0])
+
+fout='/data/romain/data_exemple/suj_274542/T1w_1mm_fft2.nii'
+s = dataset[0]
+
+image=s['image']['data'][0]
+ii = np.zeros((260,312,260))
+#ii[:,1:,:] = image
+ii[:,:-1,:] = image #this induce no shift if same resolution
+output = (np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(ii)))).astype(np.complex128)
+in_shape = np.array(image.shape)
+out_shape = np.array([182, 218, 182])
+diff_shape = (in_shape-out_shape)//2
+oo_shape = out_shape+diff_shape
+out_crop = output[diff_shape[0]:oo_shape[0], diff_shape[1]:oo_shape[1], diff_shape[2]:oo_shape[2]]
+out_crop.shape
+
+ifft = np.abs(np.fft.ifftshift(np.fft.ifftn(out_crop)))
+#ifft[:,:-1,:] = ifft[:,1:,:]
+#ifft[:,1:,:] = ifft[:,:-1,:]
+
+ifft.shape
+
+Iscale = np.prod(oo_shape) / np.prod(in_shape)
+ifft = ifft * Iscale * 0.5586484991611643
+affine = s['image']['affine']
+affine[0,0] = -1
+affine[1,1] = 1
+affine[2,2] = 1
+affine[0,3] = affine[0,3] - 0.15
+affine[1,3] = affine[1,3] + 0.15
+affine[2,3] = affine[2,3] + 0.15
+
+nii = nib.Nifti1Image(ifft, affine)
+nii.header['qform_code'] = 1
+nii.header['sform_code'] = 1
+nii.to_filename(str(fout))
