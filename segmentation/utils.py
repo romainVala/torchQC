@@ -67,6 +67,8 @@ def to_numpy(x):
     Applied to a NumPy array or a Torch tensor, it returns a NumPy array.
     """
     if not (isinstance(x, np.ndarray) or x is None):
+        if x.requires_grad:
+            x = x.detach()
         if hasattr(x, 'cuda') and x.is_cuda:
             x = x.data.cpu()
         if hasattr(x, 'numpy'):
