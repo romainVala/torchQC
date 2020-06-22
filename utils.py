@@ -609,27 +609,6 @@ def remove_extension(str_in):
     return res[0] if return_str else res
 
 
-def get_ep_iter_from_res_name(resname, nbit, batch_size=4):
-    resname_no_ext = remove_extension(resname)
-    ffn = [ff[ff.find('_ep') + 3:] for ff in resname_no_ext]
-    key_list = []
-    for fff, fffn in zip(ffn, resname):
-        if '_it' in fff:
-            ind = fff.find('_it')
-            ep = int(fff[0:ind])
-            it = int(fff[ind + 3:])*batch_size
-            it = 4 if it==0 else it #hack to avoit 2 identical point (as val is done for it 0 and las of previous ep
-        else:
-            ep = int(fff)
-            it = nbit
-        key_list.append([fffn, ep, it])
-    aa = np.array(sorted(key_list, key=lambda x: (x[1], x[2])))
-    name_sorted, ep_sorted, it_sorted = aa[:, 0], aa[:, 1], aa[:, 2]
-    ep_sorted = np.array([int(ee) for ee in ep_sorted])
-    it_sorted = np.array([int(ee) for ee in it_sorted])
-    return name_sorted, ep_sorted, it_sorted
-
-
 from functools import reduce
 
 
