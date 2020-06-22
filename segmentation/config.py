@@ -165,6 +165,7 @@ class Config:
         self.set_struct_value(struct, 'patterns', [])
         self.set_struct_value(struct, 'paths', [])
         self.set_struct_value(struct, 'load_sample_from_dir', [])
+        self.set_struct_value(struct, 'csv_file', [])
         self.set_struct_value(struct, 'subject_shuffle')
         self.set_struct_value(struct, 'subject_seed')
         self.set_struct_value(struct, 'repartition', [0.7, 0.15, 0.15])
