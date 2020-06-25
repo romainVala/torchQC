@@ -19,14 +19,15 @@ file='/home/romain.valabregue/datal/QCcnn/run_segment/main.json'
 file='/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/main.json'
 file='/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_random_noise_New/main.json'
 file='/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/mainCATI.json'
+file='/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/mainl1.json'
 
 result_dir='/home/romain.valabregue/datal/QCcnn/run_segment/test_mot'
 
 logger = instantiate_logger('info', logging.INFO, result_dir + '/info.txt')
 
 torch.manual_seed(12)
-#config = Config(file, result_dir, logger, None, 'train')
-config = Config(file, result_dir, logger, None, 'visualization')
+config = Config(file, result_dir, logger, None, 'train')
+#config = Config(file, result_dir, logger, None, 'visualization')
 
 config.run()
 
@@ -36,7 +37,7 @@ logger = instantiate_logger('info', logging.INFO, result_dir + '/info.txt')
 file = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/main.json'
 efile = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/result_HCP_T1_AffEla_mvt_rescal_mask/eval_test.json'
 
-config = Config(file, result_dir, logger, None, 'eval', extra_file=efile)
+config = Config(file, None, logger, None, 'eval', extra_file=efile)
 config.run()
 
 
