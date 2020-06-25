@@ -11,8 +11,8 @@ from segmentation.config import Config
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-f', '--file', type=str, help='Path to main configuration file')
-    parser.add_argument('-r', '--results_dir', type=str, help='Path to results directory if it does not start with / '
-                                                              'the config file dir is prepend')
+    parser.add_argument('-r', '--results_dir', type=str,default='result',
+                        help='Path to results directory if it does not start with the config file dir is prepend')
     parser.add_argument('-m', '--mode', type=str, default='train', help='Training, visualization or inference mode')
     parser.add_argument('-e', '--extra_file', type=str, help='Extra configuration file')
     parser.add_argument('-d', '--debug', type=int, default=0, help='Debug option, value different from 0 means that '
