@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision.transforms import Compose
-
+import torchio as tio
 from torchio.data.io import write_image, read_image
 from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, \
     CenterCropOrPad, RandomElasticDeformation, CropOrPad, RandomNoise, ApplyMask
@@ -25,135 +25,8 @@ from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL, Interpol
 from utils_file import get_parent_path, gfile, gdir
 from doit_train import do_training, get_motion_transform
 from slices_2 import do_figures_from_file
-from utils import reduce_name_list, get_ep_iter_from_res_name, remove_extension, remove_string_from_name_list
-
-
-def get_pandadf_from_res_valOn_csv(dres, resname, csv_regex='res_valOn', data_name_list=None,
-                                   select_last=None, target='ssim', target_scale=1):
-
-    if len(dres) != len(resname) : raise('length problem between dres and resname')
-
-    resdf_list = []
-    for oneres, resn in zip(dres, resname):
-        fres_valOn = gfile(oneres, csv_regex)
-        print('Found {} <{}> for {} '.format(len(fres_valOn), csv_regex, resn))
-        if len(fres_valOn) == 0:
-            continue
-
-        ftrain = gfile(oneres, 'res_train_ep01.csv')
-        rrt = pd.read_csv(ftrain[0])
-        nb_it = rrt.shape[0];
-
-        resdir, resname_val = get_parent_path(fres_valOn)
-        resname_sorted, b, c = get_ep_iter_from_res_name(resname_val, 0)
-
-        if select_last is not None:
-            if select_last<0:
-                resname_sorted = resname_sorted[select_last:]
-            else:
-                nb_iter = b*nb_it+c
-                resname_sorted = resname_sorted[np.argwhere(nb_iter > select_last)[1:8]]
-
-        resV = [pd.read_csv(resdir[0] + '/' + ff) for ff in resname_sorted]
-        resdf = pd.DataFrame()
-        for ii, fres in enumerate(resname_sorted):
-            iind = [i for i, s in enumerate(data_name_list) if s in fres]
-            if len(iind) ==1: #!= 1: raise ("bad size do not find which sample")
-                data_name = data_name_list[iind[0]]
-            else:
-                data_name = 'res_valds'
-
-            iind = fres.find(data_name)
-            ddn = remove_extension(fres[iind + len(data_name) + 1:])
-            new_col_name = 'Mout_' + ddn
-            iind = ddn.find('model_ep')
-            if iind==0:
-                transfo='raw'
-            else:
-                transfo = ddn[:iind - 1]
-
-            if transfo[0] == '_': #if start with _ no legend ... !
-                transfo = transfo[1:]
-
-            model_name = ddn[iind:]
-            aa, bb, cc = get_ep_iter_from_res_name([fres], nb_it)
-            nb_iter = bb[0] * nb_it + cc[0]
-
-            rr = resV[ii].copy()
-            rr['evalOn'], rr['transfo'] = data_name, transfo
-            rr['model_name'], rr['submodel_name'], rr['nb_iter'] = resn, model_name, str(nb_iter)
-            rr[target] = rr[target] * target_scale
-            resdf = pd.concat([resdf, rr], axis=0, sort=True)
-
-        resdf['error'] = resdf[target] - resdf['model_out']
-        resdf['error_abs'] = np.abs(resdf[target] - resdf['model_out'])
-        resdf_list.append(resdf)
-
-    return resdf_list
-
-
-def plot_resdf(resdf_list, dir_fig=None,  target='ssim', split_distrib=True):
-
-    for resdf in resdf_list :
-        ee = np.unique(resdf.evalOn)
-        resn = resdf['model_name'].values[0]
-        zz = np.unique(resdf['model_name'])
-        if len(zz)>1: raise('multiple model_name')
-
-        if dir_fig is not None:
-            dir_out_sub = dir_fig + '/' + resn +'/'
-            if not os.path.isdir(dir_out_sub): os.mkdir(dir_out_sub)
-
-        for eee in ee:
-            dfsub = resdf.loc[resdf.evalOn == eee, :]
-            #dfsub.transfo = dfsub.transfo.astype(str)
-            fign = 'MOD_' + resn + '_ON_' + eee
-
-            fig = plt.figure('Dist' + fign)
-            #ax = sns.violinplot(x="transfo", y="error", hue="model_name", data=dfsub, palette="muted")
-            ax = sns.violinplot(x="transfo", y="error", hue="transfo", data=dfsub, palette="muted")
-            if split_distrib :
-                nbline = int(dfsub.shape[0] / 2)
-                plt.subplot(211);
-                ax = sns.violinplot(x="nb_iter", y="error", hue="transfo", data=dfsub.iloc[:nbline, :], palette="muted")
-                plt.grid()
-                plt.subplot(212)
-                ax = sns.violinplot(x="nb_iter", y="error", hue="transfo", data=dfsub.iloc[nbline:, :], palette="muted")
-                plt.grid()
-                ax.legend().set_visible(False);
-                fig.set_size_inches([18, 6]); fig.tight_layout();   fig.suptitle(fign);
-
-            else:
-                ax = sns.violinplot(x="nb_iter", y="error", hue="transfo", data=dfsub, palette="muted")
-
-            if dir_fig is not None:
-                plt.savefig(dir_out_sub + 'Dist_' + fign + '.png');
-                plt.close()
-
-            g = sns.catplot(x="nb_iter", y="error_abs", hue="transfo", data=dfsub, palette="muted", kind="point",
-                            dodge=True, legend_out=False)
-            g.fig.suptitle('Error Abs' + fign)
-            g.fig.set_size_inches([12, 5]);
-            g.fig.tight_layout();
-            if dir_fig is not None:
-                plt.savefig(dir_out_sub + 'L1_' + fign + '.png');
-                plt.close()
-
-            sns.despine(offset=10, trim=True);
-
-            g = sns.relplot(x=target, y="model_out", hue="nb_iter", data=dfsub,
-                            palette=sns.color_palette("hls", dfsub.nb_iter.nunique()),
-                            kind='scatter', col='transfo', col_wrap=3, alpha=0.5)
-            axes = g.axes.flatten()
-            for aa in axes:
-                #aa.plot([0.5, 1], [0.5, 1], 'k')
-                aa.plot([0.2, 2.2], [0.2, 2.2], 'k')
-                plt.grid()
-
-            g.fig.suptitle(fign, x=0.8, y=0.1)
-            if dir_fig is not None:
-                plt.savefig(dir_out_sub + 'Scat_' + fign + '.png');
-                plt.close()
+from utils import reduce_name_list, remove_string_from_name_list
+from utils_plot_results import get_ep_iter_from_res_name, plot_resdf, plot_train_val_results
 
 #res_valOn
 dd = gfile('/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache_new','_')
@@ -189,17 +62,17 @@ for rr, fign in zip(dres_reg_exp, figname):
 
 
 
-
 #Explore csv results
 dqc = ['/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_random_noise']
 dqc = ['/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion']
+dqc = ['/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New']
 
-dres_reg_exp, figname = ['Reg.*', 'fff']
+dres_reg_exp, figname = ['result.*disk'], ['fdisk']
+dres_reg_exp, figname = ['result.*Aff'], ['T1Aff']
 dres_reg_exp, figname = ['.*hcp.*ms', '.*hcp.*T1', 'cati.*ms', 'cati.*T1'], ['hcp_ms', 'hcp_T1', 'cati_ms', 'cati_T1']
 dres_reg_exp, figname = [ 'hcp.*ms', 'hcp.*T1'] , ['hcp_ms', 'hcp_T1'] #[ 'hcp.*T1'], ['hcp_T1']
 dres_reg_exp, figname = [ 'cati.*ms', 'cati.*T1'], ['cati_ms', 'cati_T1']
-target = 'ssim'; target_scale = 1
-#target = 'random_noise'; target_scale = 10
+target = 'targets'; target_scale = 1  #target = 'ssim'; target_scale = 1 #target = 'random_noise'; target_scale = 10
 
 for rr, fign in zip(dres_reg_exp, figname):
     dres = gdir(dqc, rr)
@@ -211,35 +84,9 @@ for rr, fign in zip(dres_reg_exp, figname):
     commonstr, sresname = reduce_name_list(sresname)
     print('common str {}'.format(commonstr))
 
-    legend_str=[]
-    col = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'w']
-    for ii, oneres in enumerate(dres):
-        fresT = gfile(oneres,'res_train.*csv')
-        fresV=gfile(oneres,'res_val_')
-
-        is_train = False if len(fresT)==0 else True
-        if is_train: resT = [pd.read_csv(ff) for ff in fresT]
-
-        resdir, resname = get_parent_path(fresV)
-        nbite = len(resT[0]) if is_train else 80000
-        fresV_sorted, b, c = get_ep_iter_from_res_name(resname, nbite)
-        resV = [pd.read_csv(resdir[0] + '/' + ff) for ff in fresV_sorted]
-
-        ite_tot = c+b*nbite
-        if is_train:
-            errorT = np.hstack( [ np.abs(rr.model_out.values - rr.loc[:,target].values*target_scale) for rr in resT] )
-            ite_tottt = np.hstack([0, ite_tot])
-            LmTrain = [ np.mean(errorT[ite_tottt[ii]:ite_tottt[ii+1]]) for ii in range(0,len(ite_tot)) ]
-
-        LmVal = [np.mean(np.abs(rr.model_out-rr.loc[:,target].values*target_scale)) for rr in resV]
-        plt.figure('MeanL1_'+fign); legend_str.append('V{}'.format(sresname[ii]));
-        if is_train: legend_str.append('T{}'.format(sresname[ii]))
-        plt.plot(ite_tot, LmVal,'--',color=col[ii])
-        if is_train: plt.plot(ite_tot, LmTrain,color=col[ii], linewidth=6)
-
-    plt.legend(legend_str); plt.grid()
-    ff=plt.gcf();ff.set_size_inches([15, 7]); #ff.tight_layout()
-    plt.subplots_adjust(left=0.05, right=1, bottom=0.05, top=1, wspace=0, hspace=0)
+    plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Val.*csv',
+                           prediction_column_name='prediction', target_column_name='targets',
+                           target_scale=1, fign=fign, sresname=sresname)
 
 
 for ii, oneres in enumerate([dres[0]]):
@@ -445,8 +292,8 @@ write_image(tensor, affine, '/home/romain/QCcnn//mask_mvt_val_cati_T1/mot_li.nii
 
 ff1 = t.fitpars_interp
 
-suj = [Subject(image=Image('/data/romain/HCPdata/suj_150423/mT1w_1mm.nii', INTENSITY),
-         maskk=Image('/data/romain/HCPdata/suj_150423/brain_T1w_1mm.nii.gz',  LABEL))]
+suj = [tio.data.Subject(image=tio.data.Image('/data/romain/HCPdata/suj_150423/mT1w_1mm.nii', INTENSITY),
+         maskk=tio.data.Image('/data/romain/HCPdata/suj_150423/brain_T1w_1mm.nii.gz',  LABEL))]
 
 dico_p = {'num_control_points': 8, 'deformation_std': (20, 20, 20), 'max_displacement': (4, 4, 4),
               'p': 1, 'image_interpolation': Interpolation.LINEAR}
@@ -550,3 +397,22 @@ nii = nib.Nifti1Image(ifft, affine)
 nii.header['qform_code'] = 1
 nii.header['sform_code'] = 1
 nii.to_filename(str(fout))
+
+suj = [tio.data.Subject(t1=tio.data.Image('/data/romain/data_exemple/t1.nii.gz', tio.INTENSITY))]
+
+
+#t= tio.Compose([tio.transforms.CropOrPad(target_shape=(256,176,176)),
+t=    tio.transforms.RandomGhosting(axes=2, num_ghosts=(8,8), intensity=(1,1))
+
+dataset = tio.data.ImagesDataset(suj, transform=t)
+s = dataset[0]
+s['t1'].save('/tmp/trans2.nii')
+# ou directement
+s = t(suj)
+s.t1.save('/tmp/trans.nii')
+
+dataset.save_sample(s, dict(image='/tmp/toto.nii'))
+i=s['image']
+i.save('/tmp/toto.nii')
+image=s['image']['data'][0]
+ov(image)
