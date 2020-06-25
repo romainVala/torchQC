@@ -142,11 +142,11 @@ class RunModel:
         self.log('Evaluation mode')
         with torch.no_grad():
             self.model.eval()
-            if self.eval_frequency != np.inf:
+            if self.eval_frequency is not None:
                 self.log('Evaluation on patches')
                 self.train_loop(save_model=False)
 
-            if self.patch_size is not None and self.whole_image_inference_frequency != np.inf:
+            if self.patch_size is not None and self.whole_image_inference_frequency is not None:
                 self.log('Evaluation on whole images')
                 self.whole_image_evaluation_loop()
 

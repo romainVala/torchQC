@@ -48,8 +48,9 @@ class Config:
 
         self.results_dir = results_dir
         self.main_structure = self.parse_main_file(main_file)
+        self.json_config = {}
 
-        data_structure, transform_structure, self.model_structure = self.parse_extra_file(extra_file)
+        data_structure, transform_structure, model_structure = self.parse_extra_file(extra_file)
 
         data_structure, patch_size, sampler = self.parse_data_file(data_structure)
         transform_structure = self.parse_transform_file(transform_structure)
@@ -64,6 +65,13 @@ class Config:
         self.train_loader, self.val_loader = self.generate_data_loaders(data_structure)
 
         self.loaded_model_name = None
+
+        if 'model' in self.main_structure:
+            self.model_structure = self.parse_model_file(model_structure)
+        if 'run' in self.main_structure:
+            self.run_structure = self.parse_run_file(self.main_structure['run'])
+
+        self.save_json(self.json_config, 'config_all.json')
 
     @staticmethod
     def check_mandatory_keys(struct, keys, name):
@@ -93,7 +101,12 @@ class Config:
     def save_json(self, struct, name):
         self.debug(f'******** {name.upper()} ********')
         self.debug(json.dumps(struct, indent=4, sort_keys=True))
-        generate_json_document(os.path.join(self.results_dir, name), **struct)
+        file_path = os.path.join(self.results_dir, name)
+        if os.path.exists(file_path):
+            self.log('WARNING file {} exist'.format(file_path))
+        else:
+            self.log('writing {}'.format(file_path))
+        generate_json_document(file_path, **struct)
 
     def log(self, info):
         if self.logger is not None:
@@ -114,28 +127,29 @@ class Config:
         # Replace relative path if needed
         dir_file = os.path.dirname(file)
         for key, val in struct.items():
-            if os.path.dirname(val) == '':
-                struct[key] = os.path.realpath(os.path.join(dir_file, val))
+            if isinstance(val, str):
+                if os.path.dirname(val) == '':
+                    struct[key] = os.path.realpath(os.path.join(dir_file, val))
 
         #self.save_json(struct, 'main.json') #performe in parse_extra_file, since the result_dir can change
 
         return struct
 
     def parse_extra_file(self, file):
-        data_structure = self.main_structure['data']
-        transform_structure = self.main_structure['transform']
-        model_structure = self.main_structure['model']
+        data_structure = self.parse_data_file(self.main_structure['data'], return_string=True)
+        transform_structure = self.parse_transform_file(self.main_structure['transform'], return_string=True)
+        model_structure = self.parse_model_file(self.main_structure['model'], return_string=True)
         results_dir = self.results_dir
 
         if file is not None:
             struct = self.read_json(file)
 
             if struct.get('data') is not None:
-                data_structure = struct['data']
+                data_structure.update(struct['data'])
             if struct.get('transform') is not None:
-                transform_structure = struct['transform']
+                transform_structure.update(struct['transform'])
             if struct.get('model') is not None:
-                model_structure = struct['model']
+                model_structure.update(struct['model'])
             if struct.get('results_dir') is not None:
                 results_dir = struct['results_dir']
 
@@ -146,6 +160,7 @@ class Config:
                 if not os.path.isdir(results_dir):
                     os.makedirs(results_dir)
                 self.results_dir = results_dir
+
             self.save_json(struct, 'extra_file.json')
 
         #save main_struct with relative path and generic name future use
@@ -158,7 +173,7 @@ class Config:
 
         return data_structure, transform_structure, model_structure
 
-    def parse_data_file(self, file):
+    def parse_data_file(self, file, return_string=False):
         struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, DATA_KEYS, 'DATA CONFIG FILE')
@@ -215,6 +230,9 @@ class Config:
                         del struct['queue']['sampler']['attributes']['label_probabilities'][key]
                         struct['queue']['sampler']['attributes']['label_probabilities'][int(key)] = value
 
+        if return_string:
+            return struct
+        self.json_config['data'] = deepcopy(struct) #struct.copy()
         self.save_json(struct, 'data.json')
 
         # Make imports
@@ -228,7 +246,7 @@ class Config:
 
         return struct, patch_size, sampler
 
-    def parse_transform_file(self, file):
+    def parse_transform_file(self, file, return_string=False):
         def parse_transform(t):
             attributes = t.get('attributes') or {}
             if t.get('is_custom'):
@@ -246,6 +264,10 @@ class Config:
         struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, TRANSFORM_KEYS, 'TRANSFORM CONFIG FILE')
+
+        if return_string:
+            return struct
+        self.json_config['transform'] = deepcopy(struct) #struct.copy()
         self.save_json(struct, 'transform.json')
 
         # Make imports
@@ -261,7 +283,7 @@ class Config:
 
         return struct
 
-    def parse_model_file(self, file):
+    def parse_model_file(self, file, return_string=False):
         struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, MODEL_KEYS, 'MODEL CONFIG FILE')
@@ -272,6 +294,9 @@ class Config:
         self.set_struct_value(struct, 'input_shape')
         self.set_struct_value(struct, 'eval_csv_basename')
 
+        if return_string:
+            return struct
+        self.json_config['model'] = deepcopy(struct) #struct.copy()
         self.save_json(struct, 'model.json')
 
         if struct['device'] == 'cuda' and torch.cuda.is_available():
@@ -284,7 +309,7 @@ class Config:
 
         return struct
 
-    def parse_run_file(self, file):
+    def parse_run_file(self, file, return_string=False):
         def parse_criteria(criterion_list):
             c_list = []
             for criterion in criterion_list:
@@ -320,11 +345,14 @@ class Config:
         self.set_struct_value(struct['save'], 'prediction_saver', 'save_segmentation_prediction')
 
         # Validation
-        self.set_struct_value(struct['validation'], 'eval_frequency', np.inf)
-        self.set_struct_value(struct['validation'], 'whole_image_inference_frequency', np.inf)
+        self.set_struct_value(struct['validation'], 'eval_frequency')
+        self.set_struct_value(struct['validation'], 'whole_image_inference_frequency')
         self.set_struct_value(struct['validation'], 'patch_overlap', 8)
         self.set_struct_value(struct['validation'], 'reporting_metrics', [])
 
+        if return_string:
+            return struct
+        self.json_config['run'] = deepcopy(struct) #struct.copy()
         self.save_json(struct, 'run.json')
 
         # Make imports
@@ -575,18 +603,17 @@ class Config:
 
     def run(self):
         if self.mode in ['train', 'eval', 'infer']:
-            model_structure = self.parse_model_file(self.model_structure)
-            run_structure = self.parse_run_file(self.main_structure['run'])
-            model, device = self.load_model(model_structure)
+            model, device = self.load_model(self.model_structure)
 
             model_runner = RunModel(model, self.train_loader, self.val_loader, self.val_set, self.test_set,
                                     self.image_key_name, self.label_key_name, self.logger, self.debug_logger,
-                                    self.results_dir, self.batch_size, self.patch_size, run_structure)
+                                    self.results_dir, self.batch_size, self.patch_size, self.run_structure)
 
             if self.mode == 'train':
                 model_runner.train()
             elif self.mode == 'eval':
-                model_runner.eval(model_name=self.loaded_model_name, eval_csv_basename=model_structure['eval_csv_basename'] )
+                model_runner.eval(model_name=self.loaded_model_name,
+                                  eval_csv_basename=self.model_structure['eval_csv_basename'])
             else:
                 model_runner.infer()
 
