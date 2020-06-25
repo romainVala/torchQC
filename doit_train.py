@@ -604,7 +604,8 @@ def get_motion_transform(type='motion1'):
             "SSIM_mask": SSIM3D(average_method="mean", mask_keys=["brain"]),
             "SSIM_Wrapped": MetricWrapper("SSIM_wrapped", lambda x, y: functional_ssim(x, y, return_map=False),
                                           use_mask=True, mask_key="brain"),
-            "ssim_base": MetricWrapper('SSIM_base', ssim3D)
+            "ssim_base": MapMetricWrapper('SSIM_base', lambda x, y: ssim3D(x, y, size_average=True), average_method="mean",
+                                          mask_keys=['brain'])
         }
 
         dico_params_mot = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
