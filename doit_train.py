@@ -601,7 +601,7 @@ def get_motion_transform(type='motion1'):
                        "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 4),
                        "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 4),
                        "verbose": False, "keep_original": True, "proba_to_augment": 1,
-                       "preserve_center_pct": 0.1, "keep_original": True, "compare_to_original": True,
+                       "preserve_center_pct": 0.1, "compare_to_original": True,
                        "oversampling_pct": 0, "correct_motion": False}
 
     if 'elastic1' in type:
