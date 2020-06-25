@@ -35,13 +35,6 @@ if __name__ == "__main__":
     file = args.file
     extra_file = args.extra_file
 
-    # Replace relative path if needed
-    if Path(results_dir).parent.anchor == '':
-        results_dir = os.path.join(os.path.dirname(file), results_dir)
-
-    if not os.path.isdir(results_dir):
-        os.makedirs(results_dir)
-
     if extra_file is not None and os.path.dirname(extra_file) == '':
         extra_file = os.path.join(os.path.dirname(file), extra_file)
 
@@ -49,8 +42,14 @@ if __name__ == "__main__":
         estruct = Config.read_json(extra_file)
         if 'results_dir' in estruct:
             results_dir = estruct["results_dir"]
-            if Path(results_dir).parent.anchor == '':
-                results_dir = os.path.join(os.path.dirname(extra_file), results_dir)
+
+    # Replace relative path if needed
+    if Path(results_dir).parent.anchor == '':
+        results_dir = os.path.join(os.path.dirname(file), results_dir)
+
+    if not os.path.isdir(results_dir):
+        os.makedirs(results_dir)
+
 
     logger = instantiate_logger('info', logging.INFO, results_dir + '/info.txt')
     debug_logger = instantiate_logger('debug', logging.DEBUG, results_dir + '/debug.txt', args.debug != 0)
