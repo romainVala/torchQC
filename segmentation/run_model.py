@@ -60,7 +60,10 @@ class RunModel:
         self.seed = struct['seed']
 
         # Define which methods will be used to retrieve data and record information
-        self.data_getter = getattr(self, struct['data_getter'])
+        function_datagetter = getattr(self, struct['data_getter']['name'])
+        attributes = struct['data_getter']['attributes']
+        self.data_getter = lambda sample: function_datagetter(sample, **attributes)
+
         self.batch_recorder = getattr(self, struct['save']['batch_recorder'])
         self.prediction_saver = getattr(self, struct['save']['prediction_saver'])
 

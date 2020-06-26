@@ -344,6 +344,11 @@ class Config:
         self.set_struct_value(struct['save'], 'batch_recorder', 'record_segmentation_batch')
         self.set_struct_value(struct['save'], 'prediction_saver', 'save_segmentation_prediction')
 
+        if isinstance(struct['data_getter'], str): #let some lazzy definition if no attribute
+            struct['data_getter'] = {"name": struct['data_getter']}
+        self.check_mandatory_keys(struct['data_getter'], ["name"], 'data_getter')
+        self.set_struct_value(struct['data_getter'], 'attributes', {})
+
         # Validation
         self.set_struct_value(struct['validation'], 'eval_frequency')
         self.set_struct_value(struct['validation'], 'whole_image_inference_frequency')
