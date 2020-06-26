@@ -477,8 +477,19 @@ class RunModel:
                 #dicm = sample[self.image_key_name]['metrics']
                 dics = sample[self.image_key_name]['simu_param']
                 dicm={}
-                for key,val in dics.items():
+                for key, val in dics.items():
                     dicm[key] = to_numpy(val[idx])
+                info.update(dicm)
+
+            if 'metrics' in sample[self.image_key_name]:
+                dics = sample[self.image_key_name]['metrics']
+                dicm = {}
+                for key, val in dics.items():
+                    if isinstance(val,dict): # hmm SSIM_wrapped still contains dict
+                        for kkey, vval in val.items():
+                            dicm[key + '_' + kkey] = to_numpy(vval[idx])
+                    else:
+                        dicm[key] = to_numpy(val[idx])
                 info.update(dicm)
 
             if not self.model.training:
