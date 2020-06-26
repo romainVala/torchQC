@@ -485,11 +485,12 @@ class RunModel:
                 dics = sample[self.image_key_name]['metrics']
                 dicm = {}
                 for key, val in dics.items():
-                    if isinstance(val,dict): # hmm SSIM_wrapped still contains dict
-                        for kkey, vval in val.items():
-                            dicm[key + '_' + kkey] = to_numpy(vval[idx])
-                    else:
-                        dicm[key] = to_numpy(val[idx])
+                    dicm[key] = to_numpy(val[idx])
+                    # if isinstance(val,dict): # hmm SSIM_wrapped still contains dict
+                    #     for kkey, vval in val.items():
+                    #         dicm[key + '_' + kkey] = to_numpy(vval[idx])
+                    # else:
+                    #     dicm[key] = to_numpy(val[idx])
                 info.update(dicm)
 
             if not self.model.training:
