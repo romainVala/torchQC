@@ -347,18 +347,21 @@ on validation data;
 - `"visualization"`: a visualization of the data and eventually the predictions made by the
 model is shown.
 
-The `--debug` argument's default value is 0, if a different value is given, debug information
+The `--debug` argument's default value is `0`, if a different value is given, debug information
 will be printed in the console.
 
+The `--safe_mode` argument's default value is `False`, if `True`, the user is asked if he
+wants to proceed before overwritting an existing configuration file in the results directory.
+
 The `--viz` argument is only used when `--mode` is `"visualization"`. Values ranging from
-0 to 5 are accepted. Default value is 0.
-- If value is 0: volumes are shown,
-- If value is 1: volumes with labels are shown,
-- If value is 2: volumes with patches are shown,
-- If value is 3: volumes with patches and labels are shown,
-- If value is 4: a volume with the fuzzy false positive map between the model prediction and 
+0 to 5 are accepted. Default value is `0`.
+- If value is `0`: volumes are shown,
+- If value is `1`: volumes with labels are shown,
+- If value is `2`: volumes with patches are shown,
+- If value is `3`: volumes with patches and labels are shown,
+- If value is `4`: a volume with the fuzzy false positive map between the model prediction and 
 the ground truth is shown,
-- If value is 5: the model prediction and the ground truth on the same volume are shown.
+- If value is `5`: the model prediction and the ground truth on the same volume are shown.
 
 The `--extra_file` argument allows to give a new configuration file to overwrite the
 data, transform and model configuration files as well as the result directory. This aims

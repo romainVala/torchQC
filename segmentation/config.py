@@ -40,11 +40,13 @@ SAVE_KEYS = ['record_frequency']
 
 
 class Config:
-    def __init__(self, main_file, results_dir, logger=None, debug_logger=None, mode='train', viz=0, extra_file=None):
+    def __init__(self, main_file, results_dir, logger=None, debug_logger=None, mode='train', viz=0, extra_file=None,
+                 safe_mode=False):
         self.mode = mode
         self.logger = logger
         self.debug_logger = debug_logger
         self.viz = viz
+        self.safe_mode = safe_mode
 
         self.results_dir = results_dir
         self.main_structure = self.parse_main_file(main_file)
@@ -98,12 +100,56 @@ class Config:
         else:
             return file
 
+    def compare_structs(self, struct1, struct2):
+        def dict_diff(d1, d2):
+            diff = {}
+
+            # Keys present only in d1
+            for key in set(d1) - set(d2):
+                diff[key] = d1[key]
+
+            # Common keys between d1 and d2
+            for key in set(d1) - (set(d1) - set(d2)):
+                if isinstance(d1[key], dict) and isinstance(d2[key], dict):
+                    difference = dict_diff(d1[key], d2[key])
+                    if difference is not None:
+                        diff[key] = difference
+
+                elif d1[key] != d2[key]:
+                    diff[key] = d1[key]
+
+            if len(diff) == 0:
+                return None
+            else:
+                return diff
+
+        old_version = dict_diff(struct1, struct2)
+        new_version = dict_diff(struct2, struct1)
+
+        has_changed = old_version is not None or new_version is not None
+        if has_changed:
+            self.log('Old version:')
+            self.log(json.dumps(old_version, indent=4, sort_keys=True))
+
+            self.log('New version:')
+            self.log(json.dumps(new_version, indent=4, sort_keys=True))
+        return has_changed
+
     def save_json(self, struct, name):
         self.debug(f'******** {name.upper()} ********')
         self.debug(json.dumps(struct, indent=4, sort_keys=True))
         file_path = os.path.join(self.results_dir, name)
         if os.path.exists(file_path):
             self.log('WARNING file {} exist'.format(file_path))
+            old_struct = self.read_json(file_path)
+            has_changed = self.compare_structs(old_struct, struct)
+            if has_changed and self.safe_mode:
+                proceed = input('Do you want to proceed? (Y/n)')
+                print(proceed)
+                if proceed.upper() in ['N', 'NO']:
+                    raise KeyboardInterrupt('User did not want to proceed.')
+            if not has_changed:
+                self.log('No differences found between old and new versions.')
         else:
             self.log('writing {}'.format(file_path))
         generate_json_document(file_path, **struct)
@@ -139,7 +185,6 @@ class Config:
         data_structure = self.parse_data_file(self.main_structure['data'], return_string=True)
         transform_structure = self.parse_transform_file(self.main_structure['transform'], return_string=True)
         model_structure = self.parse_model_file(self.main_structure['model'], return_string=True)
-        results_dir = self.results_dir
 
         if file is not None:
             struct = self.read_json(file)
@@ -224,12 +269,6 @@ class Config:
 
             patch_size = struct['queue']['sampler']['attributes']['patch_size']
 
-            if 'label_probabilities' in struct['queue']['sampler']['attributes']:
-                for key, value in struct['queue']['sampler']['attributes']['label_probabilities'].items():
-                    if isinstance(key, str) and key.isdigit():
-                        del struct['queue']['sampler']['attributes']['label_probabilities'][key]
-                        struct['queue']['sampler']['attributes']['label_probabilities'][int(key)] = value
-
         if return_string:
             return struct
         self.json_config['data'] = deepcopy(struct) #struct.copy()
@@ -240,6 +279,12 @@ class Config:
             struct['collate_fn'] = parse_function_import(struct['collate_fn'])
 
         if struct['queue'] is not None:
+            if 'label_probabilities' in struct['queue']['sampler']['attributes']:
+                for key, value in struct['queue']['sampler']['attributes']['label_probabilities'].items():
+                    if isinstance(key, str) and key.isdigit():
+                        del struct['queue']['sampler']['attributes']['label_probabilities'][key]
+                        struct['queue']['sampler']['attributes']['label_probabilities'][int(key)] = value
+
             sampler, _ = parse_object_import(struct['queue']['sampler'])
             struct['queue']['sampler'] = sampler
             struct['queue']['attributes'].update({'num_workers': struct['num_workers'], 'sampler': sampler})

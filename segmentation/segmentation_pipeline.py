@@ -17,6 +17,8 @@ if __name__ == "__main__":
     parser.add_argument('-e', '--extra_file', type=str, help='Extra configuration file')
     parser.add_argument('-d', '--debug', type=int, default=0, help='Debug option, value different from 0 means that '
                                                                    'debug messages will be printed in the console')
+    parser.add_argument('-s', '--safe_mode', type=bool, default=False, help='Whether to ask confirmation or not before'
+                                                                            'overwritting a configuration file.')
     parser.add_argument('-viz', '--visualization', type=int, default=0, choices=[0, 1, 2, 3, 4, 5],
                         help='Visualization mode \n'
                              '\t0: whole images are shown, \n'
@@ -50,9 +52,8 @@ if __name__ == "__main__":
     if not os.path.isdir(results_dir):
         os.makedirs(results_dir)
 
-
     logger = instantiate_logger('info', logging.INFO, results_dir + '/info.txt')
     debug_logger = instantiate_logger('debug', logging.DEBUG, results_dir + '/debug.txt', args.debug != 0)
 
-    config = Config(file, results_dir, logger, debug_logger, args.mode, args.visualization, extra_file)
+    config = Config(file, results_dir, logger, debug_logger, args.mode, args.visualization, extra_file, args.safe_mode)
     config.run()
