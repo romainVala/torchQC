@@ -74,6 +74,7 @@ class Config:
             self.run_structure = self.parse_run_file(self.main_structure['run'])
 
         self.save_json(self.json_config, 'config_all.json')
+        self.log('******** Result_dir is ******** \n  {}'.format(self.results_dir))
 
     @staticmethod
     def check_mandatory_keys(struct, keys, name):
@@ -140,7 +141,7 @@ class Config:
         self.debug(json.dumps(struct, indent=4, sort_keys=True))
         file_path = os.path.join(self.results_dir, name)
         if os.path.exists(file_path):
-            self.log('WARNING file {} exist'.format(file_path))
+            self.debug('WARNING file {} exist'.format(file_path))
             old_struct = self.read_json(file_path)
             has_changed = self.compare_structs(old_struct, struct)
             if has_changed and self.safe_mode:
@@ -149,9 +150,11 @@ class Config:
                 if proceed.upper() in ['N', 'NO']:
                     raise KeyboardInterrupt('User did not want to proceed.')
             if not has_changed:
-                self.log('No differences found between old and new versions.')
+                self.debug('No differences found between old and new versions.')
+            else:
+                self.log('over-writing {}'.format(file_path))
         else:
-            self.log('writing {}'.format(file_path))
+            self.debug('writing {}'.format(file_path))
         generate_json_document(file_path, **struct)
 
     def log(self, info):
