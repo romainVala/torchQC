@@ -461,12 +461,13 @@ class RunModel:
         shape = sample[self.image_key_name]['data'].shape
         history = sample.get('history')
         batch_size = shape[0]
+        sample_time = batch_time / batch_size
 
         for idx in range(batch_size):
             info = {
                 'image_filename': sample[self.image_key_name]['path'][idx],
                 'shape': to_numpy(shape[2:]),
-                'batch_time': batch_time,
+                'sample_time': sample_time,
                 'batch_size': batch_size
             }
 
