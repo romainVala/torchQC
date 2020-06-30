@@ -73,7 +73,7 @@ class Config:
         if 'run' in self.main_structure:
             self.run_structure = self.parse_run_file(self.main_structure['run'])
 
-        self.save_json(self.json_config, 'config_all.json')
+        self.save_json(self.json_config, 'config_all.json', compare_existing=False)
         self.log('******** Result_dir is ******** \n  {}'.format(self.results_dir))
 
     @staticmethod
@@ -136,11 +136,11 @@ class Config:
             self.log(json.dumps(new_version, indent=4, sort_keys=True))
         return has_changed
 
-    def save_json(self, struct, name):
+    def save_json(self, struct, name, compare_existing=True):
         self.debug(f'******** {name.upper()} ********')
         self.debug(json.dumps(struct, indent=4, sort_keys=True))
         file_path = os.path.join(self.results_dir, name)
-        if os.path.exists(file_path):
+        if os.path.exists(file_path) and compare_existing:
             self.debug('WARNING file {} exist'.format(file_path))
             old_struct = self.read_json(file_path)
             has_changed = self.compare_structs(old_struct, struct)
