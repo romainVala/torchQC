@@ -275,7 +275,16 @@ is saved after every evaluation loop on the validation set,
                 "name": "Dice",
                 "method": "mean_dice_loss"
             }
-        ]
+        ],
+        "metric_suffixes": 
+        {
+            "0": "grey",
+            "1": "CSF",
+            "(0, 0)": "grey_pve",
+            "(0, 1)": "grey/CSF",
+            "(1, 0)": "CSF/grey",
+            "(1, 1)": "CSF_pve"
+        }
     }, 
     "seed": 0, 
     "log_frequency": 10,

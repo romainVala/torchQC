@@ -55,6 +55,7 @@ class RunModel:
         self.eval_frequency = struct['validation']['eval_frequency']
         self.whole_image_inference_frequency = struct['validation']['whole_image_inference_frequency']
         self.metrics = struct['validation']['reporting_metrics']
+        self.metric_suffixes = struct['validation']['metric_suffixes']
         self.patch_overlap = struct['validation']['patch_overlap']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
@@ -329,7 +330,8 @@ class RunModel:
                 info['batch_size'] = batch_size
 
             for channel in list(range(shape[1])):
-                info[f'occupied_volume{channel}'] = to_numpy(
+                suffix = self.metric_suffixes.get(str(channel)) or channel
+                info[f'occupied_volume_{suffix}'] = to_numpy(
                    targets[idx, channel].sum() / size
                 )
 
@@ -347,9 +349,15 @@ class RunModel:
                     value = to_numpy(metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0)))
                     if value.size == 1:
                         info[name] = value
+                    elif len(value) == predictions.shape[1]:
+                        for c, v in enumerate(value):
+                            suffix = self.metric_suffixes.get(str(c)) or c
+                            info[f'{name}_{suffix}'] = v
                     else:
-                        for i, v in enumerate(value):
-                            info[name] = v
+                        for c, v in enumerate(value):
+                            i, j = c // predictions.shape[1], c % predictions.shape[1]
+                            suffix = self.metric_suffixes.get(str((i, j))) or (i, j)
+                            info[f'{name}_{suffix}'] = v
 
             if history is not None:
                 for hist in history[idx]:

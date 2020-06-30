@@ -1,4 +1,4 @@
-from segmentation.utils import channel_metrics
+from segmentation.utils import channel_metrics, between_channel_metrics
 
 
 class OverlapMetric:
@@ -42,3 +42,15 @@ class OverlapMetric:
 
     def per_channel_false_negatives(self, prediction, target):
         return channel_metrics(prediction, target, self.false_negatives)
+
+    def between_channel_true_positives(self, prediction, target):
+        return between_channel_metrics(prediction, target, self.true_positives)
+
+    def between_channel_true_negatives(self, prediction, target):
+        return between_channel_metrics(prediction, target, self.true_negatives)
+
+    def between_channel_false_positives(self, prediction, target):
+        return between_channel_metrics(prediction, target, self.false_positives)
+
+    def between_channel_false_negatives(self, prediction, target):
+        return between_channel_metrics(prediction, target, self.false_negatives)

@@ -1,5 +1,5 @@
 import numpy as np
-from segmentation.utils import to_numpy, to_var, channel_metrics
+from segmentation.utils import to_numpy, to_var, channel_metrics, between_channel_metrics
 
 
 def minimum_t_norm(prediction, target, background=False):
@@ -50,3 +50,15 @@ class FuzzyOverlapMetric:
 
     def per_channel_fuzzy_false_negatives(self, prediction, target):
         return channel_metrics(prediction, target, self.fuzzy_false_negatives)
+
+    def between_channel_fuzzy_true_positives(self, prediction, target):
+        return between_channel_metrics(prediction, target, self.fuzzy_true_positives)
+
+    def between_channel_fuzzy_true_negatives(self, prediction, target):
+        return between_channel_metrics(prediction, target, self.fuzzy_true_negatives)
+
+    def between_channel_fuzzy_false_positives(self, prediction, target):
+        return between_channel_metrics(prediction, target, self.fuzzy_false_positives)
+
+    def between_channel_fuzzy_false_negatives(self, prediction, target):
+        return between_channel_metrics(prediction, target, self.fuzzy_false_negatives)
