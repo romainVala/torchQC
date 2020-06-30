@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 from utils import remove_extension
 from utils_file import get_parent_path, gfile, gdir
-
+from segmentation.config import Config as cc
+from termcolor import colored
 
 def get_ep_iter_from_res_name(resname, nbit, batch_size=4):
     resname_no_ext = remove_extension(resname)
@@ -33,8 +34,12 @@ def plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Va
     legend_str=[]
     col = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'w']
     for ii, oneres in enumerate(dres):
-        fresT = gfile(oneres, train_csv_regex) #gfile(oneres,'res_train.*csv')
+        fresT = gfile(oneres, train_csv_regex)
         fresV=gfile(oneres, val_csv_regex)
+
+        if len(fresV)==0:
+            print('{} empty dir {} '.format(colored('Skiping','red'), get_parent_path(oneres)[1]))
+            continue
 
         is_train = False if len(fresT)==0 else True
         if is_train: resT = [pd.read_csv(ff) for ff in fresT]
@@ -42,28 +47,75 @@ def plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Va
         resdir, resname = get_parent_path(fresV)
         nbite = len(resT[0]) if is_train else 80000
         fresV_sorted, b, c = get_ep_iter_from_res_name(resname, nbite)
-        resV = [pd.read_csv(resdir[0] + '/' + ff) for ff in fresV_sorted]
-
         ite_tot = c+b*nbite
-        if is_train:
-            #errorT = np.hstack( [ np.abs(rr.model_out.values - rr.loc[:,target].values*target_scale) for rr in resT] )
-            errorT = np.hstack( [ np.abs(rr.loc[:,prediction_column_name].values -
-                rr.loc[:, target_column_name].values*target_scale) for rr in resT] )
-            ite_tottt = np.hstack([0, ite_tot])
-            LmTrain = [ np.mean(errorT[ite_tottt[ii]:ite_tottt[ii+1]]) for ii in range(0,len(ite_tot)) ]
+        ite_tottt = np.hstack([0, ite_tot])
 
-        #LmVal = [np.mean(np.abs(rr.model_out-rr.loc[:,target].values*target_scale)) for rr in resV]
-        LmVal = [np.mean(np.abs(rr.loc[:,prediction_column_name].values -\
-                                rr.loc[:,target_column_name].values*target_scale)) for rr in resV]
+        resV = [pd.read_csv(resdir[0] + '/' + ff) for ff in fresV_sorted]
+        df_val = pd.concat(resV, ignore_index=True, sort=False)
+
+        for rr in resV:
+            if 'sample_time' not in rr:
+                rr['sample_time'] = rr['batch_time'] / 4 #for old result always runed with batchsize 4
+        for rr in resT:
+            if 'sample_time' not in rr:
+                rr['sample_time'] = rr['batch_time'] / 4
+
+
+        if is_train:
+            df_train = pd.concat(resT, ignore_index=True, sort=False)
+            errorT = np.abs(df_train.loc[:,prediction_column_name].values -df_train.loc[:, target_column_name].values*target_scale)
+            train_time = df_train.loc[:,'sample_time']
+            #average between validation point itte_tot
+            LmTrain = [np.mean(errorT[ite_tottt[ii]:ite_tottt[ii+1]]) for ii in range(0, len(ite_tot)) ]
+            TimeTrain = [np.mean(train_time[ite_tottt[ii]:ite_tottt[ii + 1]]) for ii in range(0, len(ite_tot))]
+
+        LmVal = [np.mean(np.abs(rr.loc[:,prediction_column_name]-rr.loc[:, target_column_name].values*target_scale)) for rr in resV]
+        #LmVal = np.mean(np.abs(df_val.loc[:,prediction_column_name].values - df_val.loc[:,target_column_name].values*target_scale))
+        TimeVal = [np.mean(rr.loc[:,'sample_time']) for rr in resV]
+
         plt.figure('MeanL1_'+fign); legend_str.append('V{}'.format(sresname[ii]));
         if is_train: legend_str.append('T{}'.format(sresname[ii]))
         plt.plot(ite_tot, LmVal,'--',color=col[ii])
         if is_train: plt.plot(ite_tot, LmTrain,color=col[ii], linewidth=6)
 
+        plt.figure('Time_'+fign);
+        plt.plot(ite_tot, TimeVal,'--',color=col[ii])
+        if is_train: plt.plot(ite_tot, TimeTrain,color=col[ii], linewidth=6)
+
+        #print some summary information on the results
+        totiter, mbtt, mbtv = ite_tot[-1] / 1000, np.nanmean(TimeTrain), np.mean(TimeVal)
+        tot_time = len(resT) * len(resT[0]) * mbtt + len(resV) * len(resV[0]) * mbtv
+        percent_train = len(resT) * len(resT[0]) * mbtt / tot_time
+        tot_time_day = np.floor( tot_time/60/60/24 )
+        tot_time_hour = (tot_time - tot_time_day*24*60*60) / 60/60
+        print('Result : {} \t {} '.format(
+            colored(get_parent_path(resdir[0])[1], 'green'), sresname[ii] ))
+        print('\t{} epoch of {} vol {} val on {} vol Tot ({:.1f}%train) {} d {:.1f} h'.format(
+            len(resT), len(resT[0]), len(resV),len(resV[0]), percent_train, tot_time_day, tot_time_hour ))
+
+        fj = gfile(oneres,'data.json')
+        if len(fj)==1:
+            data_struc = cc.read_json(fj[0])
+            bs, nw = data_struc['batch_size'], data_struc['num_workers']
+        else:
+            bs, nw = 0, -1
+        print('\tBatch size {} \tNum worker {} \t{:.1f} mille iter \t train/val meanTime {:.2f} / {:.2f} '.format\
+                (bs, nw, totiter, mbtt, mbtv))
+
+
+    plt.figure('MeanL1_'+fign);
     plt.legend(legend_str); plt.grid()
     ff=plt.gcf();ff.set_size_inches([15, 7]); #ff.tight_layout()
     plt.subplots_adjust(left=0.05, right=1, bottom=0.05, top=1, wspace=0, hspace=0)
+    plt.ylabel('L1 loss')
 
+    plt.figure('Time_'+fign);
+    plt.legend(legend_str); plt.grid()
+    plt.ylabel('time in second')
+
+#df = pd.read_csv('/home/fabien.girka/Documents/segmentation/results/Train_ep1_it2.csv', index_col=0)
+#rbf_hist = df['history_RandomBiasField']
+#first_rbf_hist = json.loads(rbf_hist[0])
 
 def get_pandadf_from_res_valOn_csv(dres, resname, csv_regex='res_valOn', data_name_list=None,
                                    select_last=None, target='ssim', target_scale=1):
