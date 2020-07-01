@@ -1,4 +1,4 @@
-from segmentation.utils import channel_metrics, between_channel_metrics
+from segmentation.metrics.utils import channel_metrics, between_channel_metrics
 
 
 class OverlapMetric:

@@ -1,5 +1,6 @@
 import numpy as np
-from segmentation.utils import to_numpy, to_var, channel_metrics, between_channel_metrics
+from segmentation.utils import to_numpy, to_var
+from segmentation.metrics.utils import channel_metrics, between_channel_metrics
 
 
 def minimum_t_norm(prediction, target, background=False):

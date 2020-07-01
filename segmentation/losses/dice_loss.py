@@ -1,4 +1,4 @@
-from segmentation.utils import mean_metric
+from segmentation.metrics.utils import mean_metric
 
 
 class Dice:
