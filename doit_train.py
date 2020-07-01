@@ -592,21 +592,26 @@ def get_motion_transform(type='motion1'):
     if 'motion1' in type:
         from torchio.metrics import SSIM3D, MetricWrapper, MapMetricWrapper
         from torchio.metrics.ssim import functional_ssim
+        #from torchio.metrics import th_pearsonr
         from torch.nn import MSELoss, L1Loss
-
+        from torch_similarity.modules import NormalizedCrossCorrelation
 
         metrics = {
             "L1": MetricWrapper("L1", L1Loss()),
             "L1_map": MapMetricWrapper("L1_map", lambda x, y: torch.abs(x - y), average_method="mean",
                                        mask_keys=['brain']),
-            "L2": MetricWrapper("L2", MSELoss()),
+            # "L2": MapMetricWrapper("L2", MSELoss(), mask_keys=['brain']),
             # "SSIM": SSIM3D(average_method="mean"),
             "SSIM_mask": SSIM3D(average_method="mean", mask_keys=["brain"]),
-            "SSIM_Wrapped": MetricWrapper("SSIM_wrapped", lambda x, y: functional_ssim(x, y, return_map=False),
-                                          use_mask=True, mask_key="brain"),
+            "NCC": MapMetricWrapper("NCC", lambda x, y: NormalizedCrossCorrelation(return_map=True)(x, y)[1],
+                                    average_method="mean", mask_keys=['brain']),
+            # "SSIM": MetricWrapper("SSIM", lambda x, y: functional_ssim(x, y, return_map=False),
+            #                               use_mask=True, mask_key="brain"),
             "ssim_base": MapMetricWrapper('SSIM_base', lambda x, y: ssim3D(x, y, size_average=True), average_method="mean",
                                           mask_keys=['brain'])
         }
+        # metrics = {"L1_map": MapMetricWrapper("L1_map", lambda x, y: torch.abs(x - y), average_method="mean",
+        #                                       mask_keys=['brain'])}
 
         dico_params_mot = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
                        "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 6),
