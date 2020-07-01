@@ -593,7 +593,7 @@ def get_motion_transform(type='motion1'):
         from torchio.metrics import SSIM3D, MetricWrapper, MapMetricWrapper
         from torchio.metrics.ssim import functional_ssim
         from torch.nn import MSELoss, L1Loss
-        """
+
         metrics = {
             "L1": MetricWrapper("L1", L1Loss()),
             "L1_map": MapMetricWrapper("L1_map", lambda x, y: torch.abs(x - y), average_method="mean",
@@ -613,8 +613,7 @@ def get_motion_transform(type='motion1'):
                        "verbose": False, "proba_to_augment": 1,
                        "preserve_center_pct": 0.1, "compare_to_original": True,
                        "oversampling_pct": 0, "correct_motion": False}
-        """
-        metrics = {}
+
         dico_params_mot = {"maxDisp": (1, 4), "maxRot": (1, 4), "noiseBasePars": (5, 20, 0.8),
                        "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 4),
                        "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 4),
