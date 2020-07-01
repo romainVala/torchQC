@@ -74,6 +74,8 @@ dres_reg_exp, figname = [ 'hcp.*ms', 'hcp.*T1'] , ['hcp_ms', 'hcp_T1'] #[ 'hcp.*
 dres_reg_exp, figname = [ 'cati.*ms', 'cati.*T1'], ['cati_ms', 'cati_T1']
 target = 'targets'; target_scale = 1  #target = 'ssim'; target_scale = 1 #target = 'random_noise'; target_scale = 10
 
+dres_reg_exp, figname = [ 'result_H'], ['all']
+
 for rr, fign in zip(dres_reg_exp, figname):
     dres = gdir(dqc, rr)
     resname = get_parent_path(dres)[1]
@@ -84,10 +86,10 @@ for rr, fign in zip(dres_reg_exp, figname):
     commonstr, sresname = reduce_name_list(sresname)
     print('common str {}'.format(commonstr))
 
+
     plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Val.*csv',
                            prediction_column_name='prediction', target_column_name='targets',
                            target_scale=1, fign=fign, sresname=sresname)
-
 
 for ii, oneres in enumerate([dres[0]]):
 #for ii, oneres in enumerate(dres):
@@ -260,11 +262,29 @@ sell_col = [ 'L1', 'MSE', 'corr', 'mean_DispP', 'rmse_Disp','rmse_DispTF',
              'ssim', 'ssim_all', 'ssim_brain', 'ssim_p1', 'ssim_p2']
 sell_col = [ 'L1', 'MSE', 'corr', 'ssim', 'ssim_all', 'ssim_brain', 'ssim_p1', 'ssim_p2']
 sell_col = [ 'L1', 'MSE', 'corr', 'ssim', 'ssim_all']
+sell_col = ['L1', 'L1_map', 'L1_map_brain', 'L2', 'SSIM_base',
+       'SSIM_base_brain', 'SSIM_contrast', 'SSIM_contrast_brain',
+       'SSIM_luminance', 'SSIM_luminance_brain', 'SSIM_ssim',
+       'SSIM_ssim_brain', 'SSIM_structure', 'SSIM_structure_brain',
+       'SSIM_wrapped_contrast', 'SSIM_wrapped_luminance', 'SSIM_wrapped_ssim',
+       'SSIM_wrapped_structure']
+#sell_col = ['L1_map', 'L1_map_brain',
+sell_col = ['SSIM_base','SSIM_base_brain','SSIM_ssim','SSIM_ssim_brain','SSIM_wrapped_ssim']
+sell_col = ['SSIM_base','SSIM_ssim','SSIM_wrapped_ssim']
+sell_col = ['SSIM_base_brain','SSIM_ssim_brain','L1']
+
+dd=gdir('/home/romain.valabregue/datal/QCcnn/NN_regres_motion_New/result_HCP_T1_AffEla_mvt_rescal_mask_no_seed_newMetrics','result_01')
+fr=gfile(dd,'Train.*01')
+res = [ pd.read_csv(ff) for ff in fr]
 
 for rr in res:
     rr=rr.loc[:,sell_col]
     sns.pairplot(rr)
 
+for sc in sell_col:
+    #print(np.any(res[0].loc[:,sc]-res[1].loc[:,sc]))
+    plt.figure()
+    plt.plot(res[0].loc[:,sc],res[1].loc[:,sc])
 
 #test MOTION CATI
 

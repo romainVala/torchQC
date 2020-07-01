@@ -1,4 +1,6 @@
 import matplotlib.pyplot as plt
+import seaborn as sns
+import os
 import numpy as np
 import pandas as pd
 from utils import remove_extension
@@ -25,6 +27,9 @@ def get_ep_iter_from_res_name(resname, nbit, batch_size=4):
     ep_sorted = np.array([int(ee) for ee in ep_sorted])
     it_sorted = np.array([int(ee) for ee in it_sorted])
     return name_sorted, ep_sorted, it_sorted
+
+def my_read_csv_split_columns(fres):
+    df = pd.read_csv(fres)
 
 
 def plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Val.*csv',
