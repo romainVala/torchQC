@@ -594,7 +594,6 @@ def get_motion_transform(type='motion1'):
         from torchio.metrics.ssim import functional_ssim
         from torch.nn import MSELoss, L1Loss
 
-
         metrics = {
             "L1": MetricWrapper("L1", L1Loss()),
             "L1_map": MapMetricWrapper("L1_map", lambda x, y: torch.abs(x - y), average_method="mean",

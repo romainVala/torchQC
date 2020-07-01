@@ -295,8 +295,41 @@ class Config:
         return struct, patch_size, sampler
 
     def parse_transform_file(self, file, return_string=False):
+        def parse_metric_wrapper(w):
+            try:
+                from torchio.metrics import MetricWrapper, MapMetricWrapper
+            except Exception as e:
+                self.debug('Could not import MetricWrapper from torchio.metrics . Skipping wrapped metrics.')
+                return None
+            wrapper_attrs = w['attributes']
+            wrapper_attrs['metric_func'], _ = parse_object_import(wrapper_attrs['metric_func'])
+            if not callable(wrapper_attrs['metric_func']):
+                self.debug('Specified func in metric is not callable: {}'.format(wrapper_attrs['metric_func']))
+                return None
+            if w['type'] == 'mapmetricwrapper':
+                return MapMetricWrapper(**wrapper_attrs)
+            elif w['type'] == 'metricwrapper':
+                return MetricWrapper(**wrapper_attrs)
+            self.debug('Found unknown wrapper type: {}'.format(w['type']))
+            return None
+
+        def parse_transform_metrics(m):
+            m_dict = dict()
+            for metric in m:
+                for m_name, m_struct in metric.items():
+                    if m_struct.get('wrapper'):
+                        wrapper_attrs = m_struct['wrapper']
+                        wrapper_metric = parse_metric_wrapper(wrapper_attrs)
+                        m_dict[m_name] = wrapper_metric
+                    else:
+                        m_dict[m_name], _ = parse_object_import(m_struct)
+            return m_dict
+
         def parse_transform(t):
             attributes = t.get('attributes') or {}
+            if attributes.get('metrics'):
+                t_metrics = parse_transform_metrics(attributes['metrics'])
+                attributes['metrics'] = t_metrics
             if t.get('is_custom'):
                 t_class = parse_function_import(t)
             else:
