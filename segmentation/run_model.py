@@ -96,7 +96,7 @@ class RunModel:
                 targets.append(to_var(target[torchio.DATA].float(), self.device))
             else:
                 return volumes, None
-        targets = torch.cat(targets, dim=1)
+        targets = torch.cat(targets, dim=-4)
         return volumes, targets
 
     def train(self):
