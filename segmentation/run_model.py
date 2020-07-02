@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import nibabel as nib
 import torchio
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
 
@@ -335,9 +336,12 @@ class RunModel:
                 info[f'label_filename_{key}'] = sample[key]['path'][idx] if is_batch else sample[key]['path']
 
             for channel in list(range(shape[1])):
-                suffix = self.metric_suffixes.get(str(channel)) or channel
+                suffix = self.label_key_name[channel]
                 info[f'occupied_volume_{suffix}'] = to_numpy(
                    targets[idx, channel].sum() / size
+                )
+                info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
+                    F.softmax(predictions, dim=1)[idx, channel].sum() / size
                 )
 
             if location is not None:
