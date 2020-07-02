@@ -31,32 +31,39 @@ Both can be used at the same time (patterns are read first). <br>
 This file also defines the behaviour of the `DataLoader`, using patches or not, the 
 number of workers used to load data (`-1` means all available workers are used) and 
 the batch size. Finally it sets which keys will be used to retrieve images and labels 
-from subjects.
+from subjects. `"label_key_name"` can be a list to use as target a concatenation of
+the different labels.
 ```json
 {
     "modalities": 
     {
         "t1": {"type": "intensity"},
-        "label": {"type": "label"}
+        "grey": {"type": "label"},
+        "CSF": {"type": "label"},
+        "white": {"type": "label"}
     },
     "patterns": 
     [
         {
             "root": "/path_to_t1/*/",
             "name_pattern": "([0-9]+)", 
-            "modalities": {"t1": "/T1w/T1w_acpc_dc.nii.gz"}
+            "modalities": {"t1": "T1w/T1w_acpc_dc.nii.gz"}
         }, 
         {
             "root": "/path_to_label/suj_*/", 
             "name_pattern": "([0-9]+)", 
-            "modalities": {"label": "grey.nii.gz"}
+            "modalities": {
+                "grey": "grey.nii.gz",
+                "CSF": "csf.nii.gz",
+                "white": "white.nii.gz"
+            }
         }
     ], 
     "repartition": [0.7, 0.15, 0.15],
     "subject_shuffle": true,
     "subject_seed": 0,
     "image_key_name": "t1",
-    "label_key_name": "label",
+    "label_key_name": "grey",
     "batch_size": 2,
     "num_workers": 0,
     "queue": 
@@ -73,7 +80,7 @@ from subjects.
             "attributes": 
             {
                 "patch_size": 64,
-                "label_name": "label",
+                "label_name": "grey",
                 "label_probabilities": {"0": 0.1, "1": 0.9}
             }
         }
@@ -93,7 +100,7 @@ from subjects.
     "modalities": 
     {
         "t1": {"type": "intensity"},
-        "label": {"type": "label"}
+        "grey": {"type": "label"}
     },
     "paths": 
     [
@@ -102,7 +109,9 @@ from subjects.
             "modalities": 
             {
                 "t1": "/path_to_t1_for_subject1/T1w/T1w_acpc_dc.nii.gz",
-                "label": "/path_to_label_for_subject1/grey.nii.gz"
+                "grey": "/path_to_label_for_subject1/grey.nii.gz",
+                "csf": "/path_to_label_for_subject1/csf.nii.gz",
+                "white": "/path_to_label_for_subject1/white.nii.gz"
             }
         }, 
         {
@@ -110,7 +119,9 @@ from subjects.
             "modalities": 
             {
                 "t1": "/path_to_t1_for_subject2/T1w/T1w_acpc_dc.nii.gz",
-                "label": "/path_to_label_for_subject2/grey.nii.gz"
+                "grey": "/path_to_label_for_subject2/grey.nii.gz",
+                "csf": "/path_to_label_for_subject2/csf.nii.gz",
+                "white": "/path_to_label_for_subject2/white.nii.gz"
             }
         }
     ], 
@@ -118,7 +129,7 @@ from subjects.
     "subject_shuffle": true,
     "subject_seed": 0,
     "image_key_name": "t1",
-    "label_key_name": "label",
+    "label_key_name": "grey",
     "batch_size": 2,
     "num_workers": 0,
     "batch_shuffle": true,
@@ -248,7 +259,8 @@ is saved after every evaluation loop on the validation set,
         {
             "module": "segmentation.losses.dice_loss", 
             "name": "Dice",
-            "method": "mean_dice_loss"
+            "method": "mean_dice_loss",
+            "weight": 1
         }
     ], 
     "optimizer": 
@@ -274,17 +286,16 @@ is saved after every evaluation loop on the validation set,
                 "module": "segmentation.losses.dice_loss", 
                 "name": "Dice",
                 "method": "mean_dice_loss"
+            },
+            {
+                "module": "segmentation.metrics.overlap_metrics",
+                "name": "OverlapMetric",
+                "method": "mean_false_positives",
+                "mask": "white",
+                "reported_name": "FP_grey_in_white",
+                "channels": ["grey"]
             }
-        ],
-        "metric_suffixes": 
-        {
-            "0": "grey",
-            "1": "CSF",
-            "(0, 0)": "grey_pve",
-            "(0, 1)": "grey/CSF",
-            "(1, 0)": "CSF/grey",
-            "(1, 1)": "CSF_pve"
-        }
+        ]
     }, 
     "seed": 0, 
     "log_frequency": 10,
@@ -360,7 +371,7 @@ The `--debug` argument's default value is `0`, if a different value is given, de
 will be printed in the console.
 
 The `--safe_mode` argument's default value is `False`, if `True`, the user is asked if he
-wants to proceed before overwritting an existing configuration file in the results directory.
+wants to proceed before overwriting an existing configuration file in the results directory.
 
 The `--viz` argument is only used when `--mode` is `"visualization"`. Values ranging from
 0 to 5 are accepted. Default value is `0`.

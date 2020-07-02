@@ -137,10 +137,3 @@ def save_checkpoint(state, save_path, model):
         model.save(filename)
     else:
         torch.save(state, filename)
-
-
-def get_class_name_from_method(method):
-    cls = method.__self__.__class__
-    # str(cls) gives something like "<class 'the_class_name'>"
-    cls_name = str(cls)[8:-2]
-    return cls_name.split('.')[-1]

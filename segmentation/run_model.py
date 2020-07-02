@@ -9,7 +9,7 @@ import pandas as pd
 import nibabel as nib
 import torchio
 from torch.utils.data import DataLoader
-from segmentation.utils import to_var, summary, save_checkpoint, to_numpy, get_class_name_from_method
+from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
 
 
 class ArrayTensorJSONEncoder(json.JSONEncoder):
@@ -39,6 +39,7 @@ class RunModel:
 
         self.image_key_name = image_key_name
         self.label_key_name = label_key_name
+        self.key2channel = {key: i for i, key in enumerate(self.label_key_name)}
 
         self.logger = logger
         self.debug_logger = debug_logger
@@ -88,11 +89,14 @@ class RunModel:
         volumes = sample[self.image_key_name]
         volumes = to_var(volumes[torchio.DATA].float(), self.device)
 
-        if self.label_key_name in sample:
-            targets = sample[self.label_key_name]
-            targets = to_var(targets[torchio.DATA].float(), self.device)
-        else:
-            targets = None
+        targets = []
+        for key in self.label_key_name:
+            if key in sample:
+                target = sample[key]
+                targets.append(to_var(target[torchio.DATA].float(), self.device))
+            else:
+                return volumes, None
+        targets = torch.cat(targets, dim=1)
         return volumes, targets
 
     def train(self):
@@ -190,7 +194,7 @@ class RunModel:
             # Compute loss
             loss = 0
             for criterion in self.criteria:
-                loss += criterion(predictions, targets)
+                loss += criterion['weight'] * criterion['criterion'](predictions, targets)
 
             # Compute gradient and do SGD step
             if self.model.training:
@@ -252,7 +256,7 @@ class RunModel:
             # Compute loss
             sample_loss = 0
             for criterion in self.criteria:
-                sample_loss += criterion(predictions.unsqueeze(0), target.unsqueeze(0))
+                sample_loss += criterion['weight'] * criterion['criterion'](predictions.unsqueeze(0), target.unsqueeze(0))
 
             # Measure elapsed time
             sample_time = time.time() - start
@@ -319,15 +323,16 @@ class RunModel:
 
         for idx in range(batch_size):
             image_path = sample[self.image_key_name]['path'][idx] if is_batch else sample[self.image_key_name]['path']
-            label_path = sample[self.label_key_name]['path'][idx] if is_batch else sample[self.label_key_name]['path']
             info = {
                 'image_filename': image_path,
-                'label_filename': label_path,
                 'shape': to_numpy(shape[2:]),
                 'sample_time': sample_time
             }
             if is_batch:
                 info['batch_size'] = batch_size
+
+            for key in self.label_key_name:
+                info[f'label_filename_{key}'] = sample[key]['path'][idx] if is_batch else sample[key]['path']
 
             for channel in list(range(shape[1])):
                 suffix = self.metric_suffixes.get(str(channel)) or channel
@@ -340,24 +345,24 @@ class RunModel:
 
             loss = 0
             for criterion in self.criteria:
-                loss += criterion(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+                loss += criterion['weight'] * criterion['criterion'](predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
             info['loss'] = to_numpy(loss)
 
             if not self.model.training:
                 for metric in self.metrics:
-                    name = f'metric_{get_class_name_from_method(metric)}_{metric.__name__}'
-                    value = to_numpy(metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0)))
-                    if value.size == 1:
-                        info[name] = value
-                    elif len(value) == predictions.shape[1]:
-                        for c, v in enumerate(value):
-                            suffix = self.metric_suffixes.get(str(c)) or c
-                            info[f'{name}_{suffix}'] = v
-                    else:
-                        for c, v in enumerate(value):
-                            i, j = c // predictions.shape[1], c % predictions.shape[1]
-                            suffix = self.metric_suffixes.get(str((i, j))) or (i, j)
-                            info[f'{name}_{suffix}'] = v
+                    name = f'metric_{metric["name"]}'
+                    kwargs = {'prediction': predictions[idx].unsqueeze(0), 'target': targets[idx].unsqueeze(0)}
+
+                    if metric['mask'] is not None:
+                        kwargs['mask'] = to_var(sample[metric['mask']]['data'][idx, 0], self.device)
+
+                    channels = []
+                    for key in metric['channels']:
+                        channels.append(self.key2channel[key])
+                    if len(channels) > 0:
+                        kwargs['channels'] = channels
+
+                    info[name] = to_numpy(metric['criterion'](**kwargs))
 
             if history is not None:
                 for hist in history[idx]:
@@ -479,7 +484,7 @@ class RunModel:
             with torch.no_grad():
                 loss = 0
                 for criterion in self.criteria:
-                    loss += criterion(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+                    loss += criterion['weight'] * criterion['criterion'](predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
                 info['loss'] = to_numpy(loss)
                 info['prediction'] = to_numpy(predictions[idx])[0]
                 info['targets'] = to_numpy(targets[idx])[0]
@@ -506,10 +511,19 @@ class RunModel:
 
             if not self.model.training:
                 for metric in self.metrics:
-                    name = f'metric_{get_class_name_from_method(metric)}_{metric.__name__}'
-                    info[name] = to_numpy(
-                        metric(predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
-                    )
+                    name = f'metric_{metric["name"]}'
+                    kwargs = {'prediction': predictions[idx].unsqueeze(0), 'target': targets[idx].unsqueeze(0)}
+
+                    if metric['mask'] is not None:
+                        kwargs['mask'] = to_var(sample[metric['mask']]['data'][idx, 0], self.device)
+
+                    channels = []
+                    for key in metric['channels']:
+                        channels.append(self.key2channel[key])
+                    if len(channels) > 0:
+                        kwargs['channels'] = channels
+
+                    info[name] = to_numpy(metric['criterion'](**kwargs))
 
             if history is not None:
                 history_order = ''

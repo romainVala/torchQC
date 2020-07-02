@@ -1,4 +1,5 @@
 import torch
+from segmentation.metrics.utils import mean_metric
 
 
 def _get_border(volume, cut=0.5, dim=3):
@@ -9,26 +10,35 @@ def _get_border(volume, cut=0.5, dim=3):
     for i in range(dim):
         shape = list(spatial_shape)
         shape[i] = 1
+        zeros = torch.zeros(shape).to(volume.device)
+
         slices = [slice(1 * (i == j), spatial_shape[j] + 1 * (i == j)) for j in range(dim)]
-        concat = torch.cat([ref, torch.zeros(shape)], dim=i)[slices]
+        concat = torch.cat([ref, zeros], dim=i)[slices]
         border[(ref - concat) == 1] = 1
 
         slices = [slice(spatial_shape[j]) for j in range(dim)]
-        concat = torch.cat([torch.zeros(shape), ref], dim=i)[slices]
+        concat = torch.cat([zeros, ref], dim=i)[slices]
         border[(ref - concat) == 1] = 1
 
     return border
 
 
 class DistanceMetric:
-    def __init__(self, cut=0.5, radius=5):
+    def __init__(self, cut=0.5, radius=5, mask_cut=0.99):
         self.cut = cut
         self.radius = radius
+        self.mask_cut = mask_cut
         self.dim = 3
         self.d_max = torch.tensor(self.radius + 1.)
         self.distance_map = self._get_distance_map()
         self.distances = self.distance_map.unique()
         self.distance_kernels = self._get_distance_kernels()
+
+    def _apply_mask(self, volume, mask):
+        if mask is None:
+            return volume
+        mask = mask >= self.mask_cut
+        return volume * mask
 
     def _get_distance_map(self):
         distance_range = torch.arange(-self.radius, self.radius + 1)
@@ -67,9 +77,11 @@ class DistanceMetric:
 
         return all_distances
 
-    def average_hausdorff_distance(self, prediction, target):
+    def average_hausdorff_distance(self, prediction, target, mask=None):
         prediction = prediction > self.cut
         target = target > self.cut
+
+        prediction = self._apply_mask(prediction, mask)
 
         prediction_mask = prediction.clone()
         prediction_mask[prediction * target] = 0
@@ -93,9 +105,11 @@ class DistanceMetric:
 
         return first_term + second_term
 
-    def amount_of_far_points(self, prediction, target):
+    def amount_of_far_points(self, prediction, target, mask=None):
         prediction = prediction > self.cut
         target = target > self.cut
+
+        prediction = self._apply_mask(prediction, mask)
 
         prediction_mask = prediction.clone()
         prediction_mask[prediction * target] = 0
@@ -106,3 +120,21 @@ class DistanceMetric:
             return (min_dist >= self.radius).sum()
         else:
             return 0.
+
+    def batch_average_hausdorff_distance(self, prediction, target, mask=None):
+        res = 0.
+        for p, t in zip(prediction, target):
+            res += self.average_hausdorff_distance(p, t, mask)
+        return res
+
+    def batch_amount_of_far_points(self, prediction, target, mask=None):
+        res = 0.
+        for p, t in zip(prediction, target):
+            res += self.amount_of_far_points(p, t, mask)
+        return res
+
+    def mean_average_hausdorff_distance(self, prediction, target, **kwargs):
+        return mean_metric(prediction, target, self.batch_average_hausdorff_distance, **kwargs)
+
+    def mean_amount_of_far_points(self, prediction, target, **kwargs):
+        return mean_metric(prediction, target, self.batch_amount_of_far_points, **kwargs)

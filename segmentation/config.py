@@ -63,6 +63,9 @@ class Config:
         self.image_key_name = data_structure['image_key_name']
         self.label_key_name = data_structure['label_key_name']
 
+        if isinstance(self.label_key_name, str):
+            self.label_key_name = [self.label_key_name]
+
         self.train_set, self.val_set, self.test_set = self.load_subjects(data_structure, transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(data_structure)
 
@@ -358,8 +361,19 @@ class Config:
         def parse_criteria(criterion_list):
             c_list = []
             for criterion in criterion_list:
+                self.set_struct_value(criterion, 'weight', 1)
+                self.set_struct_value(criterion, 'mask')
+                self.set_struct_value(criterion, 'channels', [])
+                self.set_struct_value(criterion, 'reported_name', f'{criterion["name"]}_{criterion["method"]}')
+
                 c = parse_method_import(criterion)
-                c_list.append(c)
+                c_list.append({
+                    'criterion': c,
+                    'weight': criterion['weight'],
+                    'mask': criterion['mask'],
+                    'channels': criterion['channels'],
+                    'name': criterion['reported_name']
+                })
             return c_list
 
         struct = self.read_json(file)
@@ -399,7 +413,6 @@ class Config:
         self.set_struct_value(struct['validation'], 'whole_image_inference_frequency')
         self.set_struct_value(struct['validation'], 'patch_overlap', 8)
         self.set_struct_value(struct['validation'], 'reporting_metrics', [])
-        self.set_struct_value(struct['validation'], 'metric_suffixes', {})
 
         if return_string:
             return struct
@@ -678,10 +691,11 @@ class Config:
             else:
                 viz_set = self.val_set
 
+            # TODO: Fix visualization to handle label_key_name properly
             if 0 <= self.viz < 4:
                 if self.viz == 1:
                     viz_structure['kwargs'].update({
-                        'label_key_name': self.label_key_name
+                        'label_key_name': self.label_key_name[0]
                     })
 
                 elif self.viz == 2:
@@ -691,10 +705,11 @@ class Config:
 
                 elif self.viz == 3:
                     viz_structure['kwargs'].update({
-                        'label_key_name': self.label_key_name,
+                        'label_key_name': self.label_key_name[0],
                         'patch_sampler': self.sampler
                     })
 
+            # Move this to run_model.py and update it to handle C channels
             if self.viz >= 4:
                 model_structure = self.parse_model_file(self.model_structure)
                 run_structure = self.parse_run_file(self.main_structure['run'])
@@ -718,17 +733,17 @@ class Config:
                 prediction = F.softmax(prediction, dim=0).to('cpu')
 
                 viz_structure['kwargs'].update({
-                    'label_key_name': self.label_key_name
+                    'label_key_name': self.label_key_name[0]
                 })
 
                 if self.viz == 4:
                     false_positives = minimum_t_norm(prediction[0], target, True)
-                    sample[self.label_key_name]['data'] = false_positives
+                    sample[self.label_key_name[0]]['data'] = false_positives
                     viz_set = [sample]
 
                 elif self.viz == 5:
                     ground_truth = deepcopy(sample)
-                    sample[self.label_key_name]['data'] = prediction[0].unsqueeze(0)
+                    sample[self.label_key_name[0]]['data'] = prediction[0].unsqueeze(0)
                     viz_set = [ground_truth, sample]
 
             return PlotDataset(viz_set, **viz_structure['kwargs'])
