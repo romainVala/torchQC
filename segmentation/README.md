@@ -149,14 +149,47 @@ each subject must have every modality of `"modalities"`.
 
 #### transform.json
 This file defines which transforms (preprocessing and data augmentation) are applied to train,
-validation and test samples. The same transforms are applied to validation and test samples.
+validation and test samples. The same transforms are applied to validation and test samples. There is the option of 
+adding the computation of a metric between the data before and after a specific transform by adding the attribute 
+`"metrics"` and setting the value of `"compare_to_original"` to 1.
 ```json
 {
     "train_transforms": 
     [
         {
-            "name": "RandomBiasField"
-        }, 
+            "name": "RandomBiasField",
+            "attributes": {
+                "compare_to_original": 1,
+                "metrics": [
+                    {
+                        "L1": {
+                            "wrapper": {
+                                "attributes": {
+                                    "metric_func": {
+                                        "attributes": {},
+                                        "module": "torch.nn",
+                                        "name": "L1Loss"
+                                    },
+                                    "metric_name": "L1"
+                                },
+                                "type": "metricwrapper"
+                            }
+                        }
+                    },{
+                        "SSIM": {
+                            "attributes": {
+                                "average_method": "mean",
+                                "mask_keys": [
+                                    "brain"
+                                ]
+                            },
+                            "module": "torchio.metrics",
+                            "name": "SSIM3D"
+                        }
+                    }
+                ]
+            }
+        },
         {
             "name": "RandomNoise"
         }, 

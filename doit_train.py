@@ -17,7 +17,7 @@ import torchvision
 from utils_file import get_log_file, gfile, get_parent_path, gdir
 #from utils import apply_conditions_on_dataset
 
-from torchio.transforms.metrics import SSIM3D, ssim3D
+from torchio.metrics.old_metrics import SSIM3D_old, ssim3D
 from smallunet_pytorch import ConvN_FC3, SmallUnet, load_existing_weights_if_exist
 from torch_summary import summary
 from unet import UNet, UNet3D
@@ -135,26 +135,7 @@ class do_training():
         self.res_name += '_B{}_nw{}'.format(batch_size, num_workers)
 
         if par_queue is not None:
-            self.patch = True
-            windows_size = par_queue['windows_size']
-            if len(windows_size) == 1:
-                windows_size = [windows_size[0], windows_size[0], windows_size[0]]
-
-            train_queue = Queue(train_dataset,
-                                par_queue['queue_length'],
-                                par_queue['samples_per_volume'],
-                                windows_size,
-                                ImageSampler,
-                                num_workers=num_workers, verbose=self.verbose)
-
-            val_queue = Queue(val_dataset, par_queue['queue_length'], 1, windows_size,
-                              ImageSampler, num_workers=num_workers,
-                              shuffle_subjects=False, shuffle_patches=False, verbose=self.verbose)
-            self.res_name += '_spv{}'.format(par_queue['samples_per_volume'])
-
-            self.train_dataloader = DataLoader(train_queue, batch_size=batch_size, shuffle=shuffel_train, collate_fn=collate_fn)
-            self.val_dataloader = DataLoader(val_queue, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
-
+            raise('not implemted rrr')
         else:
             self.train_dataset = train_dataset
             self.train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffel_train,
@@ -264,9 +245,9 @@ class do_training():
         elif losstype == 'L1':
             self.loss = tnn.L1Loss()
         elif losstype == 'ssim':
-            self.loss = SSIM3D()
+            self.loss = SSIM3D_old()
         elif losstype == 'ssim_dist':
-            self.loss = SSIM3D(distance=2)
+            self.loss = SSIM3D_old(distance=2)
         elif losstype == 'BCE':
             self.loss = tnn.BCELoss()
         elif losstype == 'BCElogit':
@@ -592,21 +573,26 @@ def get_motion_transform(type='motion1'):
     if 'motion1' in type:
         from torchio.metrics import SSIM3D, MetricWrapper, MapMetricWrapper
         from torchio.metrics.ssim import functional_ssim
+        #from torchio.metrics import th_pearsonr
         from torch.nn import MSELoss, L1Loss
-
+        from torch_similarity.modules import NormalizedCrossCorrelation
 
         metrics = {
             "L1": MetricWrapper("L1", L1Loss()),
             "L1_map": MapMetricWrapper("L1_map", lambda x, y: torch.abs(x - y), average_method="mean",
                                        mask_keys=['brain']),
-            "L2": MetricWrapper("L2", MSELoss()),
+            # "L2": MapMetricWrapper("L2", MSELoss(), mask_keys=['brain']),
             # "SSIM": SSIM3D(average_method="mean"),
             "SSIM_mask": SSIM3D(average_method="mean", mask_keys=["brain"]),
-            "SSIM_Wrapped": MetricWrapper("SSIM_wrapped", lambda x, y: functional_ssim(x, y, return_map=False),
-                                          use_mask=True, mask_key="brain"),
+            "NCC": MapMetricWrapper("NCC", lambda x, y: NormalizedCrossCorrelation(return_map=True)(x, y)[1],
+                                    average_method="mean", mask_keys=['brain']),
+            # "SSIM": MetricWrapper("SSIM", lambda x, y: functional_ssim(x, y, return_map=False),
+            #                               use_mask=True, mask_key="brain"),
             "ssim_base": MapMetricWrapper('SSIM_base', lambda x, y: ssim3D(x, y, size_average=True), average_method="mean",
                                           mask_keys=['brain'])
         }
+        # metrics = {"L1_map": MapMetricWrapper("L1_map", lambda x, y: torch.abs(x - y), average_method="mean",
+        #                                       mask_keys=['brain'])}
 
         dico_params_mot = {"maxDisp": (1, 6), "maxRot": (1, 6), "noiseBasePars": (5, 20, 0.8),
                        "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 6),
