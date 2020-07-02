@@ -29,8 +29,7 @@ class FuzzyOverlapMetric:
         self.t_norm = t_norm
         self.mask_cut = mask_cut
 
-    @staticmethod
-    def _apply_mask(mapping, mask):
+    def _apply_mask(self, mapping, mask):
         if mask is None:
             return mapping
         mask = mask >= self.mask_cut
