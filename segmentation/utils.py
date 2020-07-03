@@ -2,7 +2,6 @@ import commentjson as json
 from importlib import import_module
 import numpy as np
 import torch
-import torch.nn.functional as F
 import logging
 import sys
 import os
@@ -138,40 +137,3 @@ def save_checkpoint(state, save_path, model):
         model.save(filename)
     else:
         torch.save(state, filename)
-
-
-def channel_metrics(prediction, target, metric):
-    """
-    Compute a given metric on every channel of the volumes.
-    """
-    if target.shape[1] == 1:
-        target = torch.cat([target, 1 - target], dim=1)
-    prediction = F.softmax(prediction, dim=1)
-    channels = list(range(target.shape[1]))
-    res = []
-    for channel in channels:
-        res.append(metric(prediction[:, channel, ...], target[:, channel, ...]))
-
-    return torch.tensor(res)
-
-
-def mean_metric(prediction, target, metric):
-    """
-    Compute a given metric on every channel of the volumes and average them.
-    """
-    if target.shape[1] == 1:
-        target = torch.cat([target, 1 - target], dim=1)
-    prediction = F.softmax(prediction, dim=1)
-    channels = list(range(target.shape[1]))
-    res = 0
-    for channel in channels:
-        res += metric(prediction[:, channel, ...], target[:, channel, ...])
-
-    return res / len(channels)
-
-
-def get_class_name_from_method(method):
-    cls = method.__self__.__class__
-    # str(cls) gives something like "<class 'the_class_name'>"
-    cls_name = str(cls)[8:-2]
-    return cls_name.split('.')[-1]

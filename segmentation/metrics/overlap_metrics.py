@@ -1,4 +1,4 @@
-from segmentation.utils import channel_metrics
+from segmentation.metrics.utils import mean_metric
 
 
 class OverlapMetric:
@@ -8,37 +8,48 @@ class OverlapMetric:
     Args:
         cut: the threshold to binarize the volumes.
     """
-    def __init__(self, cut=0.5):
+    def __init__(self, cut=0.5, mask_cut=0.99):
         self.cut = cut
+        self.mask_cut = mask_cut
 
-    def true_positives(self, prediction, target):
+    def _apply_mask(self, mapping, mask):
+        if mask is None:
+            return mapping
+        mask = mask > self.mask_cut
+        return mapping * mask
+
+    def true_positives_map(self, prediction, target, mask=None):
         predicted_mask = prediction > self.cut
         target_mask = target > self.cut
-        return ((predicted_mask == target_mask) * target_mask).sum()
+        mapping = (predicted_mask == target_mask) * target_mask
+        return self._apply_mask(mapping, mask)
 
-    def true_negatives(self, prediction, target):
+    def true_negatives_map(self, prediction, target, mask=None):
         predicted_mask = prediction > self.cut
         target_mask = target > self.cut
-        return ((predicted_mask == target_mask) * (~ target_mask)).sum()
+        mapping = (predicted_mask == target_mask) * (~ target_mask)
+        return self._apply_mask(mapping, mask)
 
-    def false_positives(self, prediction, target):
+    def false_positives_map(self, prediction, target, mask=None):
         predicted_mask = prediction > self.cut
         target_mask = target > self.cut
-        return ((predicted_mask != target_mask) * (~ target_mask)).sum()
+        mapping = (predicted_mask != target_mask) * (~ target_mask)
+        return self._apply_mask(mapping, mask)
 
-    def false_negatives(self, prediction, target):
+    def false_negatives_map(self, prediction, target, mask=None):
         predicted_mask = prediction > self.cut
         target_mask = target > self.cut
-        return ((predicted_mask != target_mask) * target_mask).sum()
+        mapping = (predicted_mask != target_mask) * target_mask
+        return self._apply_mask(mapping, mask)
 
-    def per_channel_true_positives(self, prediction, target):
-        return channel_metrics(prediction, target, self.true_positives)
+    def mean_true_positives(self, prediction, target, **kwargs):
+        return mean_metric(prediction, target, lambda p, t, m: self.true_positives_map(p, t, m).sum(), **kwargs)
 
-    def per_channel_true_negatives(self, prediction, target):
-        return channel_metrics(prediction, target, self.true_negatives)
+    def mean_true_negatives(self, prediction, target, **kwargs):
+        return mean_metric(prediction, target, lambda p, t, m: self.true_negatives_map(p, t, m).sum(), **kwargs)
 
-    def per_channel_false_positives(self, prediction, target):
-        return channel_metrics(prediction, target, self.false_positives)
+    def mean_false_positives(self, prediction, target, **kwargs):
+        return mean_metric(prediction, target, lambda p, t, m: self.false_positives_map(p, t, m).sum(), **kwargs)
 
-    def per_channel_false_negatives(self, prediction, target):
-        return channel_metrics(prediction, target, self.false_negatives)
+    def mean_false_negatives(self, prediction, target, **kwargs):
+        return mean_metric(prediction, target, lambda p, t, m: self.false_negatives_map(p, t, m).sum(), **kwargs)
