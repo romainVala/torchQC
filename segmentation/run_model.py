@@ -57,7 +57,6 @@ class RunModel:
         self.eval_frequency = struct['validation']['eval_frequency']
         self.whole_image_inference_frequency = struct['validation']['whole_image_inference_frequency']
         self.metrics = struct['validation']['reporting_metrics']
-        self.metric_suffixes = struct['validation']['metric_suffixes']
         self.patch_overlap = struct['validation']['patch_overlap']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
