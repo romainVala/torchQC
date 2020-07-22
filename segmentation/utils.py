@@ -78,19 +78,25 @@ def to_numpy(x):
     return x
 
 
-def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time, mode, granularity='Batch'):
+def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time, mode, granularity=None):
     """
     Generate a summary of the model performances on a batch.
     """
     string = f'[{str(mode)}] Epoch: [{epoch}][{i}/{nb_batch}]\t'
 
+    if granularity is None:
+        loss_prefix = 'Max'
+        time_prefix = 'Batch'
+    else:
+        loss_prefix = time_prefix = granularity
+
     if isinstance(loss, str):
-        string += f'{granularity} Loss {loss} '
+        string += f'{loss_prefix} Loss {loss} '
         string += f'(Average {average_loss}) \t'
     else:
-        string += f'{granularity} Loss {loss:.4f} '
+        string += f'{loss_prefix} Loss {loss:.4f} '
         string += f'(Average {average_loss:.4f}) \t'
-    string += f'{granularity} Time {batch_time:.4f} '
+    string += f'{time_prefix} Time {batch_time:.4f} '
     string += f'(Average {average_time:.4f}) \t'
 
     return string
