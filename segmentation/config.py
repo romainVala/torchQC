@@ -727,11 +727,10 @@ class Config:
             else:
                 viz_set = self.val_set
 
-            # TODO: Fix visualization to handle label_key_name properly
             if 0 <= self.viz < 4:
                 if self.viz == 1:
                     viz_structure['kwargs'].update({
-                        'label_key_name': self.label_key_name[0]
+                        'label_key_name': self.label_key_name
                     })
 
                 elif self.viz == 2:
@@ -741,7 +740,7 @@ class Config:
 
                 elif self.viz == 3:
                     viz_structure['kwargs'].update({
-                        'label_key_name': self.label_key_name[0],
+                        'label_key_name': self.label_key_name,
                         'patch_sampler': self.sampler
                     })
 
@@ -769,9 +768,10 @@ class Config:
                 prediction = F.softmax(prediction, dim=0).to('cpu')
 
                 viz_structure['kwargs'].update({
-                    'label_key_name': self.label_key_name[0]
+                    'label_key_name': self.label_key_name
                 })
 
+                # TODO: Define which key is (/ keys are) used to create FP maps using config files
                 if self.viz == 4:
                     false_positives = minimum_t_norm(prediction[0], target, True)
                     sample[self.label_key_name[0]]['data'] = false_positives
