@@ -254,10 +254,10 @@ class RunModel:
         average_loss = None
 
         for i, sample in enumerate(self.val_set, 1):
-            predictions = self.make_prediction_on_whole_volume(sample)
-
             # Load target for the whole image
             _, target = self.data_getter(sample)
+
+            predictions = self.make_prediction_on_whole_volume(sample)
 
             # Compute loss
             sample_loss = 0
