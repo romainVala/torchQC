@@ -21,6 +21,8 @@ if __name__ == '__main__':
     parser.add_argument('-sl', '--signal_level', type=float, help='Level of signal of the main structure')
     parser.add_argument('-sr', '--signal_range', type=float, nargs='+',
                         help='Range of signal levels for the other structures')
+    parser.add_argument('-s', '--save', type=bool, default=False, help='If True, generated images will be saved '
+                                                                       'in results_dir')
 
     args = parser.parse_args()
 
@@ -31,6 +33,7 @@ if __name__ == '__main__':
     noise_range = args.noise_range
     signal_level = args.signal_level
     signal_range = args.signal_range
+    save = args.save
 
     if not os.path.isdir(results_folder):
         os.makedirs(results_folder)
@@ -71,6 +74,8 @@ if __name__ == '__main__':
 
     # Modify main structure signal level in image transform
     image_transform['attributes']['gaussian_parameters'][main_structure]['mean'] = signal_level
+
+    initial_transform_struct['save'] = save
 
     commands = []
 

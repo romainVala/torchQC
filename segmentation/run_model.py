@@ -75,6 +75,7 @@ class RunModel:
 
         self.eval_model_name = None
         self.eval_csv_basename = None
+        self.save_transformed_samples = False
 
     def log(self, info):
         if self.logger is not None:
@@ -140,7 +141,7 @@ class RunModel:
                  'optimizer': self.optimizer.state_dict() if self.optimizer is not None else {}}
         save_checkpoint(state, self.results_dir, self.model)
 
-    def eval(self, model_name=None, eval_csv_basename=None):
+    def eval(self, model_name=None, eval_csv_basename=None, save_transformed_samples=False):
         """ Evaluate the model on the validation set. """
         self.epoch -= 1
         self.eval_model_name = model_name
@@ -156,7 +157,7 @@ class RunModel:
 
             if self.patch_size is not None and self.whole_image_inference_frequency is not None:
                 self.log('Evaluation on whole images')
-                self.whole_image_evaluation_loop()
+                self.whole_image_evaluation_loop(save_transformed_samples)
 
     def infer(self):
         """ Use the model to make predictions on the test set. """
@@ -247,7 +248,7 @@ class RunModel:
 
         return average_loss
 
-    def whole_image_evaluation_loop(self):
+    def whole_image_evaluation_loop(self, save_transformed_samples=False):
         df = pd.DataFrame()
         start = time.time()
         time_sum, loss_sum = 0, 0
@@ -255,7 +256,10 @@ class RunModel:
 
         for i, sample in enumerate(self.val_set, 1):
             # Load target for the whole image
-            _, target = self.data_getter(sample)
+            volume, target = self.data_getter(sample)
+
+            if save_transformed_samples:
+                self.prediction_saver(sample, volume, i)
 
             predictions = self.make_prediction_on_whole_volume(sample)
 
@@ -401,10 +405,11 @@ class RunModel:
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions
 
-    def save_segmentation_prediction(self, sample, prediction):
+    def save_volume(self, sample, volume, idx=0):
         affine = sample[self.image_key_name]['affine']
-        prediction = nib.Nifti1Image(to_numpy(prediction), affine)
-        nib.save(prediction, f'{self.results_dir}/predictions_suj{sample["name"]}.nii.gz')
+        name = sample.get('name') or f'{idx:06d}'
+        volume = nib.Nifti1Image(to_numpy(volume.squeeze()), affine)
+        nib.save(volume, f'{self.results_dir}/{name}.nii.gz')
 
     def get_regress_random_noise_data(self, data):
         return self.get_regression_data(data, 'random_noise')
