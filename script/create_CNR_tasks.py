@@ -79,7 +79,7 @@ if __name__ == '__main__':
         new_struct = deepcopy(initial_transform_struct)
 
         new_noise_transform = deepcopy(noise_transform)
-        new_noise_transform['attributes']['std'] = noise_level
+        new_noise_transform['attributes']['std'] = [noise_level, noise_level]
 
         new_image_transform = deepcopy(image_transform)
         new_image_transform['attributes']['gaussian_parameters'][ref]['mean'] = ref_signal_level
@@ -96,7 +96,7 @@ if __name__ == '__main__':
         )
         generate_json_document(file_path, **{
             'transform': new_struct,
-            'results_dir': f'results{suffix}'
+            'results_dir': os.path.join(results_folder, f'results{suffix}')
         })
 
         cmd = f'python segmentation/segmentation_pipeline.py -f {os.path.join(experiment_folder, "main.json")} ' \
