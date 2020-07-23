@@ -179,7 +179,7 @@ class RunModel:
         df = pd.DataFrame()
         start = time.time()
         time_sum, loss_sum = 0, 0
-        average_loss = None
+        average_loss, max_loss = None, None
 
         for i, sample in enumerate(loader, 1):
             if self.model.training:
@@ -201,6 +201,7 @@ class RunModel:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+                loss = float(loss)
 
             # Measure elapsed time
             batch_time = time.time() - start
@@ -210,13 +211,18 @@ class RunModel:
             average_loss = loss_sum / i
             average_time = time_sum / i
 
+            if max_loss is None or max_loss < loss:
+                max_loss = loss
+
             # Log training or validation information every log_frequency iterations
             if i % self.log_frequency == 0:
-                to_log = summary(self.epoch, i, len(loader), loss, batch_time, average_loss, average_time, model_mode)
+                to_log = summary(
+                    self.epoch, i, len(loader), max_loss, batch_time, average_loss, average_time, model_mode
+                )
                 self.log(to_log)
 
             # Run model on validation set every eval_frequency iteration
-            if self.model.training and i % self.eval_frequency == 0:
+            if self.model.training and (i % self.eval_frequency == 0 or i == len(loader)):
                 with torch.no_grad():
                     self.model.eval()
                     self.train_loop()
