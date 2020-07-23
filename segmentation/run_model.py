@@ -74,7 +74,7 @@ class RunModel:
         self.iteration = 0
 
         self.eval_model_name = None
-        self.eval_csv_basename = 'Val'
+        self.eval_csv_basename = None
 
     def log(self, info):
         if self.logger is not None:
@@ -322,7 +322,6 @@ class RunModel:
         shape = targets.shape
         size = np.product(shape[2:])
         location = sample.get('index_ini')
-        history = sample.get('history')
         batch_size = shape[0]
 
         sample_time = batch_time / batch_size
@@ -373,18 +372,12 @@ class RunModel:
 
                     info[name] = to_numpy(metric['criterion'](**kwargs))
 
-            if history is not None:
-                for hist in history[idx]:
-                    info[f'history_{hist[0]}'] = json.dumps(hist[1], cls=ArrayTensorJSONEncoder)
+            self.record_history(info, sample, idx)
 
             df = df.append(info, ignore_index=True)
 
         if save:
-            if mode == 'Train':
-                filename = f'{self.results_dir}/{mode}_ep{self.epoch}.csv'
-            else:
-                filename = f'{self.results_dir}/{mode}_ep{self.epoch}_it{self.iteration}.csv'
-            df.to_csv(filename)
+            self.save_info(mode, df)
 
         return df
 
@@ -476,12 +469,10 @@ class RunModel:
                 df = self.record_regression_batch(df, ss, pp, tt, batch_time, save)
             return df
 
-
         mode = 'Train' if self.model.training else 'Val'
 
         location = sample.get('index_ini')
         shape = sample[self.image_key_name]['data'].shape
-        history = sample.get('history')
         batch_size = shape[0]
         sample_time = batch_time / batch_size
 
@@ -540,23 +531,34 @@ class RunModel:
 
                     info[name] = to_numpy(metric['criterion'](**kwargs))
 
-            if history is not None:
-                history_order = ''
-                for hist in history[idx]:
-                    info['T_{}'.format(hist[0])] = json.dumps(hist[1], cls=ArrayTensorJSONEncoder)
-                    history_order += hist[0] + '_'
-                info['transfo_order'] = history_order
+            self.record_history(info, sample, idx)
 
             df = df.append(info, ignore_index=True)
 
         if save:
-            if mode == 'Train':
-                filename = '{}/{}_ep{:03d}.csv'.format(self.results_dir, mode, self.epoch)
-            elif self.eval_model_name is not None:
-                filename = '{}/{}_from_{}.csv'.format(self.results_dir, self.eval_csv_basename, self.eval_model_name)
-            else:
-                filename = '{}/{}_ep{:03d}_it{:04d}.csv'.format(self.results_dir, mode, self.epoch, self.iteration)
-
-            df.to_csv(filename)
+            self.save_info(mode, df)
 
         return df
+
+    @staticmethod
+    def record_history(info, sample, idx=None):
+        is_batch = not isinstance(sample, torchio.Subject)
+        order = []
+        history = sample.get('history') if is_batch else sample.history
+        if history is None or len(history) == 0:
+            return
+        relevant_history = history[idx] if is_batch else history
+        for hist in relevant_history:
+            info[f'T_{hist[0]}'] = json.dumps(hist[1], cls=ArrayTensorJSONEncoder)
+            order.append(hist[0])
+        info['transfo_order'] = '_'.join(order)
+
+    def save_info(self, mode, df):
+        name = self.eval_csv_basename if self.eval_csv_basename is not None else mode
+        if mode == 'Train':
+            filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}.csv'
+        elif self.eval_model_name is not None:
+            filename = f'{self.results_dir}/{name}_from_{self.eval_model_name}.csv'
+        else:
+            filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}_it{self.iteration:04d}.csv'
+        df.to_csv(filename)
