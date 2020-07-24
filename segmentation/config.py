@@ -69,6 +69,7 @@ class Config:
         self.train_set, self.val_set, self.test_set = self.load_subjects(data_structure, transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(data_structure)
 
+        self.save_transformed_samples = transform_structure['save']
         self.loaded_model_name = None
 
         if 'model' in self.main_structure:
@@ -348,6 +349,7 @@ class Config:
         struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, TRANSFORM_KEYS, 'TRANSFORM CONFIG FILE')
+        self.set_struct_value(struct, 'save', False)
 
         if return_string:
             return struct
@@ -437,7 +439,7 @@ class Config:
         # Save
         self.check_mandatory_keys(struct['save'], SAVE_KEYS, 'SAVE')
         self.set_struct_value(struct['save'], 'batch_recorder', 'record_segmentation_batch')
-        self.set_struct_value(struct['save'], 'prediction_saver', 'save_segmentation_prediction')
+        self.set_struct_value(struct['save'], 'prediction_saver', 'save_volume')
 
         if isinstance(struct['data_getter'], str): #let some lazzy definition if no attribute
             struct['data_getter'] = {"name": struct['data_getter']}
@@ -713,7 +715,8 @@ class Config:
                 model_runner.train()
             elif self.mode == 'eval':
                 model_runner.eval(model_name=self.loaded_model_name,
-                                  eval_csv_basename=self.model_structure['eval_csv_basename'])
+                                  eval_csv_basename=self.model_structure['eval_csv_basename'],
+                                  save_transformed_samples=self.save_transformed_samples)
             else:
                 model_runner.infer()
 

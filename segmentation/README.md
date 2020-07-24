@@ -154,6 +154,7 @@ adding the computation of a metric between the data before and after a specific 
 `"metrics"` and setting the value of `"compare_to_original"` to 1.
 ```json
 {
+    "save": false,
     "train_transforms": 
     [
         {
@@ -223,6 +224,9 @@ adding the computation of a metric between the data before and after a specific 
 }
 ```
 `"train_transforms"` and `"val_transforms"` are mandatory.
+
+If `"save"` is `true`, when doing whole image evaluation, transformed
+images will be save to the result directory.
 
 #### model.json
 This file defines the model to use, its parameters and if it is loaded from a saved model.
@@ -306,7 +310,7 @@ is saved after every evaluation loop on the validation set,
     {
         "record_frequency": 10,
         "batch_recorder": "record_segmentation_batch",
-        "prediction_saver": "save_segmentation_prediction"
+        "prediction_saver": "save_volume"
     }, 
     "validation": 
     {
