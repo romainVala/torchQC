@@ -26,7 +26,9 @@ from utils_file import get_parent_path, gfile, gdir
 from doit_train import do_training, get_motion_transform
 from slices_2 import do_figures_from_file
 from utils import reduce_name_list, remove_string_from_name_list
-from utils_plot_results import get_ep_iter_from_res_name, plot_resdf, plot_train_val_results
+from utils_plot_results import get_ep_iter_from_res_name, plot_resdf, plot_train_val_results, \
+    transform_history_to_factor, parse_history
+import commentjson as json
 
 #res_valOn
 dd = gfile('/network/lustre/dtlake01/opendata/data/ds000030/rrr/CNN_cache_new','_')
@@ -90,6 +92,40 @@ for rr, fign in zip(dres_reg_exp, figname):
     plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Val.*csv',
                            prediction_column_name='prediction', target_column_name='targets',
                            target_scale=1, fign=fign, sresname=sresname)
+
+#new res EvalOn
+d='/network/lustre/iss01/home/romain.valabregue/datal/QCcnn/NN_regres_motion_New/result_HCP_T1_AffEla_mvt_rescal_mask_no_seed/eval_with_list_transfo2'
+resval = gfile(d,'EvalOn')
+res= pd.read_csv(resval[0])
+restrain = pd.read_csv(gfile(get_parent_path([d])[0],'^Train_ep024.csv')[0])
+d='/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/result_HCP_T1_AffEla_mvt_rescal_mask_no_seed_newMetrics/TEST/'
+d='/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/result_HCP_T1_AffEla_mvt_rescal_mask_no_modelDeep'
+d='/home/romain.valabregue/datal/QCcnn/NN_regres_motion_New/result_HCP_T1_AffEla_mvt_rescal_mask_no_seed_newMetrics_torch_random/result_ssim_base_brain'
+restrain = pd.read_csv(gfile(d,'^Train_ep018.csv')[0])
+restrain = [ pd.read_csv(ff) for ff in gfile(d,'^Train_ep00..csv')]
+res = pd.concat(restrain, ignore_index=True, sort=False)
+
+#rres = res.merge(res.T_RandomAffine.apply(lambda s: parse_history(s, 'rAff_')), left_index=True, right_index=True)
+rres = restrain.merge(restrain.apply(lambda s: parse_history(s), axis=1), left_index=True, right_index=True)
+resT = res.apply(lambda s: parse_history(s), axis=1)
+
+res['factorT'] = res.apply(lambda r: transform_history_to_factor(r), axis=1 )
+
+
+g = sns.relplot(x="targets", y="prediction",  data=res,
+                            kind='scatter', col='factorT', col_wrap=3, alpha=0.5)
+axes = g.axes.flatten()
+for aa in axes:
+    aa.plot([0.5, 1], [0.5, 1], 'k')
+    plt.grid()
+
+resval = pd.read_csv('/home/romain.valabregue/datal/QCcnn/NN_regres_motion_New/result_HCP_T1_AffEla_mvt_rescal_mask_no_seed/Val_ep170_it0100.csv')
+resval = pd.read_csv('/home/romain.valabregue/datal/QCcnn/NN_regres_motion_New/result_HCP_T1_AffEla_mvt_rescal_mask_no_seed/Train_ep170.csv')
+plt.figure()
+plt.scatter(resval.targets, resval.prediction)
+plt.plot([0.5, 1], [0.5, 1], 'k')
+resval['factorT'] = resval.apply(lambda r: transform_history_to_factor(r), axis=1 )
+
 
 for ii, oneres in enumerate([dres[0]]):
 #for ii, oneres in enumerate(dres):
@@ -313,7 +349,7 @@ write_image(tensor, affine, '/home/romain/QCcnn//mask_mvt_val_cati_T1/mot_li.nii
 ff1 = t.fitpars_interp
 
 suj = [tio.data.Subject(image=tio.data.Image('/data/romain/HCPdata/suj_150423/mT1w_1mm.nii', INTENSITY),
-         maskk=tio.data.Image('/data/romain/HCPdata/suj_150423/brain_T1w_1mm.nii.gz',  LABEL))]
+         brain=tio.data.Image('/data/romain/HCPdata/suj_150423/brain_T1w_1mm.nii.gz',  LABEL))]
 
 dico_p = {'num_control_points': 8, 'deformation_std': (20, 20, 20), 'max_displacement': (4, 4, 4),
               'p': 1, 'image_interpolation': Interpolation.LINEAR}
@@ -370,25 +406,29 @@ d.save_sample(s, dict(image='/tmp/t.nii'))
 t = Compose([RandomNoise(seed=10)])
 dataset = ImagesDataset(suj, transform=t);
 
-sample=dataset[0]
-for i in range(0, 10):
-    sample = dataset[0]
-    h=sample.history
-    print(h[0][1]['image']['std'])
 
-suj = [Subject(image=Image('/data/romain/data_exemple/suj_274542/T1w_acpc_dc_restore.nii.gz', INTENSITY))]
+suj = [Subject(t1=Image('/data/romain/data_exemple/suj_274542/T1w_acpc_dc_restore.nii.gz', INTENSITY))]
 t = Compose([RandomAffineFFT(scales=(1/0.7, 1/0.7), degrees=(0, 0), oversampling_pct=0)])
 t = Compose([RandomAffineFFT(scales=(1, 1), degrees=(0, 0), oversampling_pct=0)])
-dataset = ImagesDataset(suj) #, transform=t);
+dataset = ImagesDataset(suj, transform=t);
+dataset = ImagesDataset(suj);
 #ov(s['image']['data'][0])
 
-fout='/data/romain/data_exemple/suj_274542/T1w_1mm_fft2.nii'
+fout='/data/romain/data_exemple/suj_274542/T1w_1mm_fft.nii'
 s = dataset[0]
+#s.t1.save(fout)
 
-image=s['image']['data'][0]
-ii = np.zeros((260,312,260))
-#ii[:,1:,:] = image
-ii[:,:-1,:] = image #this induce no shift if same resolution
+
+image=s['t1']['data'][0]   #image.shape  [260, 311, 260]
+
+no_shift=True
+if no_shift:
+    ii = image
+else:
+    ii = np.zeros((260,312,260))
+    #ii[:,1:,:] = image
+    ii[:,:-1,:] = image #this induce no shift if same resolution because odd number of point ... ?
+
 output = (np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(ii)))).astype(np.complex128)
 in_shape = np.array(image.shape)
 out_shape = np.array([182, 218, 182])
@@ -397,15 +437,19 @@ oo_shape = out_shape+diff_shape
 out_crop = output[diff_shape[0]:oo_shape[0], diff_shape[1]:oo_shape[1], diff_shape[2]:oo_shape[2]]
 out_crop.shape
 
+             # np.fft.ifftshift(np.fft.ifftn(freq_domain))
 ifft = np.abs(np.fft.ifftshift(np.fft.ifftn(out_crop)))
+ifft_orig = np.abs(np.fft.ifftshift(np.fft.ifftn(output)))
 #ifft[:,:-1,:] = ifft[:,1:,:]
 #ifft[:,1:,:] = ifft[:,:-1,:]
 
 ifft.shape
 
-Iscale = np.prod(oo_shape) / np.prod(in_shape)
-ifft = ifft * Iscale * 0.5586484991611643
-affine = s['image']['affine']
+Iscale = np.prod(out_crop.shape) / np.prod(in_shape)
+#ifft = ifft * Iscale * 0.5586484991611643
+ifft = ifft * Iscale
+
+affine = s['t1']['affine']
 affine[0,0] = -1
 affine[1,1] = 1
 affine[2,2] = 1
@@ -436,3 +480,46 @@ i=s['image']
 i.save('/tmp/toto.nii')
 image=s['image']['data'][0]
 ov(image)
+
+
+#sum of square (= bruit 1 antente sigma   -> sigma du bruit somm
+#sqrt ( somme sur les canaux ( S * conj(S) ) )
+#bias sur le signal d une antenne loi bio et savar
+a = np.zeros(1000) + 1j* np.zeros(1000)
+for i in range(1,10):
+    aa = np.random.normal(0,1,1000) + 1j* np.random.normal(0,1,1000)
+    a += np.conj(aa) * aa
+
+a = np.sqrt(a)
+
+
+## bug random param in motion
+from segmentation.collate_functions import history_collate
+from torch.utils.data import DataLoader
+
+dico_params = {"maxDisp": (1, 4), "maxRot": (1, 4), "noiseBasePars": (5, 20, 0.8),
+               "swallowFrequency": (2, 6, 0.5), "swallowMagnitude": (3, 4),
+               "suddenFrequency": (2, 6, 0.5), "suddenMagnitude": (3, 4),
+               "verbose": False, "proba_to_augment": 1,
+               "preserve_center_pct": 0.1,
+               "oversampling_pct": 0, "correct_motion": True}
+
+t = RandomMotionFromTimeCourse(**dico_params)
+suj0 = [tio.data.Subject(image=tio.data.Image('/data/romain/HCPdata/suj_150423/mT1w_1mm.nii', INTENSITY),
+         brain=tio.data.Image('/data/romain/HCPdata/suj_150423/brain_T1w_1mm.nii.gz',  LABEL))]
+suj=[]
+for i in range(1,16):
+    suj.append(suj0[0])
+dataset = tio.data.ImagesDataset(suj, transform=Compose((CenterCropOrPad(target_shape=(4, 4, 4)),t)))
+dl = DataLoader(dataset, batch_size=4, num_workers=4, collate_fn=history_collate)
+#sample = dataset[0]
+sm, disp = [], []
+for i in range(0, 4):
+    sample = next(iter(dl))
+    hist = sample['history']
+    plt.figure()
+    for h in hist:
+        ff = h[0][1]['fitpars']
+        sm.append(h[0][1]['swallowMagnitudeT'])
+        disp.append(h[0][1]['rmse_Disp'])
+        plt.plot(ff[0])

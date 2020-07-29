@@ -9,13 +9,13 @@ class Dice:
         cut: the threshold to binarize the volumes, default is None: volumes are not binarized.
         smooth: a value used to avoid division by zero in soft dice loss.
     """
-    def __init__(self, cut=0.5, smooth=1., mask_cut=0.99):
+    def __init__(self, cut=0.5, smooth=1., mask_cut=0.99, binary=False):
         self.cut = cut
         self.smooth = smooth
         self.mask_cut = mask_cut
+        self.binary = binary
 
-    @staticmethod
-    def _apply_mask(prediction, target, mask):
+    def _apply_mask(self, prediction, target, mask):
         if mask is None:
             return prediction, target
         mask = mask >= self.mask_cut
@@ -32,7 +32,7 @@ class Dice:
                     (input_flat.pow(2).sum() + target_flat.pow(2).sum() + self.smooth))
 
     def mean_dice_loss(self, prediction, target, **kwargs):
-        return mean_metric(prediction, target, self.dice_loss, **kwargs)
+        return mean_metric(prediction, target, self.dice_loss, binary=self.binary, **kwargs)
 
     def mean_binarized_dice_loss(self, prediction, target, **kwargs):
         target = (target > self.cut).float()

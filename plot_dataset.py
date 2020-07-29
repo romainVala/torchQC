@@ -4,11 +4,125 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.widgets import Slider
 from typing import Sequence
-from functools import reduce
-from itertools import product
+from functools import reduce, lru_cache
 from torch.utils.data import DataLoader
 
 vox_views = [['sag', 'vox', 50], ['ax', 'vox', 50], ['cor', 'vox', 50]]
+
+
+class View:
+    def __init__(self, view, type2idx, img, affine, subject, figure, axis, label=None, channel=0, show_text=False,
+                 cmap='RdBu', alpha=0.3, threshold=0.01):
+        self.view_type, self.coordinate_system, self.position = view
+        self.view_idx = type2idx.index(self.view_type)
+        self.img = img
+        self.affine = affine
+        self.subject = subject
+        self.figure = figure
+        self.axis = axis
+        self.label = label
+        self.channel = channel
+        self.show_text = show_text
+
+        self.init = True
+        self.axis_img = None
+        self.axis_label = None
+        self.cmap = cmap
+        self.alpha = alpha
+        self.threshold = threshold
+
+    def set_position(self, position):
+        self.position = position
+
+    def set_channel(self, channel):
+        self.channel = channel
+
+    @lru_cache(100)
+    def mapped_position(self, position):
+        if self.coordinate_system == "vox":
+            if position < 0:
+                position = 0
+            if position >= 100:
+                position = 99
+            mapped_position = self.img.shape[self.view_idx] * position / 100
+        else:
+            position_vector = np.zeros(4)
+            position_vector[self.view_idx] = position
+            position_vector[3] = 1
+            mapped_position = np.linalg.solve(self.affine, position_vector)[self.view_idx]
+
+            # Clip mapped_position value to match image shape and compute clipped position
+            if mapped_position < 0:
+                mapped_position = 0
+            if mapped_position >= self.img.shape[self.view_idx] - 0.5:
+                mapped_position = self.img.shape[self.view_idx] - 1
+            position_vector[self.view_idx] = mapped_position
+            position = np.dot(self.affine, position_vector)[self.view_idx]
+
+        return int(round(mapped_position)), int(round(position))
+
+    @lru_cache(100)
+    def img_slice(self, position):
+        if self.view_idx == 0:
+            view_slice = self.img[position, :, :]
+        elif self.view_idx == 1:
+            view_slice = self.img[:, position, :]
+        else:
+            view_slice = self.img[:, :, position]
+        return np.flipud(view_slice.T)
+
+    @property
+    def legend(self):
+        complete_view_types = {'sag': 'sagittal', 'ax': 'axial', 'cor': 'coronal'}
+        if self.coordinate_system == 'vox':
+            return f'Subject {self.subject}: {complete_view_types[self.view_type]} section, {self.position}% voxels'
+        else:
+            return f'Subject {self.subject}: {complete_view_types[self.view_type]} section, {self.position} mm'
+
+    @lru_cache(100)
+    def label_slice(self, position, channel):
+        if self.view_idx == 0:
+            view_slice = self.label[channel][position, :, :]
+        elif self.view_idx == 1:
+            view_slice = self.label[channel][:, position, :]
+        else:
+            view_slice = self.label[channel][:, :, position]
+        return np.flipud(view_slice.T)
+
+    def render(self):
+        mapped_position, self.position = self.mapped_position(self.position)
+        img_slice = self.img_slice(mapped_position)
+        label_slice = None
+
+        if self.label is not None:
+            label_slice = self.label_slice(mapped_position, self.channel)
+
+        if self.init:
+            if self.show_text:
+                self.axis.text(0.5, -0.1, self.legend, size=8, ha="center", transform=self.axis.transAxes)
+
+            self.axis_img = self.axis.imshow(img_slice, cmap='gray')
+
+            if self.label is not None:
+                self.axis_label = self.axis.imshow(label_slice, cmap=self.cmap, alpha=self.alpha, clim=[self.threshold, 1])
+
+            self.init = False
+
+        else:
+            if self.show_text:
+                text_box = self.axis.texts[0]
+                text_box.set_text(self.legend)
+            self.axis_img.set_data(img_slice)
+
+            if self.label is not None:
+                self.axis_label.set_data(label_slice)
+
+            self.axis.draw_artist(self.axis_img)
+
+            if self.label is not None:
+                self.axis.draw_artist(self.axis_label)
+
+            self.figure.canvas.blit(self.axis.bbox)
 
 
 class PlotDataset:
@@ -56,7 +170,13 @@ class PlotDataset:
         self.views = views if views is not None else vox_views
         self.view_org = self.parse_view_org(view_org)
         self.image_key_name = image_key_name
+
         self.label_key_name = label_key_name
+
+        if isinstance(self.label_key_name, str):
+            self.label_key_name = [self.label_key_name]
+
+        self.current_channel = 0
 
         self.cached_images_and_affines = {}
         self.cached_labels = {}
@@ -71,7 +191,6 @@ class PlotDataset:
         self.datasample_list_size = datasample_list_size
         self.load_subjects()
 
-
         self.subject_org = self.parse_subject_org(subject_org)
         self.figsize = figsize
         self.update_all_on_scroll = update_all_on_scroll
@@ -80,20 +199,19 @@ class PlotDataset:
         self.cmap = cm.get_cmap(cmap)
         self.cmap.set_under(color='k', alpha=0)
 
-        self.imgs = {}
+        self.view_objects = {}
         self.figs_and_axes = []
         self.sliders = []
-        self.axes2view = {}
+        self.axes2view_keys = {}
 
         self.coordinate_system_list = ["vox", "mm"]
-        self.view_type_list = ["sag", "cor", "ax"]
+        self.type2idx = ["sag", "cor", "ax"]
+
+        self.updating_views = False
+        self.sliding = False
 
         self.check_views()
-
-
         self.init_plot()
-        self.scrolling = False
-        self.sliding = False
 
     def parse_view_org(self, view_org):
         if isinstance(view_org, Sequence) and len(view_org) == 2:
@@ -125,10 +243,10 @@ class PlotDataset:
         for idx in self.subject_idx:
             subject = self.dataset[int(idx)]
             im = subject[self.image_key_name]['data'].numpy()[0].copy()
-            label = None
+            labels = None
 
             if self.label_key_name is not None:
-                label = subject[self.label_key_name]['data'].numpy()[0].copy()
+                labels = [subject[key]['data'].numpy()[0].copy() for key in self.label_key_name]
 
             for _ in range(nb_patches):
                 patch = next(patch_sampler(subject))
@@ -146,13 +264,14 @@ class PlotDataset:
                 im[i_ini:i_fin, j_ini:j_fin, k_ini:k_fin] = im_patch
 
                 if self.label_key_name is not None:
-                    label_patch = patch[self.label_key_name]['data'].numpy()[0].copy()
-                    label[i_ini:i_fin, j_ini:j_fin, k_ini:k_fin] = label_patch
+                    for label, key in zip(labels, self.label_key_name):
+                        label_patch = patch[key]['data'].numpy()[0].copy()
+                        label[i_ini:i_fin, j_ini:j_fin, k_ini:k_fin] = label_patch
 
             self.cached_images_and_affines[idx] = (im, subject[self.image_key_name]['affine'].copy())
 
             if self.label_key_name is not None:
-                self.cached_labels[idx] = label
+                self.cached_labels[idx] = labels
 
     def load_subjects(self):
         if isinstance(self.dataset, DataLoader):
@@ -172,10 +291,13 @@ class PlotDataset:
                             batch[self.image_key_name]['affine'][i].numpy().copy()
                         if self.label_key_name is not None:
                             self.cached_labels[idx] = batch[self.label_key_name]['data'][i].numpy()[0].copy()
+                            self.cached_labels[idx] = [
+                                batch[key]['data'][i].numpy()[0].copy() for key in self.label_key_name
+                            ]
                 current_idx += batch_len
                 if current_idx > max_idx:
                     break
-        elif self.datasample_list_size:  # should be set when ussing ListOf transform:
+        elif self.datasample_list_size:  # should be set when using ListOf transform:
             new_idx = []
             for idx in self.subject_idx:
                 for list_idx in range(self.datasample_list_size):
@@ -193,7 +315,7 @@ class PlotDataset:
                         self.cached_images_and_affines[idx+idx_list] = suj[self.image_key_name]['data'].numpy()[0].copy(), \
                                                               suj[self.image_key_name]['affine'].copy()
                         if self.label_key_name is not None:
-                            self.cached_labels[idx+idx_list] = suj[self.label_key_name]['data'].numpy()[0].copy()
+                            self.cached_labels[idx+idx_list] = [suj[key]['data'].numpy()[0].copy() for key in self.label_key_name]
 
         else:
             for idx in self.subject_idx:
@@ -202,17 +324,7 @@ class PlotDataset:
                     self.cached_images_and_affines[idx] = subject[self.image_key_name]['data'].numpy()[0].copy(), \
                         subject[self.image_key_name]['affine'].copy()
                     if self.label_key_name is not None:
-                        self.cached_labels[idx] = subject[self.label_key_name]['data'].numpy()[0].copy()
-
-    @staticmethod
-    def view2slice(view_idx, idx, img):
-        if view_idx == 0:
-            view_slice = img[idx, :, :]
-        elif view_idx == 1:
-            view_slice = img[:, idx, :]
-        else:
-            view_slice = img[:, :, idx]
-        return np.flipud(view_slice.T)
+                        self.cached_labels[idx] = [subject[key]['data'].numpy()[0].copy() for key in self.label_key_name]
 
     def check_views(self):
         for view_type, coordinate_system, _ in self.views:
@@ -220,25 +332,17 @@ class PlotDataset:
                 raise ValueError(
                     f'coordinate_system {coordinate_system} not recognized among {self.coordinate_system_list}'
                 )
-            if view_type not in self.view_type_list:
-                raise ValueError(f'view_type {view_type} not recognized among {self.view_type_list}')
-
-    @staticmethod
-    def get_legend(subject, view_type, coordinate_system, position):
-        complete_view_types = {'sag': 'sagittal', 'ax': 'axial', 'cor': 'coronal'}
-        if coordinate_system == 'vox':
-            return f'Subject {subject}: {complete_view_types[view_type]} section, {position}% voxels'
-        else:
-            return f'Subject {subject}: {complete_view_types[view_type]} section, {position} mm'
+            if view_type not in self.type2idx:
+                raise ValueError(f'view_type {view_type} not recognized among {self.type2idx}')
 
     def init_plot(self):
         """
         Initialize all the figures and axes following self.view_org and self.subject_org.
-        Sets up the self.imgs dictionary and maps axes to views to access views from scroll events.
+        Sets up the self.view_objects dictionary and maps axes to views to access views from scroll events.
         Render the original views.
         """
         nb_subject_per_figure = np.product(self.subject_org)
-        nb_figures = math.ceil(len(self.subject_idx) / np.product(self.subject_org))
+        nb_figures = math.ceil(len(self.subject_idx) / nb_subject_per_figure)
 
         # Create figures and axes
         subplot_shape = (self.view_org[0] * self.subject_org[0], self.view_org[1] * self.subject_org[1])
@@ -247,7 +351,10 @@ class PlotDataset:
             fig.tight_layout()
             axes = axes.reshape(subplot_shape)
             self.figs_and_axes.append([fig, axes])
+
+            # Add event handlers
             fig.canvas.mpl_connect('scroll_event', self.on_scroll)
+            fig.canvas.mpl_connect('key_press_event', self.on_key_press)
 
             # Add sliders to set overlay display threshold
             if self.label_key_name is not None:
@@ -271,113 +378,96 @@ class PlotDataset:
             fig, axes = self.figs_and_axes[i // nb_subject_per_figure]
             i = i % nb_subject_per_figure
 
-            for j, (view_type, coordinate_system, _) in enumerate(self.views):
+            for j, view in enumerate(self.views):
                 axis = axes[
                     j // self.view_org[1] + i // self.subject_org[1] * self.view_org[0],
                     j % self.view_org[1] + i % self.subject_org[1] * self.view_org[1]
                 ]
-                self.imgs[(subject, view_type, coordinate_system)] = {
-                    'fig': fig,
-                    'axis': axis,
-                }
-                self.axes2view[axis] = (subject, view_type, coordinate_system)
+                view_type, coordinate_system, _ = view
+                view_key = (subject, view_type, coordinate_system)
+                img, affine = self.cached_images_and_affines[subject]
+                label = None
+
+                if self.label_key_name is not None:
+                    label = self.cached_labels[subject]
+
+                self.view_objects[view_key] = View(view, self.type2idx, img, affine, subject, fig, axis, label=label,
+                                       channel=self.current_channel, show_text=self.add_text,
+                                       cmap=self.cmap, alpha=self.alpha, threshold=self.threshold)
+                self.axes2view_keys[axis] = view_key
 
         # Render each view
-        for subject, view in product(self.subject_idx, self.views):
-            self.render_view(subject, view, init=True)
+        for view_object in self.view_objects.values():
+            view_object.render()
 
         # Display colorbar
         if self.label_key_name is not None:
             # Create a fake label to make the colorbar invariant to threshold changes
             axis = plt.axes([0., 0., 0., 0.])
-            label = axis.imshow(np.linspace(0, 1, 100).reshape(10, 10), cmap=self.cmap, alpha=self.alpha)
-            label.set_visible(False)
+            fake_label = axis.imshow(np.linspace(0, 1, 100).reshape(10, 10), cmap=self.cmap, alpha=self.alpha)
+            fake_label.set_visible(False)
             for fig, axes in self.figs_and_axes:
                 color_bar_axis = fig.add_axes([0.95, 0.05, 0.02, 0.9])
-                fig.colorbar(label, cax=color_bar_axis)
+                fig.colorbar(fake_label, cax=color_bar_axis)
 
-    def render_view(self, subject, view, init=False):
-        """
-        Generate the slice of interest from a view and render it.
-        If self.update_all_on_scroll is True, all the views sharing the same view_type and
-        coordinate_system are updated.
+        # Draw canvas
+        for fig, axes in self.figs_and_axes:
+            fig.canvas.draw()
 
-        :param subject: the subject whose view is rendered
-        :param view: the view to render
-        :param init: bool, if True draw the slices, otherwise update them
-        """
-        view_type, coordinate_system, position = view
-        view_idx = self.view_type_list.index(view_type)
-        img, affine = self.cached_images_and_affines[subject]
-        mapped_position, position = self.map_position(img, affine, position, view_idx, coordinate_system)
-        view_slice = self.view2slice(view_idx, mapped_position, img)
-
-        # Load label
-        label_slice = None
-        if self.label_key_name is not None:
-            label_slice = self.view2slice(view_idx, mapped_position, self.cached_labels[subject])
-
-        # Update image
-        img_key = (subject, view_type, coordinate_system)
-        self.imgs[img_key]['position'] = position
-
-        # Show or update image
-        axis = self.imgs[img_key]['axis']
-        text = self.get_legend(subject, view_type, coordinate_system, position)
-        if init:
-            if self.add_text:
-                axis.text(0.5, -0.1, text, size=8, ha="center", transform=axis.transAxes)
-            self.imgs[img_key]['img'] = axis.imshow(view_slice, cmap='gray')
-            if self.label_key_name is not None:
-                self.imgs[img_key]['label'] = axis.imshow(label_slice, cmap=self.cmap, alpha=self.alpha,
-                                                          clim=[self.threshold, 1])
+    def update(self, view_key, update_function):
+        if self.update_all_on_scroll:
+            subject, view_type, coordinate_system = view_key
+            view_keys = [(s, view_type, coordinate_system) for s in self.subject_idx]
         else:
-            if self.update_all_on_scroll:
-                self.update_imgs(view_type, coordinate_system, position, mapped_position, view_idx)
-            else:
-                if self.add_text:
-                    text_box = axis.texts[0]
-                    text_box.set_text(text)
-                self.update_img(img_key, view_slice, label_slice)
+            view_keys = [view_key]
 
-    @staticmethod
-    def map_position(img, affine, position, view_idx, coordinate_system):
-        if coordinate_system == "vox":
-            if position < 0:
-                position = 0
-            if position >= 100:
-                position = 99
-            mapped_position = img.shape[view_idx] * position / 100
-        else:
-            position_vector = np.zeros(4)
-            position_vector[view_idx] = position
-            position_vector[3] = 1
-            mapped_position = np.linalg.solve(affine, position_vector)[view_idx]
+        fig_to_update = []
 
-            # Clip mapped_position value to match image shape and compute clipped position
-            if mapped_position < 0:
-                mapped_position = 0
-            if mapped_position >= img.shape[view_idx] - 0.5:
-                mapped_position = img.shape[view_idx] - 1
-            position_vector[view_idx] = mapped_position
-            position = np.dot(affine, position_vector)[view_idx]
+        for key in view_keys:
+            view_object = self.view_objects[key]
+            update_function(view_object)
+            view_object.render()
 
-        return int(round(mapped_position)), int(round(position))
+            fig = view_object.figure
+            if fig not in fig_to_update:
+                fig_to_update.append(fig)
+
+        for fig in fig_to_update:
+            fig.canvas.flush_events()
+
+        self.updating_views = False
 
     def on_scroll(self, event):
-        if not self.scrolling:
-            img_key = self.axes2view.get(event.inaxes)
-            if img_key is not None:
-                self.scrolling = True
-                subject, view_type, coordinate_system = img_key
-                position = self.imgs[img_key]['position']
+        if not self.updating_views:
+            view_key = self.axes2view_keys.get(event.inaxes)
+            if view_key is not None:
+                self.updating_views = True
 
                 if event.button == 'down':
-                    view = (view_type, coordinate_system, position - 1)
+                    delta_position = -1
                 else:
-                    view = (view_type, coordinate_system, position + 1)
+                    delta_position = 1
 
-                self.render_view(subject, view)
+                self.update(
+                    view_key,
+                    lambda x: x.set_position(x.position + delta_position)
+                )
+
+    def on_key_press(self, event):
+        if self.label_key_name is not None and not self.updating_views:
+            if event.key == 'down' or event.key == 'up':
+                view_key = self.axes2view_keys.get(event.inaxes)
+                if view_key is not None:
+                    self.updating_views = True
+                    if event.key == 'down':
+                        delta_channel = -1
+                    else:
+                        delta_channel = 1
+
+                    self.update(
+                        view_key,
+                        lambda x: x.set_channel((x.channel + delta_channel) % len(self.label_key_name))
+                    )
 
     def on_slide(self, val):
         if not self.sliding:
@@ -385,46 +475,6 @@ class PlotDataset:
             for slider in self.sliders:
                 slider.set_val(val)
             self.threshold = val
-            for key in self.imgs.keys():
-                self.imgs[key]['label'].set_clim([self.threshold, 1])
+            for key in self.view_objects.keys():
+                self.view_objects[key].axis_label.set_clim([self.threshold, 1])
             self.sliding = False
-
-    def update_img(self, img_idx, view_slice, label_slice=None):
-        img_dict = self.imgs[img_idx]
-        img_dict['img'].set_data(view_slice)
-        if self.label_key_name is not None:
-            img_dict['label'].set_data(label_slice)
-        img_dict['fig'].canvas.draw()
-        img_dict['fig'].canvas.flush_events()
-        self.scrolling = False
-
-    def update_imgs(self, view_type, coordinate_system, position, mapped_position, view_idx):
-        img_keys = map(lambda s: (s, view_type, coordinate_system), self.subject_idx)
-        fig_to_update = []
-        for key in img_keys:
-            img_dict = self.imgs[key]
-            img_dict['position'] = position
-
-            axis = img_dict['axis']
-            if self.add_text:
-                text = self.get_legend(key[0], view_type, coordinate_system, position)
-                text_box = axis.texts[0]
-                text_box.set_text(text)
-
-            img, _ = self.cached_images_and_affines[key[0]]
-            view_slice = self.view2slice(view_idx, mapped_position, img)
-
-            if self.label_key_name is not None:
-                label_slice = self.view2slice(view_idx, mapped_position, self.cached_labels[key[0]])
-                img_dict['label'].set_data(label_slice)
-
-            img_dict['img'].set_data(view_slice)
-            fig = img_dict['fig']
-            if fig not in fig_to_update:
-                fig_to_update.append(fig)
-
-        for fig in fig_to_update:
-            fig.canvas.draw()
-            fig.canvas.flush_events()
-
-        self.scrolling = False

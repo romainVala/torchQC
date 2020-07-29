@@ -7,6 +7,7 @@ from utils import remove_extension
 from utils_file import get_parent_path, gfile, gdir
 from segmentation.config import Config as cc
 from termcolor import colored
+import commentjson as json
 
 def get_ep_iter_from_res_name(resname, nbit, batch_size=4):
     resname_no_ext = remove_extension(resname)
@@ -248,3 +249,96 @@ def plot_resdf(resdf_list, dir_fig=None,  target='ssim', split_distrib=True):
             if dir_fig is not None:
                 plt.savefig(dir_out_sub + 'Scat_' + fign + '.png');
                 plt.close()
+
+def transform_history_to_factor(r):
+    name = 'TODO'
+    if 'T_RandomAffine' in r :
+        raff = r.T_RandomAffine
+        if not isinstance(raff, float):
+            par = json.loads(raff)
+            name = 'Aff_S{:.1f}R{}'.format(par['scaling'][0], int(par['rotation'][0]))
+
+    if 'T_RandomAffineFFT' in r :
+        raff = r.T_RandomAffineFFT
+        if not isinstance(raff, float):
+            par = json.loads(raff)
+            name = 'AffFFT_S{:.1f}R{}'.format(par['scaling'][0], int(par['rotation'][0]))
+
+    if 'T_RandomElasticDeformation' in r :
+        raff = r.T_RandomElasticDeformation
+        if not isinstance(raff, float):
+            name = 'Ela'
+
+    if 'T_RandomBiasField' in r :
+        raff = r.T_RandomBiasField
+        if not isinstance(raff, float):
+            name = 'Ela'
+
+    return name
+
+
+def parse_history(r ):
+    def append_name_to_keys_in_dict(onedict, name_append):
+        newdict = dict()
+        for k, v in onedict.items():
+            newdict[name_append + k] = v
+        return newdict
+
+    all_dict={}
+
+    if 'T_RandomAffineFFT' in r :
+        raff = r.T_RandomAffineFFT
+        if isinstance(raff,float):
+            row_dict =  {'scaling': [np.nan, np.nan, np.nan],
+                         'rotation': [np.nan, np.nan, np.nan],
+                         'oversampling': np.nan,
+                         'noise_mean_T1w_1mm': np.nan,
+                         'noise_std_T1w_1mm': np.nan,
+                         'S_rot': np.nan,
+                         'M_scale': np.nan}
+        else:
+            row_dict = json.loads(raff)
+            row_dict['S_rot'] = np.sum(row_dict['rotation'])
+            row_dict['M_scale'] = np.mean(row_dict['scaling'])
+
+        row_dict = append_name_to_keys_in_dict(row_dict, 'A_FFT_')
+        all_dict.update(row_dict)
+
+    if 'T_RandomAffine' in r :
+        raff = r.T_RandomAffine
+        if isinstance(raff, float):
+            row_dict = {'scaling': [np.nan, np.nan, np.nan],
+                        'rotation': [np.nan, np.nan, np.nan],
+                        'translation': np.nan,
+                        'S_rot': np.nan,
+                        'S_trans': np.nan,
+                        'M_scale': np.nan}
+        else:
+            row_dict = json.loads(raff)
+            row_dict['S_rot'] = np.sum(row_dict['rotation'])
+            row_dict['S_trans'] = np.sum(row_dict['translation'])
+            row_dict['M_scale'] = np.mean(row_dict['scaling'])
+
+        row_dict = append_name_to_keys_in_dict(row_dict, 'Aff_')
+        all_dict.update(row_dict)
+
+    if 'T_RandomElasticDeformationSKIP' in r : #Skip becaus coarse_grid is too big and takes time to concatenate
+        raff = r.T_RandomElasticDeformation
+        if isinstance(raff, float):
+            row_dict = {'coarse_grid': np.nan}
+        else:
+            row_dict = json.loads(raff)
+            row_dict['coarse_grid'] = np.sum(row_dict['coarse_grid'])
+        row_dict = append_name_to_keys_in_dict(row_dict, 'Ela_')
+        all_dict.update(row_dict)
+
+    if 'T_RandomMotionFromTimeCourse' in r :
+        raff = r.T_RandomMotionFromTimeCourse
+        if isinstance(raff, float):
+            raise('Argg TODO but the dict  can change ... how to initial empty dict ?')
+        else:
+            row_dict = json.loads(raff)
+        row_dict = append_name_to_keys_in_dict(row_dict, 'Mot_')
+        all_dict.update(row_dict)
+
+    return pd.Series(all_dict)
