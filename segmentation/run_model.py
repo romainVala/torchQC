@@ -4,6 +4,8 @@ import json
 import torch
 import time
 import logging
+import glob
+import os
 import numpy as np
 import pandas as pd
 import nibabel as nib
@@ -49,9 +51,13 @@ class RunModel:
         self.batch_size = batch_size
         self.patch_size = patch_size
 
+        # Set attributes to keep track of information during training
+        self.epoch = struct['current_epoch']
+        self.iteration = 0
+
         # Retrieve information from structure
         self.criteria = struct['criteria']
-        self.optimizer, self.lr_strategy, self.lr_strategy_attributes = self.get_optimizer(struct['optimizer'])
+        self.optimizer, self.lr_scheduler = self.get_optimizer(struct['optimizer'])
         self.log_frequency = struct['log_frequency']
         self.record_frequency = struct['save']['record_frequency']
         self.eval_frequency = struct['validation']['eval_frequency']
@@ -69,10 +75,6 @@ class RunModel:
         self.batch_recorder = getattr(self, struct['save']['batch_recorder'])
         self.prediction_saver = getattr(self, struct['save']['prediction_saver'])
 
-        # Set attributes to keep track of information during training
-        self.epoch = struct['current_epoch']
-        self.iteration = 0
-
         self.eval_model_name = None
         self.eval_csv_basename = None
         self.save_transformed_samples = False
@@ -84,7 +86,17 @@ class RunModel:
     def get_optimizer(self, optimizer_dict):
         optimizer_dict['attributes'].update({'params': self.model.parameters()})
         optimizer = optimizer_dict['optimizer_class'](**optimizer_dict['attributes'])
-        return optimizer, optimizer_dict['learning_rate_strategy'], optimizer_dict['learning_rate_strategy_attributes']
+
+        scheduler = None
+        if optimizer_dict['lr_scheduler'] is not None:
+            optimizer_dict['lr_scheduler']['attributes'].update(
+                {'optimizer': optimizer}
+            )
+            scheduler = optimizer_dict['lr_scheduler']['class'](
+                **optimizer_dict['lr_scheduler']['attributes']
+            )
+
+        return optimizer, scheduler
 
     def get_segmentation_data(self, sample):
         volumes = sample[self.image_key_name]
@@ -106,6 +118,22 @@ class RunModel:
         if self.seed is not None:
             torch.manual_seed(self.seed)
 
+        # Try to load optimizer state
+        opt_files = glob.glob(
+            os.path.join(self.results_dir, f'opt_ep{self.epoch - 1}*.pth.tar')
+        )
+        if len(opt_files) > 0:
+            self.optimizer.load_state_dict(torch.load(opt_files[-1]))
+
+        # Try to load scheduler state
+        if self.lr_scheduler is not None:
+            sch_files = glob.glob(
+                os.path.join(self.results_dir,
+                             f'sch_ep{self.epoch - 1}*.pth.tar')
+            )
+            if len(sch_files) > 0:
+                self.lr_scheduler.load_state_dict(torch.load(sch_files[-1]))
+
         for epoch in range(self.epoch, self.n_epochs + 1):
             self.epoch = epoch
             self.log('******** Epoch [{}/{}]  ********'.format(self.epoch, self.n_epochs))
@@ -122,24 +150,10 @@ class RunModel:
                     self.whole_image_evaluation_loop()
 
                     # Save model after inference
-                    state = {'epoch': self.epoch,
-                             'iterations': self.iteration,
-                             'val_loss': None,
-                             'state_dict': self.model.state_dict(),
-                             'optimizer': self.optimizer.state_dict() if self.optimizer is not None else {}}
-                    save_checkpoint(state, self.results_dir, self.model)
-
-            # Update learning rate
-            if self.lr_strategy is not None:
-                self.optimizer = self.lr_strategy(self.optimizer, **self.lr_strategy_attributes)
+                    self.save_checkpoint()
 
         # Save model at the end of training
-        state = {'epoch': self.epoch,
-                 'iterations': self.iteration,
-                 'val_loss': None,
-                 'state_dict': self.model.state_dict(),
-                 'optimizer': self.optimizer.state_dict() if self.optimizer is not None else {}}
-        save_checkpoint(state, self.results_dir, self.model)
+        self.save_checkpoint()
 
     def eval(self, model_name=None, eval_csv_basename=None, save_transformed_samples=False):
         """ Evaluate the model on the validation set. """
@@ -226,8 +240,12 @@ class RunModel:
             if self.model.training and (i % self.eval_frequency == 0 or i == len(loader)):
                 with torch.no_grad():
                     self.model.eval()
-                    self.train_loop()
+                    validation_loss = self.train_loop()
                     self.model.train()
+
+                # Update scheduler at the end of the epoch
+                if i == len(loader) and self.lr_scheduler is not None:
+                    self.lr_scheduler.step(validation_loss)
 
             # Update DataFrame and record it every record_frequency iterations
             if i % self.record_frequency == 0 or i == len(loader):
@@ -239,12 +257,7 @@ class RunModel:
 
         # Save model after an evaluation on the whole validation set
         if save_model and not self.model.training:
-            state = {'epoch': self.epoch,
-                     'iterations': self.iteration,
-                     'val_loss': average_loss,
-                     'state_dict': self.model.state_dict(),
-                     'optimizer': self.optimizer.state_dict() if self.optimizer is not None else {}}
-            save_checkpoint(state, self.results_dir, self.model)
+            self.save_checkpoint(average_loss)
 
         return average_loss
 
@@ -311,6 +324,25 @@ class RunModel:
                 self.log(to_log)
 
             self.prediction_saver(sample, predictions)
+
+    def save_checkpoint(self, loss=None):
+        optimizer_dict = None
+        scheduler_dict = None
+
+        if self.optimizer is not None:
+            optimizer_dict = self.optimizer.state_dict()
+
+        if self.lr_scheduler is not None:
+            scheduler_dict = self.lr_scheduler.state_dict()
+
+        state = {'epoch': self.epoch,
+                 'iterations': self.iteration,
+                 'val_loss': loss,
+                 'state_dict': self.model.state_dict(),
+                 'optimizer': optimizer_dict,
+                 'scheduler': scheduler_dict}
+
+        save_checkpoint(state, self.results_dir, self.model)
 
     def record_segmentation_batch(self, df, sample, predictions, targets, batch_time, save=False):
         """
