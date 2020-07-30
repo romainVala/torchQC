@@ -123,7 +123,7 @@ def instantiate_logger(logger_name, log_level, log_filename, console=True):
 
 def save_checkpoint(state, save_path, model):
     """
-    Save the current model.
+    Save the current model and optimizer state.
     """
     if not os.path.isdir(save_path):
         os.makedirs(save_path)
@@ -132,6 +132,7 @@ def save_checkpoint(state, save_path, model):
     val_loss = state.get('val_loss')
     iterations = state.get('iterations')
 
+    # Save model
     filename = f'{save_path}/model_ep{epoch}'
     if iterations is not None:
         filename += f'_it{iterations}'
@@ -142,4 +143,12 @@ def save_checkpoint(state, save_path, model):
     if hasattr(model, 'save'):
         model.save(filename)
     else:
-        torch.save(state, filename)
+        torch.save(state['state_dict'], filename)
+
+    if state['optimizer'] is not None:
+        filename = f'{save_path}/opt_ep{epoch}.pth.tar'
+        torch.save(state['optimizer'], filename)
+
+    if state['scheduler'] is not None:
+        filename = f'{save_path}/sch_ep{epoch}.pth.tar'
+        torch.save(state['scheduler'], filename)

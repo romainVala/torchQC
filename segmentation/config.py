@@ -36,6 +36,7 @@ MODEL_KEYS = ['name', 'module']
 
 RUN_KEYS = ['criteria', 'optimizer', 'save', 'validation', 'n_epochs']
 OPTIMIZER_KEYS = ['name', 'module']
+SCHEDULER_KEYS = ['name', 'module']
 SAVE_KEYS = ['record_frequency']
 
 
@@ -339,9 +340,16 @@ class Config:
             else:
                 t_class = getattr(torchio.transforms, t['name'])
             if t.get('is_selection'):
-                t_dict = {}
-                for p_and_t in t['transforms']:
-                    t_dict[parse_transform(p_and_t['transform'])] = p_and_t['prob']
+                if 'prob' in t['transforms'][0]:
+                    t_dict = {
+                        parse_transform(p_and_t['transform']): p_and_t['prob']
+                        for p_and_t in t['transforms']
+                    }
+                else:
+                    t_dict = [
+                        parse_transform(p_and_t['transform']) for p_and_t in
+                        t['transforms']
+                    ]
                 return t_class(t_dict, **attributes)
             else:
                 return t_class(**attributes)
@@ -433,8 +441,10 @@ class Config:
         # Optimizer
         self.check_mandatory_keys(struct['optimizer'], OPTIMIZER_KEYS, 'OPTIMIZER')
         self.set_struct_value(struct['optimizer'], 'attributes', {})
-        self.set_struct_value(struct['optimizer'], 'learning_rate_strategy')
-        self.set_struct_value(struct['optimizer'], 'learning_rate_strategy_attributes', {})
+        self.set_struct_value(struct['optimizer'], 'lr_scheduler')
+        if struct['optimizer']['lr_scheduler'] is not None:
+            self.check_mandatory_keys(struct['optimizer']['lr_scheduler'], SCHEDULER_KEYS, 'SCHEDULER')
+            self.set_struct_value(struct['optimizer']['lr_scheduler'], 'attributes', {})
 
         # Save
         self.check_mandatory_keys(struct['save'], SAVE_KEYS, 'SAVE')
@@ -463,9 +473,8 @@ class Config:
 
         # Optimizer
         struct['optimizer']['optimizer_class'] = parse_function_import(struct['optimizer'])
-        strategy = struct['optimizer']['learning_rate_strategy']
-        if strategy is not None:
-            struct['optimizer']['learning_rate_strategy'] = parse_function_import(strategy)
+        if struct['optimizer']['lr_scheduler'] is not None:
+            struct['optimizer']['lr_scheduler']['class'] = parse_function_import(struct['optimizer']['lr_scheduler'])
 
         # Validation
         struct['validation']['reporting_metrics'] = parse_criteria(struct['validation']['reporting_metrics'])

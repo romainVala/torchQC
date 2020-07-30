@@ -304,7 +304,17 @@ is saved after every evaluation loop on the validation set,
     {
         "module": "torch.optim", 
         "name": "Adam", 
-        "attributes": {"lr": 0.0001}
+        "attributes": {"lr": 0.0001},
+        "lr_scheduler": 
+        {
+            "module": "torch.optim.lr_scheduler",
+            "name": "ReduceLROnPlateau",
+            "attributes": 
+            {
+                "mode": "min",
+                "patience": 6
+            }
+        }
     }, 
     "save": 
     {
@@ -343,6 +353,8 @@ is saved after every evaluation loop on the validation set,
 `"criteria"`, `"optimizer"`, `"save"`, `"validation"` and `"n_epochs"` are mandatory.
 
 In the `"optimizer"` dictionary, `"name"` and `"module"` are mandatory. <br>
+If `"lr_scheduler"` is present in the `"optimizer"` dictionary, it must 
+have `"name"` and `"module"`.
 In the `"save"` dictionary, `"record_frequency"` is mandatory. <br>
 
 #### visualization.json
