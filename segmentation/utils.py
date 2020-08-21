@@ -28,7 +28,8 @@ def parse_function_import(function_dict):
 
 def parse_object_import(object_dict):
     """
-    Import a class and instantiate it from a dictionary that specifies where to find it.
+    Import a class and instantiate it from a dictionary that specifies
+    where to find it.
     """
     attributes = object_dict.get('attributes') or {}
     object_class = parse_function_import(object_dict)
@@ -37,7 +38,8 @@ def parse_object_import(object_dict):
 
 def parse_method_import(method_dict):
     """
-    Import a method from a class instance using a dictionary that specifies where to find it.
+    Import a method from a class instance using a dictionary that specifies
+    where to find it.
     """
     object_instance, _ = parse_object_import(method_dict)
     return getattr(object_instance, method_dict['method'])
@@ -53,7 +55,8 @@ def generate_json_document(filename, **kwargs):
 
 def to_var(x, device):
     """
-    Applied to a NumPy array or a Torch tensor, it returns a Torch tensor on the given device.
+    Applied to a NumPy array or a Torch tensor, it returns a Torch tensor
+    on the given device.
     """
     if isinstance(x, np.ndarray):
         x = torch.from_numpy(x)
@@ -78,7 +81,8 @@ def to_numpy(x):
     return x
 
 
-def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time, mode, granularity=None):
+def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time,
+            mode, granularity=None):
     """
     Generate a summary of the model performances on a batch.
     """
@@ -108,7 +112,8 @@ def instantiate_logger(logger_name, log_level, log_filename, console=True):
     """
     logger = logging.getLogger(logger_name)
     logger.setLevel(log_level)
-    formatter = logging.Formatter("%(asctime)-2s: %(levelname)-2s : %(message)s")
+    formatter = logging.Formatter(
+        "%(asctime)-2s: %(levelname)-2s : %(message)s")
 
     file_handler = logging.FileHandler(log_filename)
     file_handler.setFormatter(formatter)
