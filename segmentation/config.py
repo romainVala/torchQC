@@ -666,7 +666,7 @@ class Config:
             res = pd.read_csv(csv_file["root"])
 
             for suj_idx in range(len(res)):
-                subject = {}
+                subject = {'name': res['name'][suj_idx]}
                 for component_name, component in csv_file['components'].items():
                     component_path = res[component['column_name']][suj_idx]
                     image_name = component['image']
