@@ -34,7 +34,7 @@ def compute_occupation_percentage(results_dir, use_all_files=False):
     print(occupations)
 
 
-def compute_real_occupation(results_dir):
+def compute_real_occupation(results_dir, patch=False):
     # Get labels
     data_file = os.path.join(results_dir, 'data.json')
     with open(data_file) as f:
@@ -43,7 +43,8 @@ def compute_real_occupation(results_dir):
     real_occupations = {label: 0 for label in labels}
 
     # Get file
-    file = glob.glob(os.path.join(results_dir, 'Whole_image_*.csv'))[-1]
+    csv_pattern = 'Whole_image_*.csv' if patch else 'Val_*.csv'
+    file = glob.glob(os.path.join(results_dir, csv_pattern))[-1]
 
     # Create dataframe out of CSV file
     df = pd.read_csv(file, index_col=0)
@@ -56,7 +57,7 @@ def compute_real_occupation(results_dir):
     print(real_occupations)
 
 
-def compute_predicted_occupation(results_dir):
+def compute_predicted_occupation(results_dir, patch=False):
     # Get labels
     data_file = os.path.join(results_dir, 'data.json')
     with open(data_file) as f:
@@ -65,7 +66,8 @@ def compute_predicted_occupation(results_dir):
     predicted_occupations = {label: 0 for label in labels}
 
     # Get file
-    file = glob.glob(os.path.join(results_dir, 'Whole_image_*.csv'))[-1]
+    csv_pattern = 'Whole_image_*.csv' if patch else 'Val_*.csv'
+    file = glob.glob(os.path.join(results_dir, csv_pattern))[-1]
 
     # Create dataframe out of CSV file
     df = pd.read_csv(file, index_col=0)
@@ -78,7 +80,7 @@ def compute_predicted_occupation(results_dir):
     print(predicted_occupations)
 
 
-def compute_occupation_stats(results_dir):
+def compute_occupation_stats(results_dir, patch=False):
     # Get labels
     data_file = os.path.join(results_dir, 'data.json')
     with open(data_file) as f:
@@ -87,7 +89,8 @@ def compute_occupation_stats(results_dir):
     volume_differences = {label: 0 for label in labels}
 
     # Get file
-    file = glob.glob(os.path.join(results_dir, 'Whole_image_*.csv'))[-1]
+    csv_pattern = 'Whole_image_*.csv' if patch else 'Val_*.csv'
+    file = glob.glob(os.path.join(results_dir, csv_pattern))[-1]
 
     # Create dataframe out of CSV file
     df = pd.read_csv(file, index_col=0)
@@ -98,21 +101,48 @@ def compute_occupation_stats(results_dir):
         predicted_occupied = df[f'predicted_occupied_volume_{label}']
         differences = occupied - predicted_occupied
         volume_differences[label] = {
-            'mean_diff': np.mean(differences),
-            'std_diff': np.std(differences),
-            'min_diff': np.min(differences),
-            'max_diff': np.max(differences),
-            'mean_abs_diff': np.mean(np.abs(differences)),
-            'std_abs_diff': np.std(np.abs(differences)),
-            'min_abs_diff': np.min(np.abs(differences)),
-            'max_abs_diff': np.max(np.abs(differences)),
+            'mean': np.mean(differences),
+            'std': np.std(differences),
+            'min': np.min(differences),
+            'max': np.max(differences),
         }
 
     # print(volume_differences)
     return volume_differences
 
 
-def compute_dice_score_stats(results_dir):
+def compute_abs_occupation_stats(results_dir, patch=False):
+    # Get labels
+    data_file = os.path.join(results_dir, 'data.json')
+    with open(data_file) as f:
+        labels = json.load(f)['label_key_name']
+
+    volume_differences = {label: 0 for label in labels}
+
+    # Get file
+    csv_pattern = 'Whole_image_*.csv' if patch else 'Val_*.csv'
+    file = glob.glob(os.path.join(results_dir, csv_pattern))[-1]
+
+    # Create dataframe out of CSV file
+    df = pd.read_csv(file, index_col=0)
+
+    # Compute occupation
+    for label in labels:
+        occupied = df[f'occupied_volume_{label}']
+        predicted_occupied = df[f'predicted_occupied_volume_{label}']
+        differences = occupied - predicted_occupied
+        volume_differences[label] = {
+            'mean': np.mean(np.abs(differences)),
+            'std': np.std(np.abs(differences)),
+            'min': np.min(np.abs(differences)),
+            'max': np.max(np.abs(differences)),
+        }
+
+    # print(volume_differences)
+    return volume_differences
+
+
+def compute_dice_score_stats(results_dir, patch=False):
     # Get labels
     data_file = os.path.join(results_dir, 'data.json')
     with open(data_file) as f:
@@ -121,7 +151,8 @@ def compute_dice_score_stats(results_dir):
     dice_scores = {label: 0 for label in labels}
 
     # Get file
-    file = glob.glob(os.path.join(results_dir, 'Whole_image_*.csv'))[-1]
+    csv_pattern = 'Whole_image_*.csv' if patch else 'Val_*.csv'
+    file = glob.glob(os.path.join(results_dir, csv_pattern))[-1]
 
     # Create dataframe out of CSV file
     df = pd.read_csv(file, index_col=0)
@@ -130,10 +161,39 @@ def compute_dice_score_stats(results_dir):
     for label in labels:
         dice_loss = df[f'metric_dice_loss_{label}']
         dice_scores[label] = {
-            'mean_dice': 1 - np.mean(dice_loss),
-            'std_dice': np.std(dice_loss),
-            'min_dice': 1 - np.max(dice_loss),
-            'max_dice': 1 - np.min(dice_loss)
+            'mean': 1 - np.mean(dice_loss),
+            'std': np.std(dice_loss),
+            'min': 1 - np.max(dice_loss),
+            'max': 1 - np.min(dice_loss)
+        }
+
+    # print(dice_scores)
+    return dice_scores
+
+
+def compute_bin_dice_score_stats(results_dir, patch=False):
+    # Get labels
+    data_file = os.path.join(results_dir, 'data.json')
+    with open(data_file) as f:
+        labels = json.load(f)['label_key_name']
+
+    dice_scores = {label: 0 for label in labels}
+
+    # Get file
+    csv_pattern = 'Whole_image_*.csv' if patch else 'Val_*.csv'
+    file = glob.glob(os.path.join(results_dir, csv_pattern))[-1]
+
+    # Create dataframe out of CSV file
+    df = pd.read_csv(file, index_col=0)
+
+    # Compute occupation
+    for label in labels:
+        dice_loss = df[f'metric_bin_dice_loss_{label}']
+        dice_scores[label] = {
+            'mean': 1 - np.mean(dice_loss),
+            'std': np.std(dice_loss),
+            'min': 1 - np.max(dice_loss),
+            'max': 1 - np.min(dice_loss)
         }
 
     # print(dice_scores)
