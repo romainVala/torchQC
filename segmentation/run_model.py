@@ -66,6 +66,11 @@ class RunModel:
         self.patch_overlap = struct['validation']['patch_overlap']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
+        self.activation = struct['activation']
+
+        # Keep information to load optimizer and learning rate scheduler
+        self.optimizer, self.lr_scheduler = None, None
+        self.optimizer_dict = struct['optimizer']
 
         # Define which methods will be used to retrieve data and record information
         function_datagetter = getattr(self, struct['data_getter']['name'])
@@ -117,6 +122,10 @@ class RunModel:
         # Set seed for reproducibility
         if self.seed is not None:
             torch.manual_seed(self.seed)
+
+        # Get optimizer and scheduler
+        self.optimizer, self.lr_scheduler = self.get_optimizer(
+            self.optimizer_dict)
 
         # Try to load optimizer state
         opt_files = glob.glob(
@@ -209,7 +218,8 @@ class RunModel:
             # Compute loss
             loss = 0
             for criterion in self.criteria:
-                loss += criterion['weight'] * criterion['criterion'](predictions, targets)
+                loss += criterion['weight'] * criterion['criterion'](
+                    predictions, targets, activation=self.activation)
 
             # Compute gradient and do SGD step
             if self.model.training:
@@ -395,7 +405,11 @@ class RunModel:
             if not self.model.training:
                 for metric in self.metrics:
                     name = f'metric_{metric["name"]}'
-                    kwargs = {'prediction': predictions[idx].unsqueeze(0), 'target': targets[idx].unsqueeze(0)}
+                    kwargs = {
+                        'prediction': predictions[idx].unsqueeze(0),
+                        'target': targets[idx].unsqueeze(0),
+                        'activation': self.activation
+                    }
 
                     if metric['mask'] is not None:
                         kwargs['mask'] = to_var(sample[metric['mask']]['data'][idx, 0], self.device)

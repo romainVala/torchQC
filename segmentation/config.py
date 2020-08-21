@@ -429,6 +429,7 @@ class Config:
         self.set_struct_value(struct, 'seed')
         self.set_struct_value(struct, 'current_epoch')
         self.set_struct_value(struct, 'log_frequency', 10)
+        self.set_struct_value(struct, 'activation', 'softmax')
 
         files = glob.glob(os.path.join(self.results_dir, 'model_ep*'))
         if len(files) == 0:
