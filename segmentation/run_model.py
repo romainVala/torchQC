@@ -28,12 +28,15 @@ class ArrayTensorJSONEncoder(json.JSONEncoder):
 
 class RunModel:
     """
-    Handle training, evaluation and saving of a model from a json configuration file.
+    Handle training, evaluation and saving of a model from a json
+    configuration file.
     """
-    def __init__(self, model, train_loader, val_loader, val_set, test_set, image_key_name, label_key_name,
-                 logger, debug_logger, results_dir, batch_size, patch_size, struct):
+    def __init__(self, model, device, train_loader, val_loader, val_set,
+                 test_set, image_key_name, label_key_name, labels,
+                 logger, debug_logger, results_dir, batch_size,
+                 patch_size, struct):
         self.model = model
-        self.device = next(model.parameters()).device
+        self.device = device
 
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -42,7 +45,7 @@ class RunModel:
 
         self.image_key_name = image_key_name
         self.label_key_name = label_key_name
-        self.key2channel = {key: i for i, key in enumerate(self.label_key_name)}
+        self.labels = labels
 
         self.logger = logger
         self.debug_logger = debug_logger
@@ -57,7 +60,6 @@ class RunModel:
 
         # Retrieve information from structure
         self.criteria = struct['criteria']
-        self.optimizer, self.lr_scheduler = self.get_optimizer(struct['optimizer'])
         self.log_frequency = struct['log_frequency']
         self.record_frequency = struct['save']['record_frequency']
         self.eval_frequency = struct['validation']['eval_frequency']
@@ -107,14 +109,10 @@ class RunModel:
         volumes = sample[self.image_key_name]
         volumes = to_var(volumes[torchio.DATA].float(), self.device)
 
-        targets = []
-        for key in self.label_key_name:
-            if key in sample:
-                target = sample[key]
-                targets.append(to_var(target[torchio.DATA].float(), self.device))
-            else:
-                return volumes, None
-        targets = torch.cat(targets, dim=-4)
+        targets = None
+        if self.label_key_name in sample:
+            targets = sample[self.label_key_name]
+            targets = to_var(targets[torchio.DATA].float(), self.device)
         return volumes, targets
 
     def train(self):
@@ -373,7 +371,10 @@ class RunModel:
         sample_time = batch_time / batch_size
 
         for idx in range(batch_size):
-            image_path = sample[self.image_key_name]['path'][idx] if is_batch else sample[self.image_key_name]['path']
+            if is_batch:
+                image_path = sample[self.image_key_name]['path'][idx]
+            else:
+                image_path = sample[self.image_key_name]['path']
             info = {
                 'image_filename': image_path,
                 'shape': to_numpy(shape[2:]),
@@ -382,24 +383,35 @@ class RunModel:
             if is_batch:
                 info['batch_size'] = batch_size
 
-            for key in self.label_key_name:
-                info[f'label_filename_{key}'] = sample[key]['path'][idx] if is_batch else sample[key]['path']
+            if is_batch:
+                info['label_filename'] = sample[self.label_key_name]['path'][idx]
+            else:
+                info['label_filename'] = sample[self.label_key_name]['path']
 
             for channel in list(range(shape[1])):
-                suffix = self.label_key_name[channel]
+                suffix = self.labels[channel]
                 info[f'occupied_volume_{suffix}'] = to_numpy(
                    targets[idx, channel].sum() / size
                 )
-                info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
-                    F.softmax(predictions, dim=1)[idx, channel].sum() / size
-                )
+                if self.activation == 'softmax':
+                    info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
+                        F.softmax(predictions, dim=1)[idx, channel].sum() / size
+                    )
+                else:
+                    info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
+                        predictions[idx, channel].sum() / size
+                    )
 
             if location is not None:
                 info['location'] = to_numpy(location[idx])
 
             loss = 0
             for criterion in self.criteria:
-                loss += criterion['weight'] * criterion['criterion'](predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+                loss += criterion['weight'] * criterion['criterion'](
+                    predictions[idx].unsqueeze(0),
+                    targets[idx].unsqueeze(0),
+                    activation=self.activation
+                )
             info['loss'] = to_numpy(loss)
 
             if not self.model.training:
@@ -416,7 +428,7 @@ class RunModel:
 
                     channels = []
                     for key in metric['channels']:
-                        channels.append(self.key2channel[key])
+                        channels.append(self.labels.index(key))
                     if len(channels) > 0:
                         kwargs['channels'] = channels
 
@@ -576,7 +588,7 @@ class RunModel:
 
                     channels = []
                     for key in metric['channels']:
-                        channels.append(self.key2channel[key])
+                        channels.append(self.labels.index(key))
                     if len(channels) > 0:
                         kwargs['channels'] = channels
 
