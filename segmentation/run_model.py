@@ -17,7 +17,8 @@ from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
 
 class ArrayTensorJSONEncoder(json.JSONEncoder):
     """
-    JSONEncoder extension to be able to stringify NumPy arrays and Torch tensors.
+    JSONEncoder extension to be able to stringify NumPy arrays and Torch
+    tensors.
     """
     def default(self, o):
         if isinstance(o, (torch.Tensor, np.ndarray)):
@@ -63,7 +64,8 @@ class RunModel:
         self.log_frequency = struct['log_frequency']
         self.record_frequency = struct['save']['record_frequency']
         self.eval_frequency = struct['validation']['eval_frequency']
-        self.whole_image_inference_frequency = struct['validation']['whole_image_inference_frequency']
+        self.whole_image_inference_frequency = struct['validation'][
+            'whole_image_inference_frequency']
         self.metrics = struct['validation']['reporting_metrics']
         self.patch_overlap = struct['validation']['patch_overlap']
         self.n_epochs = struct['n_epochs']
@@ -74,13 +76,16 @@ class RunModel:
         self.optimizer, self.lr_scheduler = None, None
         self.optimizer_dict = struct['optimizer']
 
-        # Define which methods will be used to retrieve data and record information
+        # Define which methods will be used to retrieve data and record
+        # information
         function_datagetter = getattr(self, struct['data_getter']['name'])
         attributes = struct['data_getter']['attributes']
-        self.data_getter = lambda sample: function_datagetter(sample, **attributes)
+        self.data_getter = lambda sample: function_datagetter(
+            sample, **attributes)
 
         self.batch_recorder = getattr(self, struct['save']['batch_recorder'])
-        self.prediction_saver = getattr(self, struct['save']['prediction_saver'])
+        self.prediction_saver = getattr(
+            self, struct['save']['prediction_saver'])
 
         self.eval_model_name = None
         self.eval_csv_basename = None
@@ -92,7 +97,8 @@ class RunModel:
 
     def get_optimizer(self, optimizer_dict):
         optimizer_dict['attributes'].update({'params': self.model.parameters()})
-        optimizer = optimizer_dict['optimizer_class'](**optimizer_dict['attributes'])
+        optimizer = optimizer_dict['optimizer_class'](
+            **optimizer_dict['attributes'])
 
         scheduler = None
         if optimizer_dict['lr_scheduler'] is not None:
@@ -116,7 +122,8 @@ class RunModel:
         return volumes, targets
 
     def train(self):
-        """ Train the model on the training set and evaluate it on the validation set. """
+        """ Train the model on the training set and evaluate it on
+        the validation set. """
         # Set seed for reproducibility
         if self.seed is not None:
             torch.manual_seed(self.seed)
@@ -143,7 +150,7 @@ class RunModel:
 
         for epoch in range(self.epoch, self.n_epochs + 1):
             self.epoch = epoch
-            self.log('******** Epoch [{}/{}]  ********'.format(self.epoch, self.n_epochs))
+            self.log(f'******** Epoch [{self.epoch}/{self.n_epochs}]  ********')
 
             # Train for one epoch
             self.model.train()
@@ -152,7 +159,8 @@ class RunModel:
             # Evaluate on whole images of the validation set
             with torch.no_grad():
                 self.model.eval()
-                if self.patch_size is not None and self.epoch % self.whole_image_inference_frequency == 0:
+                if self.patch_size is not None and self.epoch % \
+                        self.whole_image_inference_frequency == 0:
                     self.log('Validation on whole images')
                     self.whole_image_evaluation_loop()
 
@@ -162,7 +170,8 @@ class RunModel:
         # Save model at the end of training
         self.save_checkpoint()
 
-    def eval(self, model_name=None, eval_csv_basename=None, save_transformed_samples=False):
+    def eval(self, model_name=None, eval_csv_basename=None,
+             save_transformed_samples=False):
         """ Evaluate the model on the validation set. """
         self.epoch -= 1
         self.eval_model_name = model_name
@@ -176,7 +185,8 @@ class RunModel:
                 self.log('Evaluation on patches')
                 self.train_loop(save_model=False)
 
-            if self.patch_size is not None and self.whole_image_inference_frequency is not None:
+            if self.patch_size is not None and \
+                    self.whole_image_inference_frequency is not None:
                 self.log('Evaluation on whole images')
                 self.whole_image_evaluation_loop(save_transformed_samples)
 
@@ -237,15 +247,18 @@ class RunModel:
             if max_loss is None or max_loss < loss:
                 max_loss = loss
 
-            # Log training or validation information every log_frequency iterations
+            # Log training or validation information every
+            # log_frequency iterations
             if i % self.log_frequency == 0:
                 to_log = summary(
-                    self.epoch, i, len(loader), max_loss, batch_time, average_loss, average_time, model_mode
+                    self.epoch, i, len(loader), max_loss, batch_time,
+                    average_loss, average_time, model_mode
                 )
                 self.log(to_log)
 
             # Run model on validation set every eval_frequency iteration
-            if self.model.training and (i % self.eval_frequency == 0 or i == len(loader)):
+            if self.model.training and \
+                    (i % self.eval_frequency == 0 or i == len(loader)):
                 with torch.no_grad():
                     self.model.eval()
                     validation_loss = self.train_loop()
@@ -257,9 +270,11 @@ class RunModel:
 
             # Update DataFrame and record it every record_frequency iterations
             if i % self.record_frequency == 0 or i == len(loader):
-                df = self.batch_recorder(df, sample, predictions, targets, batch_time, True)
+                df = self.batch_recorder(
+                    df, sample, predictions, targets, batch_time, True)
             else:
-                df = self.batch_recorder(df, sample, predictions, targets, batch_time, False)
+                df = self.batch_recorder(
+                    df, sample, predictions, targets, batch_time, False)
 
             start = time.time()
 
@@ -287,7 +302,10 @@ class RunModel:
             # Compute loss
             sample_loss = 0
             for criterion in self.criteria:
-                sample_loss += criterion['weight'] * criterion['criterion'](predictions.unsqueeze(0), target.unsqueeze(0))
+                sample_loss += criterion['weight'] * \
+                               criterion['criterion'](
+                                   predictions.unsqueeze(0), target.unsqueeze(0)
+                               )
 
             # Measure elapsed time
             sample_time = time.time() - start
@@ -301,12 +319,15 @@ class RunModel:
 
             # Log validation information every log_frequency iterations
             if i % self.log_frequency == 0:
-                to_log = summary(self.epoch, i, len(self.val_set), sample_loss, sample_time, average_loss,
+                to_log = summary(self.epoch, i, len(self.val_set),
+                                 sample_loss, sample_time, average_loss,
                                  average_time, 'Val', 'Sample')
                 self.log(to_log)
 
-            # Record information about the sample and the performances of the model on this sample after every iteration
-            df = self.batch_recorder(df, sample, predictions.unsqueeze(0), target.unsqueeze(0), sample_time, True)
+            # Record information about the sample and the performances of
+            # the model on this sample after every iteration
+            df = self.batch_recorder(df, sample, predictions.unsqueeze(0),
+                                     target.unsqueeze(0), sample_time, True)
         return average_loss
 
     def inference_loop(self):
@@ -328,10 +349,11 @@ class RunModel:
 
             # Log time information every log_frequency iterations
             if i % self.log_frequency == 0:
-                to_log = summary('/', i, len(self.test_set), '/', sample_time, '/', average_time, 'Val', 'Sample')
+                to_log = summary('/', i, len(self.test_set), '/', sample_time,
+                                 '/', average_time, 'Val', 'Sample')
                 self.log(to_log)
 
-            self.prediction_saver(sample, predictions)
+            self.prediction_saver(sample, predictions, i)
 
     def save_checkpoint(self, loss=None):
         optimizer_dict = None
@@ -352,9 +374,11 @@ class RunModel:
 
         save_checkpoint(state, self.results_dir, self.model)
 
-    def record_segmentation_batch(self, df, sample, predictions, targets, batch_time, save=False):
+    def record_segmentation_batch(self, df, sample, predictions, targets,
+                                  batch_time, save=False):
         """
-        Record information about the batches the model was trained or evaluated on during the segmentation task.
+        Record information about the batches the model was trained or evaluated
+        on during the segmentation task.
         At evaluation time, additional reporting metrics are recorded.
         """
         is_batch = not isinstance(sample, torchio.Subject)
@@ -384,7 +408,8 @@ class RunModel:
                 info['batch_size'] = batch_size
 
             if is_batch:
-                info['label_filename'] = sample[self.label_key_name]['path'][idx]
+                info['label_filename'] = sample[self.label_key_name][
+                    'path'][idx]
             else:
                 info['label_filename'] = sample[self.label_key_name]['path']
 
@@ -424,7 +449,8 @@ class RunModel:
                     }
 
                     if metric['mask'] is not None:
-                        kwargs['mask'] = to_var(sample[metric['mask']]['data'][idx, 0], self.device)
+                        kwargs['mask'] = to_var(
+                            sample[metric['mask']]['data'][idx, 0], self.device)
 
                     channels = []
                     for key in metric['channels']:
@@ -612,16 +638,19 @@ class RunModel:
             return
         relevant_history = history[idx] if is_batch else history
         for hist in relevant_history:
-            info[f'T_{hist[0]}'] = json.dumps(hist[1], cls=ArrayTensorJSONEncoder)
+            info[f'T_{hist[0]}'] = json.dumps(
+                hist[1], cls=ArrayTensorJSONEncoder)
             order.append(hist[0])
         info['transfo_order'] = '_'.join(order)
 
     def save_info(self, mode, df):
-        name = self.eval_csv_basename if self.eval_csv_basename is not None else mode
+        name = self.eval_csv_basename or mode
         if mode == 'Train':
             filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}.csv'
         elif self.eval_model_name is not None:
-            filename = f'{self.results_dir}/{name}_from_{self.eval_model_name}.csv'
+            filename = f'{self.results_dir}/' \
+                       f'{name}_from_{self.eval_model_name}.csv'
         else:
-            filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}_it{self.iteration:04d}.csv'
+            filename = f'{self.results_dir}/' \
+                       f'{name}_ep{self.epoch:03d}_it{self.iteration:04d}.csv'
         df.to_csv(filename)
