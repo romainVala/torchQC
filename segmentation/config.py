@@ -260,6 +260,8 @@ class Config:
                        transform_structure, model_structure, run_structure):
         def _set_value(dictionary, key_list, val):
             new_key = key_list.pop(0)
+            if new_key.isdigit():
+                new_key = int(new_key)
             element = dictionary[new_key]
             if len(key_list) == 0:
                 dictionary[new_key] = val
@@ -861,7 +863,7 @@ class Config:
         cmd = os.path.join(
             torchQC_path, 'segmentation/segmentation_pipeline.py')
         params = ' '.join([
-            '-f', self.main_file,
+            '-f', os.path.join(self.results_dir, 'main.json'),
             '-r', self.results_dir,
             '-m', self.mode,
             '-viz', str(self.viz)
