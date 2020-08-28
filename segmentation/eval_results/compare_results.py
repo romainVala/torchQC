@@ -15,6 +15,7 @@ def flatten(d, parent_key='', sep='_'):
     return dict(items)
 
 
+
 def compare_results(results_dirs, filename, metrics, names=None):
     results = {}
     for metric in metrics:
