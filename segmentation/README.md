@@ -30,32 +30,29 @@ Either patterns using unix regular expressions or explicit paths can be used to 
 Both can be used at the same time (patterns are read first). <br>
 This file also defines the behaviour of the `DataLoader`, using patches or not, the 
 number of workers used to load data (`-1` means all available workers are used) and 
-the batch size. Finally it sets which keys will be used to retrieve images and labels 
-from subjects. `"label_key_name"` can be a list to use as target a concatenation of
-the different labels.
+the batch size. Furthermore, it sets which keys will be used to retrieve images and labels 
+from subjects. The `"labels"` key defines which channels from the targets will be used.
 ```json
 {
-    "modalities": 
+    "images": 
     {
-        "t1": {"type": "intensity"},
-        "grey": {"type": "label"},
-        "CSF": {"type": "label"},
-        "white": {"type": "label"}
+        "t1": {"type": "intensity", "components":  ["t1"]},
+        "label": {"type":  "label", "components":  ["GM", "CSF", "WM"]}
     },
     "patterns": 
     [
         {
             "root": "/path_to_t1/*/",
             "name_pattern": "([0-9]+)", 
-            "modalities": {"t1": "T1w/T1w_acpc_dc.nii.gz"}
+            "components": {"t1": {"path": "T1w/T1w_acpc_dc.nii.gz", "image": "t1"}}
         }, 
         {
             "root": "/path_to_label/suj_*/", 
             "name_pattern": "([0-9]+)", 
-            "modalities": {
-                "grey": "grey.nii.gz",
-                "CSF": "csf.nii.gz",
-                "white": "white.nii.gz"
+            "components": {
+                "GM": {"path": "grey.nii.gz", "image":  "label"},
+                "CSF": {"path": "csf.nii.gz", "image":  "label"},
+                "WM": {"path": "white.nii.gz", "image": "label"}
             }
         }
     ], 
@@ -63,7 +60,8 @@ the different labels.
     "subject_shuffle": true,
     "subject_seed": 0,
     "image_key_name": "t1",
-    "label_key_name": "grey",
+    "label_key_name": "label",
+    "labels": ["GM"],
     "batch_size": 2,
     "num_workers": 0,
     "queue": 
@@ -97,31 +95,31 @@ the different labels.
 
 ```json
 {
-    "modalities": 
+    "images": 
     {
-        "t1": {"type": "intensity"},
-        "grey": {"type": "label"}
+        "t1": {"type": "intensity", "components": ["t1"]},
+        "label": {"type": "label", "components": ["GM", "CSF", "WM"]}
     },
     "paths": 
     [
         {
             "name": "subject1",
-            "modalities": 
+            "components": 
             {
-                "t1": "/path_to_t1_for_subject1/T1w/T1w_acpc_dc.nii.gz",
-                "grey": "/path_to_label_for_subject1/grey.nii.gz",
-                "csf": "/path_to_label_for_subject1/csf.nii.gz",
-                "white": "/path_to_label_for_subject1/white.nii.gz"
+                "t1": {"path": "/path_to_t1_for_subject1/T1w/T1w_acpc_dc.nii.gz", "image": "t1"},
+                "GM": {"path": "/path_to_label_for_subject1/grey.nii.gz", "image": "label"},
+                "CSF": {"path": "/path_to_label_for_subject1/csf.nii.gz", "image": "label"},
+                "WM": {"path": "/path_to_label_for_subject1/white.nii.gz", "image": "label"}
             }
         }, 
         {
             "name": "subject2",
-            "modalities": 
+            "components": 
             {
-                "t1": "/path_to_t1_for_subject2/T1w/T1w_acpc_dc.nii.gz",
-                "grey": "/path_to_label_for_subject2/grey.nii.gz",
-                "csf": "/path_to_label_for_subject2/csf.nii.gz",
-                "white": "/path_to_label_for_subject2/white.nii.gz"
+                "t1": {"path": "/path_to_t1_for_subject2/T1w/T1w_acpc_dc.nii.gz", "image": "label"},
+                "grey": {"path": "/path_to_label_for_subject2/grey.nii.gz", "image":  "label"},
+                "csf": {"path": "/path_to_label_for_subject2/csf.nii.gz", "image":  "label"},
+                "white": {"path": "/path_to_label_for_subject2/white.nii.gz", "image":  "label"}
             }
         }
     ], 
@@ -129,23 +127,23 @@ the different labels.
     "subject_shuffle": true,
     "subject_seed": 0,
     "image_key_name": "t1",
-    "label_key_name": "grey",
+    "label_key_name": "label",
+    "labels": ["GM"],
     "batch_size": 2,
     "num_workers": 0,
     "batch_shuffle": true,
     "batch_seed": 0
 }
 ```
-`"modalities"`, `"batch_size"`, `"image_key_name"` and `"label_key_name"` are mandatory. 
-If `"patterns"` are not empty, each pattern must have keys `"root"` and `"modalities"`.
-If `"paths"` are not empty, each path must have keys `"name"` and `"modalities"`. 
+`"images"`, `"batch_size"`, `"image_key_name"` and `"label_key_name"` are mandatory. 
+If `"patterns"` are not empty, each pattern must have keys `"root"` and `"images"`.
+If `"paths"` are not empty, each path must have keys `"name"` and `"images"`. 
 If `"queue"` is not empty, it must have the attribute `"sampler"` which must have keys
 `"name"`, `"module"` and `"attributes"`. In such case, `"attributes"` must define the
 attribute `"patch_size"`.
 
 
-Any modality present in a pattern or a path must be present in `"modalities"` and
-each subject must have every modality of `"modalities"`.
+If a component is missing from a subject's image, the subject is discarded with a warning.
 
 #### transform.json
 This file defines which transforms (preprocessing and data augmentation) are applied to train,
@@ -154,6 +152,7 @@ adding the computation of a metric between the data before and after a specific 
 `"metrics"` and setting the value of `"compare_to_original"` to 1.
 ```json
 {
+    "save": false,
     "train_transforms": 
     [
         {
@@ -223,6 +222,9 @@ adding the computation of a metric between the data before and after a specific 
 }
 ```
 `"train_transforms"` and `"val_transforms"` are mandatory.
+
+If `"save"` is `true`, when doing whole image evaluation, transformed
+images will be save to the result directory.
 
 #### model.json
 This file defines the model to use, its parameters and if it is loaded from a saved model.
@@ -300,13 +302,23 @@ is saved after every evaluation loop on the validation set,
     {
         "module": "torch.optim", 
         "name": "Adam", 
-        "attributes": {"lr": 0.0001}
+        "attributes": {"lr": 0.0001},
+        "lr_scheduler": 
+        {
+            "module": "torch.optim.lr_scheduler",
+            "name": "ReduceLROnPlateau",
+            "attributes": 
+            {
+                "mode": "min",
+                "patience": 6
+            }
+        }
     }, 
     "save": 
     {
         "record_frequency": 10,
         "batch_recorder": "record_segmentation_batch",
-        "prediction_saver": "save_segmentation_prediction"
+        "prediction_saver": "save_volume"
     }, 
     "validation": 
     {
@@ -339,6 +351,8 @@ is saved after every evaluation loop on the validation set,
 `"criteria"`, `"optimizer"`, `"save"`, `"validation"` and `"n_epochs"` are mandatory.
 
 In the `"optimizer"` dictionary, `"name"` and `"module"` are mandatory. <br>
+If `"lr_scheduler"` is present in the `"optimizer"` dictionary, it must 
+have `"name"` and `"module"`.
 In the `"save"` dictionary, `"record_frequency"` is mandatory. <br>
 
 #### visualization.json

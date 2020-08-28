@@ -1,6 +1,7 @@
 import commentjson as json
 import glob
 import re
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -87,6 +88,33 @@ def report_loss(results_folder):
         plt.axvline(x=n_iter_per_epoch * epoch, color='red')
 
     plt.xlabel('iterations')
+    plt.legend()
+    plt.title('Training and validation error curves')
+    plt.show()
+
+    plt.savefig(results_folder + '/error_curves.jpeg')
+
+
+def report_loss2(results_folder):
+    """
+    Plot error curves from record files and save plot to jpeg file.
+    """
+    def plot_losses(pattern, color, label):
+        files = glob.glob(results_folder + pattern)
+        files.sort(key=os.path.getmtime)
+        losses = []
+        for file in files:
+            df = pd.read_csv(file, index_col=0)
+            loss = df['loss'].values
+            losses.append(loss)
+        plt.plot(np.mean(losses, axis=1), color=color, label=label)
+        plt.plot(np.quantile(losses, 0.95, axis=1), '--', color=color)
+        plt.plot(np.quantile(losses, 0.05, axis=1), '--', color=color)
+
+    plot_losses('/Train_ep*.csv', 'blue', 'train mean loss')
+    plot_losses('/Val_ep*.csv', 'green', 'val mean loss')
+
+    plt.xlabel('Epochs')
     plt.legend()
     plt.title('Training and validation error curves')
     plt.show()
