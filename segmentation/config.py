@@ -515,6 +515,7 @@ class Config:
                               'whole_image_inference_frequency')
         self.set_struct_value(struct['validation'], 'patch_overlap', 8)
         self.set_struct_value(struct['validation'], 'reporting_metrics', [])
+        self.set_struct_value(struct['validation'], 'save_predictions', False)
 
         if return_string:
             return struct

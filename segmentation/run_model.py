@@ -68,6 +68,7 @@ class RunModel:
             'whole_image_inference_frequency']
         self.metrics = struct['validation']['reporting_metrics']
         self.patch_overlap = struct['validation']['patch_overlap']
+        self.save_predictions = struct['validation']['save_predictions']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
         self.activation = struct['activation']
@@ -223,6 +224,11 @@ class RunModel:
             # Compute output
             predictions = self.model(volumes)
 
+            if self.save_predictions and not self.model.training:
+                for j, prediction in enumerate(predictions):
+                    self.prediction_saver(
+                        sample, prediction, i * self.batch_size + j)
+
             # Compute loss
             loss = 0
             for criterion in self.criteria:
@@ -298,6 +304,9 @@ class RunModel:
                 self.prediction_saver(sample, volume, i)
 
             predictions = self.make_prediction_on_whole_volume(sample)
+
+            if self.save_predictions:
+                self.prediction_saver(sample, predictions, volume, i)
 
             # Compute loss
             sample_loss = 0
@@ -492,7 +501,11 @@ class RunModel:
     def save_volume(self, sample, volume, idx=0):
         affine = sample[self.image_key_name]['affine']
         name = sample.get('name') or f'{idx:06d}'
-        volume = nib.Nifti1Image(to_numpy(volume.squeeze()), affine)
+        if self.activation == 'softmax':
+            volume = F.softmax(volume, dim=0)
+        volume = nib.Nifti1Image(
+            to_numpy(volume.squeeze().permute(1, 2, 3, 0)), affine
+        )
         nib.save(volume, f'{self.results_dir}/{name}.nii.gz')
 
     def get_regress_random_noise_data(self, data):
