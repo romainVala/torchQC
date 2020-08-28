@@ -2,6 +2,7 @@ import commentjson as json
 import numpy as np
 import glob
 import os
+import sys
 import logging
 import re
 import torchio
@@ -46,12 +47,15 @@ SAVE_KEYS = ['record_frequency']
 class Config:
     def __init__(self, main_file, results_dir, logger=None, debug_logger=None,
                  mode='train', viz=0, extra_file=None,
-                 safe_mode=False):
+                 safe_mode=False, create_job=True):
+        self.main_file = main_file
         self.mode = mode
         self.logger = logger
         self.debug_logger = debug_logger
         self.viz = viz
+        self.extra_file = extra_file
         self.safe_mode = safe_mode
+        self.create_job = create_job
 
         self.results_dir = results_dir
         self.main_structure = self.parse_main_file(main_file)
@@ -829,7 +833,22 @@ class Config:
 
         return return_model(model, file)
 
+    def create_cmd(self):
+        torchQC_path = next(filter(lambda x: 'torchQC' == x[-7:], sys.path))
+        cmd = os.path.join(
+            torchQC_path, 'segmentation/segmentation_pipeline.py')
+        params = ' '.join([
+            '-f', self.main_file,
+            '-r', self.results_dir,
+            '-m', self.mode,
+            '-viz', str(self.viz)
+        ])
+        full_cmd = ' '.join(['python', cmd, params])
+        return full_cmd
+
     def run(self):
+        if self.create_job:
+            return self.create_cmd()
         if self.mode in ['train', 'eval', 'infer']:
             model, device = self.load_model(self.model_structure)
 
