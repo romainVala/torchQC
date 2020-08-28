@@ -12,6 +12,7 @@ import warnings
 from pathlib import Path
 from inspect import signature
 from copy import deepcopy
+from itertools import product
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from segmentation.utils import parse_object_import, parse_function_import, \
@@ -46,8 +47,8 @@ SAVE_KEYS = ['record_frequency']
 
 class Config:
     def __init__(self, main_file, results_dir, logger=None, debug_logger=None,
-                 mode='train', viz=0, extra_file=None,
-                 safe_mode=False, create_job=True):
+                 mode='train', viz=0, extra_file=None, safe_mode=False,
+                 create_jobs_file=None, gs_keys=None, gs_values=None):
         self.main_file = main_file
         self.mode = mode
         self.logger = logger
@@ -55,7 +56,7 @@ class Config:
         self.viz = viz
         self.extra_file = extra_file
         self.safe_mode = safe_mode
-        self.create_job = create_job
+        self.create_jobs_file = create_jobs_file
 
         self.results_dir = results_dir
         self.main_structure = self.parse_main_file(main_file)
@@ -63,6 +64,12 @@ class Config:
 
         data_structure, transform_structure, model_structure, \
             run_structure = self.parse_extra_file(extra_file)
+
+        data_structure, transform_structure, model_structure, \
+            run_structure = self.parse_gs_items(
+            gs_keys, gs_values, data_structure, transform_structure,
+            model_structure, run_structure
+        )
 
         data_structure, labels, patch_size, sampler = self.parse_data_file(
             data_structure)
@@ -235,17 +242,6 @@ class Config:
                 model_structure.update(struct['model'])
             if struct.get('run') is not None:
                 run_structure.update(struct['run'])
-            if struct.get('results_dir') is not None:
-                results_dir = struct['results_dir']
-
-                # Replace relative path if needed
-                if Path(results_dir).parent.anchor == '':
-                    results_dir = os.path.join(os.path.dirname(file),
-                                               results_dir)
-
-                if not os.path.isdir(results_dir):
-                    os.makedirs(results_dir)
-                self.results_dir = results_dir
 
             self.save_json(struct, 'extra_file.json')
 
@@ -257,6 +253,33 @@ class Config:
         self.save_json(self.main_structure, 'main_orig.json')
         self.save_json(main_struct, 'main.json')
 
+        return data_structure, transform_structure, model_structure, \
+            run_structure
+
+    def parse_gs_items(self, gs_keys, gs_values, data_structure,
+                       transform_structure, model_structure, run_structure):
+        def _set_value(dictionary, key_list, val):
+            new_key = key_list.pop(0)
+            element = dictionary[new_key]
+            if len(key_list) == 0:
+                dictionary[new_key] = val
+            else:
+                _set_value(element, key_list, val)
+
+        if gs_keys is None:
+            return data_structure, transform_structure, model_structure, \
+                run_structure
+        for key, value in zip(gs_keys, gs_values):
+            key_fragments = key.split('.')
+            struct_key = key_fragments.pop(0)
+            if struct_key == 'data':
+                _set_value(data_structure, key_fragments, value)
+            if struct_key == 'transform':
+                _set_value(transform_structure, key_fragments, value)
+            if struct_key == 'model':
+                _set_value(model_structure, key_fragments, value)
+            if struct_key == 'run':
+                _set_value(run_structure, key_fragments, value)
         return data_structure, transform_structure, model_structure, \
             run_structure
 
@@ -847,7 +870,7 @@ class Config:
         return full_cmd
 
     def run(self):
-        if self.create_job:
+        if self.create_jobs_file is not None:
             return self.create_cmd()
         if self.mode in ['train', 'eval', 'infer']:
             model, device = self.load_model(self.model_structure)
@@ -940,3 +963,44 @@ class Config:
                     viz_set = [ground_truth, sample]
 
             return PlotDataset(viz_set, **self.viz_structure['kwargs'])
+
+
+def parse_grid_search_file(file):
+    struct = Config.read_json(file)
+    for key, value in struct.items():
+        Config.check_mandatory_keys(value, ['values', 'prefix'],
+                                    f'Grid search file {key}'.upper())
+        Config.set_struct_value(value, 'names', value['values'])
+        assert len(value['names']) == len(value['values'])
+
+    # Flatten cartesian product
+    product_struct = {
+        'keys': struct.keys(),
+        'prefixes': [struct[key]['prefix'] for key in struct],
+        'values': product(*[struct[key]['values'] for key in struct.keys()]),
+        'names': product(*[struct[key]['names'] for key in struct.keys()]),
+    }
+
+    results_dirs = []
+    for names in product_struct['names']:
+        results_dir = []
+        for i, name in enumerate(names):
+            prefix = product_struct['prefixes'][i]
+            results_dir.append(f'{prefix}_{name}')
+        results_dirs.append('_'.join(results_dir))
+    product_struct['results_dirs'] = results_dirs
+
+    return product_struct
+
+
+def parse_create_jobs_file(file):
+    struct = Config.read_json(file)
+    Config.check_mandatory_keys(
+        struct, ['job_name', 'output_directory'], 'CREATE JOBS FILE')
+    Config.set_struct_value(struct, 'cluster_queue', 'bigmem,normal')
+    Config.set_struct_value(struct, 'cpus_per_task', 1)
+    Config.set_struct_value(struct, 'mem', 4000)
+    Config.set_struct_value(struct, 'walltime', '12:00:00')
+    Config.set_struct_value(struct, 'job_pack', 1)
+
+    return struct
