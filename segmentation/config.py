@@ -353,13 +353,15 @@ class Config:
         if struct['queue'] is not None:
             if 'label_probabilities' in struct['queue']['sampler'][
                     'attributes']:
+                label_probabilities = {}
                 for key, value in struct['queue']['sampler']['attributes'][
                         'label_probabilities'].items():
-                    if isinstance(key, str) and key.isdigit():
-                        del struct['queue']['sampler']['attributes'][
-                            'label_probabilities'][key]
-                        struct['queue']['sampler']['attributes'][
-                            'label_probabilities'][int(key)] = value
+                    try:
+                        label_probabilities[int(key)] = value
+                    except ValueError:
+                        raise ValueError(f'Label must be integers, not {key}')
+                struct['queue']['sampler']['attributes'][
+                    'label_probabilities'] = label_probabilities
 
             sampler, _ = parse_object_import(struct['queue']['sampler'])
             struct['queue']['sampler'] = sampler
