@@ -120,7 +120,7 @@ class Config:
         Give a default value to a key of a dictionary is this
         key was not in the dictionary.
         """
-        if struct.get(key) is None:
+        if key not in struct:
             struct[key] = default_value
 
     @staticmethod
@@ -492,6 +492,12 @@ class Config:
                 self.set_struct_value(
                     criterion, 'reported_name',
                     f'{criterion["name"]}_{criterion["method"]}')
+
+                if criterion['channels'] is not None:
+                    criterion['channels'] = [
+                        self.labels.index(channel)
+                        for channel in criterion['channels']
+                    ]
 
                 a = parse_function_import(criterion['activation'])
 
