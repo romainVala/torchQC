@@ -306,7 +306,7 @@ class RunModel:
             predictions = self.make_prediction_on_whole_volume(sample)
 
             if self.save_predictions:
-                self.prediction_saver(sample, predictions, volume, i)
+                self.prediction_saver(sample, predictions, i)
 
             # Compute loss
             sample_loss = 0
