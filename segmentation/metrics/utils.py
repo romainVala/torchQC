@@ -3,13 +3,14 @@ import torch.nn.functional as F
 
 
 def metric_overlay(prediction, target, metric, channels=None, mask=None,
-                   mask_cut=0.99, binary=False, activation=lambda x: x):
+                   mask_cut=0.99, binary=False, activation=None):
     """ Overlay to apply computation to prediction and target before
     computing metric. """
     if (prediction.shape[1] - target.shape[1]) == 1:
         target = torch.cat([target, 1 - target.sum(dim=1, keepdim=True)], dim=1)
 
-    prediction = activation(prediction)
+    if activation is not None:
+        prediction = activation(prediction)
 
     if binary:
         indices = torch.argmax(target, dim=1)
