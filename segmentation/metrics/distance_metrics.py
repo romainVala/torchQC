@@ -24,21 +24,14 @@ def _get_border(volume, cut=0.5, dim=3):
 
 
 class DistanceMetric:
-    def __init__(self, cut=0.5, radius=5, mask_cut=0.99):
+    def __init__(self, cut=0.5, radius=5):
         self.cut = cut
         self.radius = radius
-        self.mask_cut = mask_cut
         self.dim = 3
         self.d_max = torch.tensor(self.radius + 1.)
         self.distance_map = self._get_distance_map()
         self.distances = self.distance_map.unique()
         self.distance_kernels = self._get_distance_kernels()
-
-    def _apply_mask(self, volume, mask):
-        if mask is None:
-            return volume
-        mask = mask >= self.mask_cut
-        return volume * mask
 
     def _get_distance_map(self):
         distance_range = torch.arange(-self.radius, self.radius + 1)
@@ -77,11 +70,9 @@ class DistanceMetric:
 
         return all_distances
 
-    def average_hausdorff_distance(self, prediction, target, mask=None):
+    def average_hausdorff_distance(self, prediction, target):
         prediction = prediction > self.cut
         target = target > self.cut
-
-        prediction = self._apply_mask(prediction, mask)
 
         prediction_mask = prediction.clone()
         prediction_mask[prediction * target] = 0
@@ -105,11 +96,9 @@ class DistanceMetric:
 
         return first_term + second_term
 
-    def amount_of_far_points(self, prediction, target, mask=None):
+    def amount_of_far_points(self, prediction, target):
         prediction = prediction > self.cut
         target = target > self.cut
-
-        prediction = self._apply_mask(prediction, mask)
 
         prediction_mask = prediction.clone()
         prediction_mask[prediction * target] = 0
@@ -121,20 +110,24 @@ class DistanceMetric:
         else:
             return 0.
 
-    def batch_average_hausdorff_distance(self, prediction, target, mask=None):
+    def batch_average_hausdorff_distance(self, prediction, target):
         res = 0.
         for p, t in zip(prediction, target):
-            res += self.average_hausdorff_distance(p, t, mask)
+            res += self.average_hausdorff_distance(p, t)
         return res
 
-    def batch_amount_of_far_points(self, prediction, target, mask=None):
+    def batch_amount_of_far_points(self, prediction, target):
         res = 0.
         for p, t in zip(prediction, target):
-            res += self.amount_of_far_points(p, t, mask)
+            res += self.amount_of_far_points(p, t)
         return res
 
-    def mean_average_hausdorff_distance(self, prediction, target, **kwargs):
-        return mean_metric(prediction, target, self.batch_average_hausdorff_distance, **kwargs)
+    def mean_average_hausdorff_distance(self, prediction, target):
+        return mean_metric(
+            prediction, target, self.batch_average_hausdorff_distance
+        )
 
-    def mean_amount_of_far_points(self, prediction, target, **kwargs):
-        return mean_metric(prediction, target, self.batch_amount_of_far_points, **kwargs)
+    def mean_amount_of_far_points(self, prediction, target):
+        return mean_metric(
+            prediction, target, self.batch_amount_of_far_points
+        )

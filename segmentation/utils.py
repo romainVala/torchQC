@@ -7,10 +7,14 @@ import sys
 import os
 
 
-def import_object(module, name, package=''):
+def custom_import(object_dict):
     """
-    Import an object from a given module.
+    Import an object from a dictionary that specifies where to find it.
     """
+    name = object_dict.get('name')
+    module = object_dict.get('module')
+    package = object_dict.get('package') or ''
+
     mod = import_module(module, package)
     return getattr(mod, name)
 
@@ -19,11 +23,10 @@ def parse_function_import(function_dict):
     """
     Import a function from a dictionary that specifies where to find it.
     """
-    function_name = function_dict.get('name')
-    module = function_dict.get('module')
-    package = function_dict.get('package') or ''
+    func = custom_import(function_dict)
+    attributes = function_dict.get('attributes') or {}
 
-    return import_object(module, function_name, package)
+    return lambda *args: func(*args, **attributes)
 
 
 def parse_object_import(object_dict):
@@ -32,7 +35,7 @@ def parse_object_import(object_dict):
     where to find it.
     """
     attributes = object_dict.get('attributes') or {}
-    object_class = parse_function_import(object_dict)
+    object_class = custom_import(object_dict)
     return object_class(**attributes), object_class
 
 

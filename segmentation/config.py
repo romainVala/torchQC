@@ -14,10 +14,10 @@ from inspect import signature
 from copy import deepcopy
 from itertools import product
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
 from segmentation.utils import parse_object_import, parse_function_import, \
-    parse_method_import, generate_json_document
+    parse_method_import, generate_json_document, custom_import
 from segmentation.run_model import RunModel
+from segmentation.metrics.utils import metric_overlay
 from segmentation.metrics.fuzzy_overlap_metrics import minimum_t_norm
 from torch_summary import summary_string
 from plot_dataset import PlotDataset
@@ -40,6 +40,7 @@ TRANSFORM_KEYS = ['train_transforms', 'val_transforms']
 MODEL_KEYS = ['name', 'module']
 
 RUN_KEYS = ['criteria', 'optimizer', 'save', 'validation', 'n_epochs']
+ACTIVATION_KEYS = ['name', 'module']
 OPTIMIZER_KEYS = ['name', 'module']
 SCHEDULER_KEYS = ['name', 'module']
 SAVE_KEYS = ['record_frequency']
@@ -67,9 +68,8 @@ class Config:
 
         data_structure, transform_structure, model_structure, \
             run_structure = self.parse_gs_items(
-            gs_keys, gs_values, data_structure, transform_structure,
-            model_structure, run_structure
-        )
+                gs_keys, gs_values, data_structure, transform_structure,
+                model_structure, run_structure)
 
         data_structure, labels, patch_size, sampler = self.parse_data_file(
             data_structure)
@@ -211,8 +211,6 @@ class Config:
                 if os.path.dirname(val) == '':
                     struct[key] = os.path.realpath(os.path.join(dir_file, val))
 
-        # self.save_json(struct, 'main.json') #performe in parse_extra_file, since the result_dir can change
-
         return struct
 
     def parse_extra_file(self, file):
@@ -256,7 +254,8 @@ class Config:
         return data_structure, transform_structure, model_structure, \
             run_structure
 
-    def parse_gs_items(self, gs_keys, gs_values, data_structure,
+    @staticmethod
+    def parse_gs_items(gs_keys, gs_values, data_structure,
                        transform_structure, model_structure, run_structure):
         def _set_value(dictionary, key_list, val):
             new_key = key_list.pop(0)
@@ -374,9 +373,10 @@ class Config:
         def parse_metric_wrapper(w):
             try:
                 from torchio.metrics import MetricWrapper, MapMetricWrapper
-            except Exception as e:
+            except (ModuleNotFoundError, ImportError):
                 self.debug(
-                    'Could not import MetricWrapper from torchio.metrics . Skipping wrapped metrics.')
+                    'Could not import MetricWrapper from torchio.metrics . '
+                    'Skipping wrapped metrics.')
                 return None
             wrapper_attrs = w['attributes']
             wrapper_attrs['metric_func'], _ = parse_object_import(
@@ -480,21 +480,34 @@ class Config:
         return struct
 
     def parse_run_file(self, file, return_string=False):
-        def parse_criteria(criterion_list):
+        def parse_criteria(criterion_list, activation):
             c_list = []
             for criterion in criterion_list:
-                self.set_struct_value(criterion, 'weight', 1)
+                self.set_struct_value(criterion, 'channels', None)
                 self.set_struct_value(criterion, 'mask')
-                self.set_struct_value(criterion, 'channels', [])
-                self.set_struct_value(criterion, 'reported_name',
-                                      f'{criterion["name"]}_{criterion["method"]}')
+                self.set_struct_value(criterion, 'mask_cut', 0.99)
+                self.set_struct_value(criterion, 'binary', False)
+                self.set_struct_value(criterion, 'activation', activation)
+                self.set_struct_value(criterion, 'weight', 1)
+                self.set_struct_value(
+                    criterion, 'reported_name',
+                    f'{criterion["name"]}_{criterion["method"]}')
+
+                a = parse_function_import(criterion['activation'])
 
                 c = parse_method_import(criterion)
                 c_list.append({
-                    'criterion': c,
+                    'criterion': lambda pred, target: metric_overlay(
+                        pred,
+                        target,
+                        c,
+                        criterion['channels'],
+                        criterion['mask'],
+                        criterion['mask_cut'],
+                        criterion['binary'],
+                        a
+                    ),
                     'weight': criterion['weight'],
-                    'mask': criterion['mask'],
-                    'channels': criterion['channels'],
                     'name': criterion['reported_name']
                 })
             return c_list
@@ -506,7 +519,15 @@ class Config:
         self.set_struct_value(struct, 'seed')
         self.set_struct_value(struct, 'current_epoch')
         self.set_struct_value(struct, 'log_frequency', 10)
-        self.set_struct_value(struct, 'activation', 'softmax')
+        self.set_struct_value(
+            struct,
+            'activation',
+            {
+                'name': 'softmax',
+                'module': 'torch.nn.functional',
+                'attributes': {'dim': 1}
+            }
+        )
 
         files = glob.glob(os.path.join(self.results_dir, 'model_ep*'))
         if len(files) == 0:
@@ -515,6 +536,10 @@ class Config:
             last_model = max(files, key=os.path.getctime)
             matches = re.findall('ep([0-9]+)', last_model)
             struct['current_epoch'] = int(matches[-1]) + 1 if matches else 1
+
+        # Activation
+        self.check_mandatory_keys(struct['activation'], ACTIVATION_KEYS,
+                                  'ACTIVATION')
 
         # Optimizer
         self.check_mandatory_keys(struct['optimizer'], OPTIMIZER_KEYS,
@@ -555,19 +580,22 @@ class Config:
 
         # Make imports
         # Criteria
-        struct['criteria'] = parse_criteria(struct['criteria'])
-
-        # Optimizer
-        struct['optimizer']['optimizer_class'] = parse_function_import(
-            struct['optimizer'])
-        if struct['optimizer']['lr_scheduler'] is not None:
-            struct['optimizer']['lr_scheduler'][
-                'class'] = parse_function_import(
-                struct['optimizer']['lr_scheduler'])
+        struct['criteria'] = parse_criteria(struct['criteria'],
+                                            struct['activation'])
 
         # Validation
         struct['validation']['reporting_metrics'] = parse_criteria(
-            struct['validation']['reporting_metrics'])
+            struct['validation']['reporting_metrics'], struct['activation'])
+
+        # Activation
+        struct['activation'] = parse_function_import(struct['activation'])
+
+        # Optimizer
+        struct['optimizer']['optimizer_class'] = custom_import(
+            struct['optimizer'])
+        if struct['optimizer']['lr_scheduler'] is not None:
+            struct['optimizer']['lr_scheduler'][
+                'class'] = custom_import(struct['optimizer']['lr_scheduler'])
 
         return struct
 
@@ -661,7 +689,8 @@ class Config:
         # Retrieve subjects using load_sample_from_dir
         if len(data_struct['load_sample_from_dir']) > 0:
             for sample_dir in data_struct['load_sample_from_dir']:
-                # print('parsing sample dir addin {}'.format(sample_dir['root']))
+                # print('parsing sample dir addin {}'.format(
+                #   sample_dir['root']))
 
                 sample_files = glob.glob(
                     os.path.join(sample_dir['root'], 'sample*pt'))
@@ -671,11 +700,11 @@ class Config:
                 transform = torchio.transforms.Compose(
                     transform_struct[f'{sample_dir["list_name"]}_transforms'])
                 dataset = torchio.SubjectsDataset(sample_files,
-                                                load_from_dir=True,
-                                                transform=transform,
-                                                add_to_load=sample_dir[
+                                                  load_from_dir=True,
+                                                  transform=transform,
+                                                  add_to_load=sample_dir[
                                                     'add_to_load'],
-                                                add_to_load_regexp=sample_dir[
+                                                  add_to_load_regexp=sample_dir[
                                                     'add_to_load_regexp'])
                 if sample_dir["list_name"] == 'train':
                     train_set = dataset
@@ -933,27 +962,30 @@ class Config:
                 sample = viz_set[self.viz_structure['sample']]
                 viz_set = [sample]
 
-                model_runner = RunModel(model, [], None, [], viz_set,
+                model_runner = RunModel(model, device, [], None, [], viz_set,
                                         self.image_key_name,
-                                        self.label_key_name, None, None,
-                                        self.results_dir, self.batch_size,
+                                        self.label_key_name, self.labels, None,
+                                        None, self.results_dir, self.batch_size,
                                         self.patch_size, run_structure)
 
                 with torch.no_grad():
                     model_runner.model.eval()
                     volume, target = model_runner.data_getter(sample)
                     if self.patch_size is not None:
-                        prediction = model_runner.make_prediction_on_whole_volume(sample)
+                        prediction = model_runner\
+                            .make_prediction_on_whole_volume(sample)
                     else:
                         prediction = model_runner.model(volume.unsqueeze(0))[0]
 
-                prediction = F.softmax(prediction, dim=0).to('cpu')
+                prediction = run_structure['activation'](
+                    prediction.unsqueeze(0))[0].to('cpu')
 
                 self.viz_structure['kwargs'].update({
                     'label_key_name': self.label_key_name
                 })
 
-                # TODO: Define which key is (/ keys are) used to create FP maps using config files
+                # TODO: Define which key is (/ keys are) used to
+                #  create FP maps using config files
                 if self.viz == 4:
                     false_positives = minimum_t_norm(prediction[0], target,
                                                      True)

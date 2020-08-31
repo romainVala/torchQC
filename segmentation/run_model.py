@@ -227,13 +227,14 @@ class RunModel:
             if self.save_predictions and not self.model.training:
                 for j, prediction in enumerate(predictions):
                     self.prediction_saver(
-                        sample, prediction, i * self.batch_size + j)
+                        sample, prediction.unsqueeze(0), i * self.batch_size + j
+                    )
 
             # Compute loss
             loss = 0
             for criterion in self.criteria:
                 loss += criterion['weight'] * criterion['criterion'](
-                    predictions, targets, activation=self.activation)
+                    predictions, targets)
 
             # Compute gradient and do SGD step
             if self.model.training:
@@ -301,12 +302,12 @@ class RunModel:
             volume, target = self.data_getter(sample)
 
             if save_transformed_samples:
-                self.prediction_saver(sample, volume, i)
+                self.prediction_saver(sample, volume.unsqueeze(0), i)
 
             predictions = self.make_prediction_on_whole_volume(sample)
 
             if self.save_predictions:
-                self.prediction_saver(sample, predictions, i)
+                self.prediction_saver(sample, predictions.unsqueeze(0), i)
 
             # Compute loss
             sample_loss = 0
@@ -362,7 +363,7 @@ class RunModel:
                                  '/', average_time, 'Val', 'Sample')
                 self.log(to_log)
 
-            self.prediction_saver(sample, predictions, i)
+            self.prediction_saver(sample, predictions.unsqueeze(0), i)
 
     def save_checkpoint(self, loss=None):
         optimizer_dict = None
@@ -427,14 +428,9 @@ class RunModel:
                 info[f'occupied_volume_{suffix}'] = to_numpy(
                    targets[idx, channel].sum() / size
                 )
-                if self.activation == 'softmax':
-                    info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
-                        F.softmax(predictions, dim=1)[idx, channel].sum() / size
-                    )
-                else:
-                    info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
-                        predictions[idx, channel].sum() / size
-                    )
+                info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
+                    self.activation(predictions)[idx, channel].sum() / size
+                )
 
             if location is not None:
                 info['location'] = to_numpy(location[idx])
@@ -443,31 +439,20 @@ class RunModel:
             for criterion in self.criteria:
                 loss += criterion['weight'] * criterion['criterion'](
                     predictions[idx].unsqueeze(0),
-                    targets[idx].unsqueeze(0),
-                    activation=self.activation
+                    targets[idx].unsqueeze(0)
                 )
             info['loss'] = to_numpy(loss)
 
             if not self.model.training:
                 for metric in self.metrics:
                     name = f'metric_{metric["name"]}'
-                    kwargs = {
-                        'prediction': predictions[idx].unsqueeze(0),
-                        'target': targets[idx].unsqueeze(0),
-                        'activation': self.activation
-                    }
 
-                    if metric['mask'] is not None:
-                        kwargs['mask'] = to_var(
-                            sample[metric['mask']]['data'][idx, 0], self.device)
-
-                    channels = []
-                    for key in metric['channels']:
-                        channels.append(self.labels.index(key))
-                    if len(channels) > 0:
-                        kwargs['channels'] = channels
-
-                    info[name] = to_numpy(metric['criterion'](**kwargs))
+                    info[name] = to_numpy(
+                        metric['criterion'](
+                            predictions[idx].unsqueeze(0),
+                            targets[idx].unsqueeze(0)
+                        )
+                    )
 
             self.record_history(info, sample, idx)
 
@@ -501,8 +486,7 @@ class RunModel:
     def save_volume(self, sample, volume, idx=0):
         affine = sample[self.image_key_name]['affine']
         name = sample.get('name') or f'{idx:06d}'
-        if self.activation == 'softmax':
-            volume = F.softmax(volume, dim=0)
+        volume = self.activation(volume)
         volume = nib.Nifti1Image(
             to_numpy(volume.squeeze().permute(1, 2, 3, 0)), affine
         )
@@ -620,18 +604,13 @@ class RunModel:
             if not self.model.training:
                 for metric in self.metrics:
                     name = f'metric_{metric["name"]}'
-                    kwargs = {'prediction': predictions[idx].unsqueeze(0), 'target': targets[idx].unsqueeze(0)}
 
-                    if metric['mask'] is not None:
-                        kwargs['mask'] = to_var(sample[metric['mask']]['data'][idx, 0], self.device)
-
-                    channels = []
-                    for key in metric['channels']:
-                        channels.append(self.labels.index(key))
-                    if len(channels) > 0:
-                        kwargs['channels'] = channels
-
-                    info[name] = to_numpy(metric['criterion'](**kwargs))
+                    info[name] = to_numpy(
+                        metric['criterion'](
+                            predictions[idx].unsqueeze(0),
+                            targets[idx].unsqueeze(0)
+                        )
+                    )
 
             self.record_history(info, sample, idx)
 
