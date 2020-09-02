@@ -7,6 +7,10 @@ import sys
 import os
 
 
+def identity_activation(x):
+    return x
+
+
 def custom_import(object_dict):
     """
     Import an object from a dictionary that specifies where to find it.
