@@ -28,7 +28,7 @@ class DistanceMetric:
         self.cut = cut
         self.radius = radius
         self.dim = 3
-        self.d_max = torch.tensor(self.radius + 1.)
+        self.d_max = torch.tensor(self.radius).float()
         self.distance_map = self._get_distance_map()
         self.distances = self.distance_map.unique()
         self.distance_kernels = self._get_distance_kernels()
@@ -37,14 +37,14 @@ class DistanceMetric:
         distance_range = torch.arange(-self.radius, self.radius + 1)
         distance_grid = torch.meshgrid([distance_range for _ in range(self.dim)])
         distance_map = sum([distance_grid[i].flatten() ** 2 for i in range(self.dim)]).float().sqrt()
-        distance_map[distance_map > self.radius] = 0
+        distance_map[distance_map > self.radius] = self.radius
         return distance_map
 
     def _get_distance_kernels(self):
         kernels = torch.zeros(len(self.distances), 1, *[2 * self.radius + 1 for _ in range(self.dim)])
 
         for idx in range(len(self.distances)):
-            kernel = self.distance_map * (self.distance_map == self.distances[idx])
+            kernel = self.distance_map == self.distances[idx]
             kernels[idx] = kernel.reshape(1, *[2 * self.radius + 1 for _ in range(self.dim)])
 
         return kernels
@@ -65,8 +65,8 @@ class DistanceMetric:
         # Compute distances from convolution values
         all_distances = torch.zeros_like(relevant_distances)
         indices = relevant_distances.nonzero(as_tuple=True)
+        all_distances[all_distances == 0] = self.d_max.to(device)
         all_distances[indices] = self.distances[indices[1]].to(device)
-        all_distances[all_distances == 0] = self.d_max
 
         return all_distances
 
