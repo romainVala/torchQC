@@ -499,6 +499,9 @@ class Config:
                         for channel in criterion['channels']
                     ]
 
+                if criterion['mask'] is not None:
+                    criterion['mask'] = self.labels.index(criterion['mask'])
+
                 a = parse_function_import(criterion['activation'])
 
                 c = parse_method_import(criterion)
