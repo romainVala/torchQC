@@ -26,11 +26,13 @@ class MetricOverlay:
             extra_class = indices.max() + 1
             indices[val == 0] = extra_class
             indices[unlabeled_volume] = extra_class
-            target = F.one_hot(indices)[..., :-1]
+            target = F.one_hot(indices)
+            if (val == 0).sum() or unlabeled_volume.sum():
+                target = target[..., :-1]
             target = target.permute(0, 4, 1, 2, 3).float()
 
         if self.mask is not None:
-            mask = target[self.mask] > self.mask_cut
+            mask = target[:, self.mask] > self.mask_cut
             prediction = prediction * mask
             target = target * mask
 
@@ -46,7 +48,7 @@ def mean_metric(prediction, target, metric):
     Compute a given metric on every channel of the volumes and average them.
     """
     channels = list(range(target.shape[1]))
-    res = 0
+    res = 0.
     for channel in channels:
         res += metric(prediction[:, channel, ...], target[:, channel, ...])
 
