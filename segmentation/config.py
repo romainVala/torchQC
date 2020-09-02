@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from segmentation.utils import parse_object_import, parse_function_import, \
     parse_method_import, generate_json_document, custom_import
 from segmentation.run_model import RunModel
-from segmentation.metrics.utils import metric_overlay
+from segmentation.metrics.utils import MetricOverlay
 from segmentation.metrics.fuzzy_overlap_metrics import minimum_t_norm
 from torch_summary import summary_string
 from plot_dataset import PlotDataset
@@ -503,9 +503,7 @@ class Config:
 
                 c = parse_method_import(criterion)
                 c_list.append({
-                    'criterion': lambda pred, target: metric_overlay(
-                        pred,
-                        target,
+                    'criterion': MetricOverlay(
                         c,
                         criterion['channels'],
                         criterion['mask'],
