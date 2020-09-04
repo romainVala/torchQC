@@ -1048,5 +1048,9 @@ def parse_create_jobs_file(file):
     Config.set_struct_value(struct, 'mem', 4000)
     Config.set_struct_value(struct, 'walltime', '12:00:00')
     Config.set_struct_value(struct, 'job_pack', 1)
+    folder = struct['output_directory']
+    if Path(folder).parent.anchor == '':
+        folder = os.path.join(os.path.dirname(file), folder)
+        struct['output_directory'] = folder
 
     return struct
