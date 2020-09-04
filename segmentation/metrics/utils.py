@@ -3,19 +3,24 @@ import torch.nn.functional as F
 
 
 class MetricOverlay:
-    def __init__(self, metric, channels=None, mask=None, mask_cut=0.99,
-                 binary=False, activation=None):
+    def __init__(self, metric, channels=None, mask=None, mask_cut=(0.99, 1),
+                 binary=False, activation=None, binary_volumes=False):
         self.metric = metric
         self.channels = channels
         self.mask = mask
         self.mask_cut = mask_cut
         self.binary = binary
         self.activation = activation
+        self.binary_volumes = binary_volumes
 
     def __call__(self, prediction, target):
         if (prediction.shape[1] - target.shape[1]) == 1:
             target = torch.cat([target, 1 - target.sum(dim=1, keepdim=True)],
                                dim=1)
+
+        if self.binary_volumes:
+            prediction = F.one_hot(prediction).permute(0, 4, 1, 2, 3).float()
+            target = F.one_hot(target).permute(0, 4, 1, 2, 3).float()
 
         if self.activation is not None:
             prediction = self.activation(prediction)
@@ -32,7 +37,9 @@ class MetricOverlay:
             target = target.permute(0, 4, 1, 2, 3).float()
 
         if self.mask is not None:
-            mask = target[:, self.mask] > self.mask_cut
+            min_cut, max_cut = self.mask_cut
+            mask = (max_cut >= target[:, self.mask]) \
+                * (target[:, self.mask] >= min_cut)
             prediction = prediction * mask
             target = target * mask
 

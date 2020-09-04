@@ -434,6 +434,13 @@ class RunModel:
                 info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
                     self.activation(predictions)[idx, channel].sum() / size
                 )
+                info[f'num_pure_voxels_{suffix}'] = to_numpy(
+                    (targets[idx, channel] == 1).sum()
+                )
+                info[f'num_pv_voxels_{suffix}'] = to_numpy(
+                    ((targets[idx, channel] > 0)
+                     * (targets[idx, channel] < 1)).sum()
+                )
 
             if location is not None:
                 info['location'] = to_numpy(location[idx])
