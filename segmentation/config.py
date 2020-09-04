@@ -564,6 +564,9 @@ class Config:
         self.set_struct_value(struct['save'], 'batch_recorder',
                               'record_segmentation_batch')
         self.set_struct_value(struct['save'], 'prediction_saver', 'save_volume')
+        self.set_struct_value(struct['save'], 'save_bin', False)
+        self.set_struct_value(struct['save'], 'split_channels', False)
+        self.set_struct_value(struct['save'], 'save_channels')
 
         if isinstance(struct['data_getter'],
                       str):  # let some lazzy definition if no attribute
