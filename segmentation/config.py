@@ -485,8 +485,9 @@ class Config:
             for criterion in criterion_list:
                 self.set_struct_value(criterion, 'channels', None)
                 self.set_struct_value(criterion, 'mask')
-                self.set_struct_value(criterion, 'mask_cut', 0.99)
+                self.set_struct_value(criterion, 'mask_cut', [0.99, 1])
                 self.set_struct_value(criterion, 'binary', False)
+                self.set_struct_value(criterion, 'binary_volumes', False)
                 self.set_struct_value(criterion, 'activation', activation)
                 self.set_struct_value(criterion, 'weight', 1)
                 self.set_struct_value(
@@ -512,7 +513,8 @@ class Config:
                         criterion['mask'],
                         criterion['mask_cut'],
                         criterion['binary'],
-                        a
+                        a,
+                        criterion['binary_volumes']
                     ),
                     'weight': criterion['weight'],
                     'name': criterion['reported_name']

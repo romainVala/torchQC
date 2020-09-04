@@ -1,5 +1,8 @@
 import torch
 from segmentation.metrics.utils import mean_metric
+from segmentation.utils import to_numpy
+from scipy.ndimage.morphology import distance_transform_edt
+import numpy as np
 
 
 def _get_border(volume, cut=0.5, dim=3):
@@ -131,3 +134,36 @@ class DistanceMetric:
         return mean_metric(
             prediction, target, self.batch_amount_of_far_points
         )
+
+    @staticmethod
+    def surface_distances(x, y):
+        """ From
+        https://github.com/BBillot/SynthSeg/blob/master/SynthSeg/evaluate.py
+        Computes the average boundary distance of two masks.
+        x and y should be boolean or 0/1 numpy arrays of the same size."""
+
+        assert x.shape == y.shape, 'both inputs should have same size, ' \
+                                   f'had {x.shape} and {y.shape}'
+
+        x = to_numpy(x)
+        y = to_numpy(y)
+
+        # detect edge
+        x_dist_int = distance_transform_edt(x * 1)
+        x_edge = (x_dist_int == 1) * 1
+        y_dist_int = distance_transform_edt(y * 1)
+        y_edge = (y_dist_int == 1) * 1
+
+        # calculate distance from edge
+        x_dist = distance_transform_edt(np.logical_not(x_edge))
+        y_dist = distance_transform_edt(np.logical_not(y_edge))
+
+        # find distances from the 2 surfaces
+        x_dists_to_y = y_dist[x_edge == 1]
+        y_dists_to_x = x_dist[y_edge == 1]
+
+        # find average distance between 2 surfaces
+        x_mean_dist_to_y = np.mean(x_dists_to_y)
+        y_mean_dist_to_x = np.mean(y_dists_to_x)
+
+        return (x_mean_dist_to_y + y_mean_dist_to_x) / 2
