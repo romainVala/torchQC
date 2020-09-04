@@ -19,8 +19,10 @@ class MetricOverlay:
                                dim=1)
 
         if self.binary_volumes:
-            prediction = F.one_hot(prediction).permute(0, 4, 1, 2, 3).float()
-            target = F.one_hot(target).permute(0, 4, 1, 2, 3).float()
+            prediction = F.one_hot(prediction[:, 0, ...].long()) \
+                .permute(0, 4, 1, 2, 3).float()
+            target = F.one_hot(target[:, 0, ...].long()) \
+                .permute(0, 4, 1, 2, 3).float()
 
         if self.activation is not None:
             prediction = self.activation(prediction)
