@@ -493,18 +493,16 @@ class RunModel:
             name = name[0]
         volume = self.activation(volume)
 
-        bin_volume = None
-
         if self.save_bin:
             bin_volume = torch.argmax(volume, dim=1)
-            bin_volume = F.one_hot(bin_volume).permute(0, 4, 1, 2, 3)
+            bin_volume = nib.Nifti1Image(
+                to_numpy(bin_volume.squeeze()), affine
+            )
+            nib.save(bin_volume, f'{self.results_dir}/bin_{name}.nii.gz')
 
         if self.save_channels is not None:
             channels = [self.labels.index(c) for c in self.save_channels]
             volume = volume[:, channels, ...]
-
-            if bin_volume is not None:
-                bin_volume = bin_volume[:, channels, ...]
 
         if self.split_channels:
             for channel in range(volume.shape[1]):
@@ -514,23 +512,11 @@ class RunModel:
                 )
                 nib.save(v, f'{self.results_dir}/{name}_{label}.nii.gz')
 
-                if bin_volume is not None:
-                    v = nib.Nifti1Image(
-                        to_numpy(bin_volume[:, channel, ...].squeeze()), affine
-                    )
-                    nib.save(v, f'{self.results_dir}/bin_{name}_{label}.nii.gz')
-
         else:
             volume = nib.Nifti1Image(
                 to_numpy(volume.squeeze().permute(1, 2, 3, 0)), affine
             )
             nib.save(volume, f'{self.results_dir}/{name}.nii.gz')
-
-            if bin_volume is not None:
-                bin_volume = nib.Nifti1Image(
-                    to_numpy(bin_volume.squeeze().permute(1, 2, 3, 0)), affine
-                )
-                nib.save(bin_volume, f'{self.results_dir}/bin_{name}.nii.gz')
 
     def get_regress_random_noise_data(self, data):
         return self.get_regression_data(data, 'random_noise')
