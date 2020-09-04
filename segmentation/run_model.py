@@ -522,7 +522,7 @@ class RunModel:
                 v = nib.Nifti1Image(
                     to_numpy(volume[:, channel, ...].squeeze()), affine
                 )
-                nib.save(v, f'{self.results_dir}/{name}_{label}.nii.gz')
+                nib.save(v, f'{self.results_dir}/{name}/{label}.nii.gz')
 
         else:
             volume = nib.Nifti1Image(
