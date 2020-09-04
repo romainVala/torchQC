@@ -496,7 +496,7 @@ class RunModel:
         if self.save_bin:
             bin_volume = torch.argmax(volume, dim=1)
             bin_volume = nib.Nifti1Image(
-                to_numpy(bin_volume.squeeze()), affine
+                to_numpy(bin_volume.squeeze()).astype(np.uint8), affine
             )
             nib.save(bin_volume, f'{self.results_dir}/bin_{name}.nii.gz')
 
