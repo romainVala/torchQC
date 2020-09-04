@@ -567,6 +567,7 @@ class Config:
         self.set_struct_value(struct['save'], 'save_bin', False)
         self.set_struct_value(struct['save'], 'split_channels', False)
         self.set_struct_value(struct['save'], 'save_channels')
+        self.set_struct_value(struct['save'], 'save_threshold', 0)
 
         if isinstance(struct['data_getter'],
                       str):  # let some lazzy definition if no attribute

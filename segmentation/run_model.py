@@ -75,6 +75,7 @@ class RunModel:
         self.save_bin = struct['save']['save_bin']
         self.split_channels = struct['save']['split_channels']
         self.save_channels = struct['save']['save_channels']
+        self.save_threshold = struct['save']['save_threshold']
 
         # Keep information to load optimizer and learning rate scheduler
         self.optimizer, self.lr_scheduler = None, None
@@ -499,6 +500,8 @@ class RunModel:
                 to_numpy(bin_volume.squeeze()).astype(np.uint8), affine
             )
             nib.save(bin_volume, f'{self.results_dir}/bin_{name}.nii.gz')
+
+        volume[volume < self.save_threshold] = 0.
 
         if self.save_channels is not None:
             channels = [self.labels.index(c) for c in self.save_channels]
