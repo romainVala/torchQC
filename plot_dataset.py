@@ -329,7 +329,8 @@ class Figure:
             view_object.render(init)
 
         # Update slider value
-        self.on_slide(self.threshold)
+        if self.label_key_name is not None:
+            self.on_slide(self.threshold)
 
         # Hide other axes
         for axis in self.other_axes:
