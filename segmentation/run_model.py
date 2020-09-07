@@ -497,6 +497,9 @@ class RunModel:
     def save_volume(self, sample, volume, idx=0):
         affine = sample[self.image_key_name]['affine'].squeeze()
         name = sample.get('name') or f'{idx:06d}'
+        resdir = f'{self.results_dir}/{name}/'
+        if not os.path.isdir(resdir):
+            os.makedirs(resdir)
         if isinstance(name, list):
             name = name[0]
         volume = self.activation(volume)
@@ -506,7 +509,7 @@ class RunModel:
             bin_volume = nib.Nifti1Image(
                 to_numpy(bin_volume.squeeze()).astype(np.uint8), affine
             )
-            nib.save(bin_volume, f'{self.results_dir}/bin_{name}.nii.gz')
+            nib.save(bin_volume, resdir + f'bin_predictions.nii.gz')
 
         volume[volume < self.save_threshold] = 0.
 
@@ -522,13 +525,13 @@ class RunModel:
                 v = nib.Nifti1Image(
                     to_numpy(volume[:, channel, ...].squeeze()), affine
                 )
-                nib.save(v, f'{self.results_dir}/{name}/{label}.nii.gz')
+                nib.save(v, resdir + f'{label}.nii.gz')
 
         else:
             volume = nib.Nifti1Image(
                 to_numpy(volume.squeeze().permute(1, 2, 3, 0)), affine
             )
-            nib.save(volume, f'{self.results_dir}/{name}.nii.gz')
+            nib.save(volume, resdir + f'4D_predictions.nii.gz')
 
     def get_regress_random_noise_data(self, data):
         return self.get_regression_data(data, 'random_noise')
