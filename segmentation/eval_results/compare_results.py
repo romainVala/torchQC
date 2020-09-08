@@ -111,11 +111,21 @@ def _parse_metric(df, metric, label='GM', spacing=(1, 1, 1)):
                * np.prod(df['shape'].str.strip('[]')
                          .str.split(' ', expand=True).astype(int).T) \
                * np.prod(spacing)
+    elif metric == 'label_volume_in_mm3':
+        return np.abs(df[f'occupied_volume_{label}']) \
+               * np.prod(df['shape'].str.strip('[]')
+                         .str.split(' ', expand=True).astype(int).T) \
+               * np.prod(spacing) / 100000
+    elif metric == 'predicted_volume_in_mm3':
+        return np.abs(df[f'predicted_occupied_volume_{label}']) \
+               * np.prod(df['shape'].str.strip('[]')
+                         .str.split(' ', expand=True).astype(int).T) \
+               * np.prod(spacing) / 100000
     elif metric == 'volume_ratio':
         return df[f'predicted_occupied_volume_{label}'] \
             / df[f'occupied_volume_{label}']
     else:
-        return df[f'metric_{metric}_{label}']
+        return df[f'metric_{metric}_{label}'] if len(label)>0 else df[f'metric_{metric}']
 
 
 def compare_results(results_dirs, filename, metrics, names=None):
@@ -167,7 +177,7 @@ def plot_dice_against_patch_overlap():
     plt.plot(overlaps, dice_scores)
 
 
-def create_data_frame(results_dirs, metric, ref_tissue='WM', spacing=(1, 1, 1)):
+def create_data_frame(results_dirs, metric, ref_tissue='WM', spacing=(1, 1, 1), label='GM'):
     files = [_get_file(r) for r in results_dirs]
     data_frames = [pd.read_csv(file, index_col=0) for file in files]
     final_data_frames = []
@@ -204,7 +214,7 @@ def create_data_frame(results_dirs, metric, ref_tissue='WM', spacing=(1, 1, 1)):
         CNR = abs(GM_level - ref_tissue_level) / noise_level
 
         # Get values
-        values = _parse_metric(data_frames[i], metric, 'GM', spacing)
+        values = _parse_metric(data_frames[i], metric, label, spacing)
 
         final_data_frames.append(
             pd.DataFrame({
@@ -261,7 +271,7 @@ def plot_value_vs_SNR(results_dirs, metric, ylim=None, save_fig=None):
     plt.show()
 
 
-def plot_value_vs_GM_level(results_dirs, metric, ylim=None, save_fig=None):
+def plot_value_vs_GM_level(results_dirs, metric, ylim=None, save_fig=None, label='GM'):
     """ Draw a bar plot of values from a given metric against the GM level.
 
     Example:
@@ -272,7 +282,7 @@ def plot_value_vs_GM_level(results_dirs, metric, ylim=None, save_fig=None):
         >>> plot_value_vs_GM_level(results_dirs, 'dice_loss', ylim=(0, 0.1),
         >>>     save_fig='/home/fabien.girka/data/segmentation_tasks/RES_1mm/eval_models/dice_against_GM')
     """
-    df = create_data_frame(results_dirs, metric)
+    df = create_data_frame(results_dirs, metric, label=label)
     df['model_and_noise'] = df['model'].str.cat(
         df['noise'].astype(str), sep='_')
     order = _get_order_from_col(df, 'GM', to_round=False)
