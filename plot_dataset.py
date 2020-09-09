@@ -172,6 +172,7 @@ class Figure:
         self.axes2view_keys = {}
         self.idx = None
         self.other_axes = []
+        self.num_labels = 1
 
     def set_attributes(self, fig, axes, slider, subject_org):
         self.fig = fig
@@ -191,6 +192,9 @@ class Figure:
 
         self.idx = tuple(range(len(images)))
         self.adapt_subject_org()
+
+        if self.label_key_name is not None:
+            self.num_labels = len(labels[0])
         return images, affines, labels
 
     def get_values_from_batch(self, batch):
@@ -215,8 +219,7 @@ class Figure:
                 affines.append(b[self.image_key_name]['affine'][i])
 
                 if self.label_key_name is not None:
-                    labels.append([b[key]['data'][i][0].numpy()
-                                   for key in self.label_key_name])
+                    labels.append(b[self.label_key_name]['data'][i][0].numpy())
 
         return images, affines, labels
 
@@ -236,8 +239,7 @@ class Figure:
                 lab = None
 
                 if self.label_key_name is not None:
-                    lab = [s[key]['data'][0].numpy()
-                           for key in self.label_key_name]
+                    lab = s[self.label_key_name]['data'][0].numpy()
 
                 if self.patch_sampler is not None:
                     image, lab = self.sample_patches(s, image, lab)
@@ -268,9 +270,14 @@ class Figure:
             image[i_ini:i_fin, j_ini:j_fin, k_ini:k_fin] = im_patch
 
             if self.label_key_name is not None:
-                for label, key in zip(labels, self.label_key_name):
-                    label_patch = patch[key]['data'].numpy()[0].copy()
-                    label[i_ini:i_fin, j_ini:j_fin, k_ini:k_fin] = label_patch
+                for label in labels:
+                    label_patch = patch['data'].numpy()[0].copy()
+                    label[
+                        :,
+                        i_ini:i_fin,
+                        j_ini:j_fin,
+                        k_ini:k_fin
+                    ] = label_patch
 
         return image, labels
 
@@ -329,7 +336,8 @@ class Figure:
             view_object.render(init)
 
         # Update slider value
-        self.on_slide(self.threshold)
+        if self.label_key_name is not None:
+            self.on_slide(self.threshold)
 
         # Hide other axes
         for axis in self.other_axes:
@@ -391,8 +399,7 @@ class Figure:
 
         self.update(
             self.view_objects.keys(),
-            lambda x: x.set_channel(
-                (x.channel + delta) % len(self.label_key_name))
+            lambda x: x.set_channel((x.channel + delta) % self.num_labels)
         )
 
     def on_slide(self, val):
@@ -482,8 +489,6 @@ class PlotDataset:
         self.update_all_on_scroll = update_all_on_scroll
         self.add_text = add_text
         self.label_key_name = label_key_name
-        if isinstance(self.label_key_name, str):
-            self.label_key_name = [self.label_key_name]
         self.alpha = alpha
         self.cmap = cm.get_cmap(cmap)
         self.cmap.set_under(color='k', alpha=0)
