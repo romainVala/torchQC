@@ -409,7 +409,6 @@ class RunModel:
             affine = affine[0]
         aa = affine[:3, :3]
         voxel_size = torch.prod(torch.sqrt(torch.sum(aa*aa, dim=0)))
-        print(voxel_size)
 
         batch_size = shape[0]
 
