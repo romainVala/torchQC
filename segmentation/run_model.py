@@ -497,12 +497,12 @@ class RunModel:
     def save_volume(self, sample, volume, idx=0):
         affine = sample[self.image_key_name]['affine'].squeeze()
         name = sample.get('name') or f'{idx:06d}'
-        resdir = f'{self.results_dir}/{name}/'
-        if not os.path.isdir(resdir):
-            os.makedirs(resdir)
         if isinstance(name, list):
             name = name[0]
         volume = self.activation(volume)
+        resdir = f'{self.results_dir}/{name}/'
+        if not os.path.isdir(resdir):
+            os.makedirs(resdir)
 
         if self.save_bin:
             bin_volume = torch.argmax(volume, dim=1)
