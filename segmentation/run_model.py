@@ -402,8 +402,15 @@ class RunModel:
             mode = 'Val' if is_batch else 'Whole_image'
 
         shape = targets.shape
-        size = np.product(shape[2:])
+        #size = np.product(shape[2:])
         location = sample.get('index_ini')
+        affine = sample[self.image_key_name]['affine']
+        if is_batch:
+            affine = affine[0]
+        aa = affine[:3, :3]
+        voxel_size = torch.prod(torch.sqrt(torch.sum(aa*aa, dim=0)))
+        print(voxel_size)
+
         batch_size = shape[0]
 
         sample_time = batch_time / batch_size
@@ -430,17 +437,10 @@ class RunModel:
             for channel in list(range(shape[1])):
                 suffix = self.labels[channel]
                 info[f'occupied_volume_{suffix}'] = to_numpy(
-                   targets[idx, channel].sum() / size
+                   targets[idx, channel].sum() * voxel_size
                 )
                 info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
-                    self.activation(predictions)[idx, channel].sum() / size
-                )
-                info[f'num_pure_voxels_{suffix}'] = to_numpy(
-                    (targets[idx, channel] == 1).sum()
-                )
-                info[f'num_pv_voxels_{suffix}'] = to_numpy(
-                    ((targets[idx, channel] > 0)
-                     * (targets[idx, channel] < 1)).sum()
+                    self.activation(predictions)[idx, channel].sum() * voxel_size
                 )
 
             if location is not None:
