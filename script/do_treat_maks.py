@@ -18,7 +18,7 @@ if __name__ == '__main__':
     parser.add_argument('-sf', '--subject_folder', type=str, help='Path to the folder of a subject')
     parser.add_argument('-rf', '--results_folder', type=str,
                         help='Path to the folder in which the results will be saved')
-    parser.add_argument('-r', '--resolution', type=str, help='Resolution in millimeters', choices=['07', '1', '14'])
+    parser.add_argument('-r', '--resolution', type=str, help='Resolution in millimeters', choices=['07', '1', '14', '28'])
     args = parser.parse_args()
     subject_folder, results_folder = args.subject_folder, args.results_folder
     resolution = args.resolution
