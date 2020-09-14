@@ -35,7 +35,7 @@ class RunModel:
     def __init__(self, model, device, train_loader, val_loader, val_set,
                  test_set, image_key_name, label_key_name, labels,
                  logger, debug_logger, results_dir, batch_size,
-                 patch_size, struct):
+                 patch_size, struct, eval_results_dir):
         self.model = model
         self.device = device
 
@@ -51,6 +51,7 @@ class RunModel:
         self.logger = logger
         self.debug_logger = debug_logger
         self.results_dir = results_dir
+        self.eval_results_dir = eval_results_dir
 
         self.batch_size = batch_size
         self.patch_size = patch_size
@@ -399,6 +400,7 @@ class RunModel:
         if self.model.training:
             mode = 'Train'
         else:
+            df = pd.DataFrame()
             mode = 'Val' if is_batch else 'Whole_image'
 
         shape = targets.shape
@@ -469,7 +471,7 @@ class RunModel:
             df = df.append(info, ignore_index=True)
 
         if save:
-            self.save_info(mode, df)
+            self.save_info(mode, df, sample)
 
         return df
 
@@ -499,7 +501,7 @@ class RunModel:
         if isinstance(name, list):
             name = name[0]
         volume = self.activation(volume)
-        resdir = f'{self.results_dir}/{name}/'
+        resdir = f'{self.eval_results_dir}/{name}/'
         if not os.path.isdir(resdir):
             os.makedirs(resdir)
 
@@ -597,6 +599,9 @@ class RunModel:
 
         mode = 'Train' if self.model.training else 'Val'
 
+        if mode == 'Val':
+            df = pd.DataFrame()
+
         location = sample.get('index_ini')
         shape = sample[self.image_key_name]['data'].shape
         batch_size = shape[0]
@@ -657,7 +662,7 @@ class RunModel:
             df = df.append(info, ignore_index=True)
 
         if save:
-            self.save_info(mode, df)
+            self.save_info(mode, df, sample)
 
         return df
 
@@ -675,14 +680,20 @@ class RunModel:
             order.append(hist[0])
         info['transfo_order'] = '_'.join(order)
 
-    def save_info(self, mode, df):
+    def save_info(self, mode, df, sample):
         name = self.eval_csv_basename or mode
         if mode == 'Train':
             filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}.csv'
-        elif self.eval_model_name is not None:
-            filename = f'{self.results_dir}/' \
-                       f'{name}_from_{self.eval_model_name}.csv'
         else:
-            filename = f'{self.results_dir}/' \
-                       f'{name}_ep{self.epoch:03d}_it{self.iteration:04d}.csv'
+            if self.eval_results_dir == self.results_dir:
+                filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}' \
+                           f'_it{self.iteration:04d}.csv'
+            else:
+                name = sample.get('name')
+                if isinstance(name, list):
+                    name = name[0]
+                resdir = f'{self.eval_results_dir}/{name}/'
+                if not os.path.isdir(resdir):
+                    os.makedirs(resdir)
+                filename = f'{resdir}/{name}/eval.csv'
         df.to_csv(filename)

@@ -49,7 +49,8 @@ SAVE_KEYS = ['record_frequency']
 class Config:
     def __init__(self, main_file, results_dir, logger=None, debug_logger=None,
                  mode='train', viz=0, extra_file=None, safe_mode=False,
-                 create_jobs_file=None, gs_keys=None, gs_values=None):
+                 create_jobs_file=None, gs_keys=None, gs_values=None,
+                 eval_results_dir=None):
         self.main_file = main_file
         self.mode = mode
         self.logger = logger
@@ -62,6 +63,8 @@ class Config:
         self.results_dir = results_dir
         self.main_structure = self.parse_main_file(main_file)
         self.json_config = {}
+
+        self.eval_results_dir = eval_results_dir or self.results_dir
 
         data_structure, transform_structure, model_structure, \
             run_structure = self.parse_extra_file(extra_file)
@@ -910,7 +913,8 @@ class Config:
             '-f', os.path.join(self.results_dir, 'main.json'),
             '-r', self.results_dir,
             '-m', self.mode,
-            '-viz', str(self.viz)
+            '-viz', str(self.viz),
+            '-er', self.eval_results_dir
         ])
         full_cmd = ' '.join(['python', cmd, params])
         return full_cmd
@@ -927,7 +931,8 @@ class Config:
                                     self.label_key_name, self.labels,
                                     self.logger, self.debug_logger,
                                     self.results_dir, self.batch_size,
-                                    self.patch_size, self.run_structure)
+                                    self.patch_size, self.run_structure,
+                                    self.eval_results_dir)
 
             if self.mode == 'train':
                 model_runner.train()
@@ -979,7 +984,8 @@ class Config:
                                         self.image_key_name,
                                         self.label_key_name, self.labels, None,
                                         None, self.results_dir, self.batch_size,
-                                        self.patch_size, run_structure)
+                                        self.patch_size, run_structure,
+                                        self.eval_results_dir)
 
                 with torch.no_grad():
                     model_runner.model.eval()
@@ -1014,7 +1020,7 @@ class Config:
             return PlotDataset(viz_set, **self.viz_structure['kwargs'])
 
 
-def parse_grid_search_file(file):
+def parse_grid_search_file(file, eval_results_dir_prefix=''):
     struct = Config.read_json(file)
     for key, value in struct.items():
         Config.check_mandatory_keys(value, ['values', 'prefix'],
@@ -1038,6 +1044,9 @@ def parse_grid_search_file(file):
             results_dir.append(f'{prefix}_{name}')
         results_dirs.append('_'.join(results_dir))
     product_struct['results_dirs'] = results_dirs
+    product_struct['eval_results_dirs'] = [
+        os.path.join(eval_results_dir_prefix, d) for d in results_dirs
+    ]
 
     return product_struct
 
