@@ -50,7 +50,7 @@ class Config:
     def __init__(self, main_file, results_dir, logger=None, debug_logger=None,
                  mode='train', viz=0, extra_file=None, safe_mode=False,
                  create_jobs_file=None, gs_keys=None, gs_values=None,
-                 eval_results_dir=None):
+                 eval_results_dir=None, max_subjects_per_job=None):
         self.main_file = main_file
         self.mode = mode
         self.logger = logger
@@ -59,6 +59,7 @@ class Config:
         self.extra_file = extra_file
         self.safe_mode = safe_mode
         self.create_jobs_file = create_jobs_file
+        self.max_subjects_per_job = max_subjects_per_job
 
         self.results_dir = results_dir
         self.main_structure = self.parse_main_file(main_file)
@@ -85,8 +86,9 @@ class Config:
         self.image_key_name = data_structure['image_key_name']
         self.label_key_name = data_structure['label_key_name']
 
-        self.train_set, self.val_set, self.test_set = self.load_subjects(
-            data_structure, transform_structure)
+        self.train_set, self.val_set, self.test_set, self.train_subjects, \
+            self.val_subjects, self.test_subjects = self.load_subjects(
+                data_structure, transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(
             data_structure)
 
@@ -674,11 +676,13 @@ class Config:
                         f'Dropping subject {n}')
                     continue
                 for img_name in ref_images.keys():
+                    components = ref_images[img_name]['components']
                     image_attributes = ref_images[img_name]['attributes']
+                    image_attributes.update(
+                        {'components': [c for c in components]})
                     img = torchio.Image(
                         type=ref_images[img_name]['type'],
-                        path=[s[img_name][c]
-                              for c in ref_images[img_name]['components']],
+                        path=[s[img_name][c] for c in components],
                         **image_attributes
                     )
                     s[img_name] = img
@@ -822,7 +826,8 @@ class Config:
                                  transform_struct['val_transforms'])
         test_set = create_dataset(test_subjects,
                                   transform_struct['val_transforms'])
-        return train_set, val_set, test_set
+        return train_set, val_set, test_set, \
+            train_subjects, val_subjects, test_subjects
 
     def generate_data_loaders(self, struct):
         train_loader, val_loader = None, None
@@ -905,12 +910,12 @@ class Config:
 
         return return_model(model, file)
 
-    def create_cmd(self):
+    def create_cmd(self, main_file='main.json'):
         torchQC_path = next(filter(lambda x: 'torchQC' == x[-7:], sys.path))
         cmd = os.path.join(
             torchQC_path, 'segmentation/segmentation_pipeline.py')
         params = ' '.join([
-            '-f', os.path.join(self.results_dir, 'main.json'),
+            '-f', os.path.join(self.results_dir, main_file),
             '-r', self.results_dir,
             '-m', self.mode,
             '-viz', str(self.viz),
@@ -919,9 +924,60 @@ class Config:
         full_cmd = ' '.join(['python', cmd, params])
         return full_cmd
 
+    def split_subjects(self):
+        def create_path(subject, list_name):
+            path_object = {
+                'name': subject['name'],
+                'list_name': list_name,
+                'components': {}
+            }
+            for image_name, image in subject.get_images_dict(False).items():
+                for component, path in zip(image['components'], image.path):
+                    path_object['components'][component] = {
+                        'path': str(path), 'image': image_name
+                    }
+            return path_object
+
+        # Get data.json and main.json structures
+        data_ref = deepcopy(self.json_config['data'])
+        main_ref = self.read_json(os.path.join(self.results_dir, 'main.json'))
+
+        # Remove former paths
+        if 'patterns' in data_ref:
+            del data_ref['patterns']
+        if 'paths' in data_ref:
+            del data_ref['paths']
+        if 'csv_file' in data_ref:
+            del data_ref['csv_file']
+
+        # Construct paths
+        paths = []
+        for subj in self.val_subjects:
+            paths.append(create_path(subj, 'val'))
+        for subj in self.test_subjects:
+            paths.append(create_path(subj, 'test'))
+
+        # Create data and main structures
+        main_files = []
+        n = self.max_subjects_per_job
+        chunks = [paths[i:i + n] for i in range(0, len(paths), n)]
+        for count, chunk in enumerate(chunks):
+            data_structure = deepcopy(data_ref)
+            data_structure['paths'] = chunk
+            data_name = f'split_data_{count}.json'
+            main_structure = deepcopy(main_ref)
+            main_structure['data'] = data_name
+            main_name = f'split_main_{count}.json'
+            self.save_json(data_structure, data_name)
+            self.save_json(main_structure, main_name)
+            main_files.append(main_name)
+        return main_files
+
     def run(self):
-        if self.create_jobs_file is not None:
-            return self.create_cmd()
+        if self.create_jobs_file is not None and self.max_subjects_per_job is None:
+            return [self.create_cmd()]
+        elif self.create_jobs_file is not None:
+            return [self.create_cmd(f) for f in self.split_subjects()]
         if self.mode in ['train', 'eval', 'infer']:
             model, device = self.load_model(self.model_structure)
 

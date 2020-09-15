@@ -62,6 +62,8 @@ if __name__ == "__main__":
                         help='Path to eval results directory if it does not '
                              'start with the config file dir is prepend.'
                              'If None, results_dir is used.')
+    parser.add_argument('-ms', '--max_subjects_per_job', type=int, default=None,
+                        help='Maximum number of subjects per job.')
     args = parser.parse_args()
 
     rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
@@ -89,7 +91,7 @@ if __name__ == "__main__":
 
     if gs_file is not None:
         if os.path.dirname(gs_file) == '':
-            grid_search_file = os.path.join(os.path.dirname(file), gs_file)
+            gs_file = os.path.join(os.path.dirname(file), gs_file)
 
         if eval_results_dir is None:
             eval_results_dir = ''
@@ -115,8 +117,10 @@ if __name__ == "__main__":
             config = Config(file, results_dir, logger, debug_logger, args.mode,
                             args.visualization, extra_file, args.safe_mode,
                             args.create_jobs_file, gs_struct['keys'], values,
-                            eval_results_dir)
-            jobs.append(config.run())
+                            eval_results_dir, args.max_subjects_per_job)
+            result = config.run()
+            if result is not None:
+                jobs += result
 
     else:
         if extra_file is not None:
@@ -133,8 +137,12 @@ if __name__ == "__main__":
 
         config = Config(file, results_dir, logger, debug_logger, args.mode,
                         args.visualization, extra_file, args.safe_mode,
-                        args.create_jobs_file)
-        jobs.append(config.run())
+                        args.create_jobs_file,
+                        eval_results_dir=eval_results_dir,
+                        max_subjects_per_job=args.max_subjects_per_job)
+        result = config.run()
+        if result is not None:
+            jobs += result
 
     if create_jobs_file is not None:
         jobs_struct['jobs'] = jobs

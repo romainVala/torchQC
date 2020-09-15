@@ -408,9 +408,10 @@ class RunModel:
         location = sample.get('index_ini')
         affine = sample[self.image_key_name]['affine']
         if is_batch:
-            affine = affine[0]
-        aa = affine[:3, :3]
-        voxel_size = torch.prod(torch.sqrt(torch.sum(aa*aa, dim=0)))
+            affine = to_numpy(affine[0])
+        # M is the product between a scaling and a rotation
+        M = affine[:3, :3]
+        voxel_size = np.diagonal(np.sqrt(M @ M.T)).prod()
 
         batch_size = shape[0]
 
@@ -695,5 +696,5 @@ class RunModel:
                 resdir = f'{self.eval_results_dir}/{name}/'
                 if not os.path.isdir(resdir):
                     os.makedirs(resdir)
-                filename = f'{resdir}/{name}/eval.csv'
+                filename = f'{resdir}/eval.csv'
         df.to_csv(filename)
