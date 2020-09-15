@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import nibabel as nib
 import torchio
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
 
@@ -35,7 +34,7 @@ class RunModel:
     def __init__(self, model, device, train_loader, val_loader, val_set,
                  test_set, image_key_name, label_key_name, labels,
                  logger, debug_logger, results_dir, batch_size,
-                 patch_size, struct, eval_results_dir):
+                 patch_size, struct):
         self.model = model
         self.device = device
 
@@ -51,7 +50,6 @@ class RunModel:
         self.logger = logger
         self.debug_logger = debug_logger
         self.results_dir = results_dir
-        self.eval_results_dir = eval_results_dir
 
         self.batch_size = batch_size
         self.patch_size = patch_size
@@ -70,6 +68,7 @@ class RunModel:
         self.metrics = struct['validation']['reporting_metrics']
         self.patch_overlap = struct['validation']['patch_overlap']
         self.save_predictions = struct['validation']['save_predictions']
+        self.eval_results_dir = struct['validation']['eval_results_dir']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
         self.activation = struct['activation']

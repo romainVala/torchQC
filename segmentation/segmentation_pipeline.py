@@ -58,10 +58,6 @@ if __name__ == "__main__":
                              'saved according to this configuration file')
     parser.add_argument('-gs', '--grid_search_file', type=str,
                         help='Grid search file')
-    parser.add_argument('-er', '--eval_results_dir', type=str, default=None,
-                        help='Path to eval results directory if it does not '
-                             'start with the config file dir is prepend.'
-                             'If None, results_dir is used.')
     parser.add_argument('-ms', '--max_subjects_per_job', type=int, default=None,
                         help='Maximum number of subjects per job.')
     args = parser.parse_args()
@@ -74,7 +70,6 @@ if __name__ == "__main__":
     extra_file = args.extra_file
     gs_file = args.grid_search_file
     create_jobs_file = args.create_jobs_file
-    eval_results_dir = args.eval_results_dir
 
     jobs, jobs_struct = [], {}
 
@@ -93,22 +88,12 @@ if __name__ == "__main__":
         if os.path.dirname(gs_file) == '':
             gs_file = os.path.join(os.path.dirname(file), gs_file)
 
-        if eval_results_dir is None:
-            eval_results_dir = ''
-        else:
-            if os.path.dirname(eval_results_dir) == '':
-                eval_results_dir = os.path.join(
-                    os.path.dirname(file), eval_results_dir)
+        gs_struct = parse_grid_search_file(gs_file)
 
-        gs_struct = parse_grid_search_file(gs_file, eval_results_dir)
-
-        for results_dir, eval_results_dir, values in zip(
-                gs_struct['results_dirs'],
-                gs_struct['eval_results_dirs'],
-                gs_struct['values']
+        for results_dir, values in zip(
+                gs_struct['results_dirs'], gs_struct['values']
         ):
             results_dir = handle_results_dir(results_dir, file)
-            eval_results_dir = handle_results_dir(eval_results_dir, file)
             logger = instantiate_logger(
                 f'info_{results_dir}', logging.INFO, results_dir + '/info.txt')
             debug_logger = instantiate_logger(
@@ -117,7 +102,7 @@ if __name__ == "__main__":
             config = Config(file, results_dir, logger, debug_logger, args.mode,
                             args.visualization, extra_file, args.safe_mode,
                             args.create_jobs_file, gs_struct['keys'], values,
-                            eval_results_dir, args.max_subjects_per_job)
+                            args.max_subjects_per_job)
             result = config.run()
             if result is not None:
                 jobs += result
@@ -138,7 +123,6 @@ if __name__ == "__main__":
         config = Config(file, results_dir, logger, debug_logger, args.mode,
                         args.visualization, extra_file, args.safe_mode,
                         args.create_jobs_file,
-                        eval_results_dir=eval_results_dir,
                         max_subjects_per_job=args.max_subjects_per_job)
         result = config.run()
         if result is not None:
