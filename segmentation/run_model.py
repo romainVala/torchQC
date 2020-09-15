@@ -400,7 +400,8 @@ class RunModel:
         if self.model.training:
             mode = 'Train'
         else:
-            df = pd.DataFrame()
+            if self.eval_results_dir != self.results_dir:
+                df = pd.DataFrame()
             mode = 'Val' if is_batch else 'Whole_image'
 
         shape = targets.shape
@@ -600,7 +601,7 @@ class RunModel:
 
         mode = 'Train' if self.model.training else 'Val'
 
-        if mode == 'Val':
+        if self.eval_results_dir != self.results_dir:
             df = pd.DataFrame()
 
         location = sample.get('index_ini')
