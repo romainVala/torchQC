@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import nibabel as nib
 import torchio
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
 
@@ -69,6 +68,7 @@ class RunModel:
         self.metrics = struct['validation']['reporting_metrics']
         self.patch_overlap = struct['validation']['patch_overlap']
         self.save_predictions = struct['validation']['save_predictions']
+        self.eval_results_dir = struct['validation']['eval_results_dir']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
         self.activation = struct['activation']
@@ -399,6 +399,8 @@ class RunModel:
         if self.model.training:
             mode = 'Train'
         else:
+            if self.eval_results_dir != self.results_dir:
+                df = pd.DataFrame()
             mode = 'Val' if is_batch else 'Whole_image'
 
         shape = targets.shape
@@ -406,9 +408,10 @@ class RunModel:
         location = sample.get('index_ini')
         affine = sample[self.image_key_name]['affine']
         if is_batch:
-            affine = affine[0]
-        aa = affine[:3, :3]
-        voxel_size = torch.prod(torch.sqrt(torch.sum(aa*aa, dim=0)))
+            affine = to_numpy(affine[0])
+        # M is the product between a scaling and a rotation
+        M = affine[:3, :3]
+        voxel_size = np.diagonal(np.sqrt(M @ M.T)).prod()
 
         batch_size = shape[0]
 
@@ -469,7 +472,7 @@ class RunModel:
             df = df.append(info, ignore_index=True)
 
         if save:
-            self.save_info(mode, df)
+            self.save_info(mode, df, sample)
 
         return df
 
@@ -499,7 +502,7 @@ class RunModel:
         if isinstance(name, list):
             name = name[0]
         volume = self.activation(volume)
-        resdir = f'{self.results_dir}/{name}/'
+        resdir = f'{self.eval_results_dir}/{name}/'
         if not os.path.isdir(resdir):
             os.makedirs(resdir)
 
@@ -597,6 +600,9 @@ class RunModel:
 
         mode = 'Train' if self.model.training else 'Val'
 
+        if self.eval_results_dir != self.results_dir:
+            df = pd.DataFrame()
+
         location = sample.get('index_ini')
         shape = sample[self.image_key_name]['data'].shape
         batch_size = shape[0]
@@ -657,7 +663,7 @@ class RunModel:
             df = df.append(info, ignore_index=True)
 
         if save:
-            self.save_info(mode, df)
+            self.save_info(mode, df, sample)
 
         return df
 
@@ -675,14 +681,20 @@ class RunModel:
             order.append(hist[0])
         info['transfo_order'] = '_'.join(order)
 
-    def save_info(self, mode, df):
+    def save_info(self, mode, df, sample):
         name = self.eval_csv_basename or mode
         if mode == 'Train':
             filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}.csv'
-        elif self.eval_model_name is not None:
-            filename = f'{self.results_dir}/' \
-                       f'{name}_from_{self.eval_model_name}.csv'
         else:
-            filename = f'{self.results_dir}/' \
-                       f'{name}_ep{self.epoch:03d}_it{self.iteration:04d}.csv'
+            if self.eval_results_dir == self.results_dir:
+                filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}' \
+                           f'_it{self.iteration:04d}.csv'
+            else:
+                name = sample.get('name')
+                if isinstance(name, list):
+                    name = name[0]
+                resdir = f'{self.eval_results_dir}/{name}/'
+                if not os.path.isdir(resdir):
+                    os.makedirs(resdir)
+                filename = f'{resdir}/eval.csv'
         df.to_csv(filename)
