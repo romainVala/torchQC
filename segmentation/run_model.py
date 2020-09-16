@@ -76,6 +76,7 @@ class RunModel:
         self.split_channels = struct['save']['split_channels']
         self.save_channels = struct['save']['save_channels']
         self.save_threshold = struct['save']['save_threshold']
+        self.save_volume_name = struct['save']['save_volume_name']
 
         # Keep information to load optimizer and learning rate scheduler
         self.optimizer, self.lr_scheduler = None, None
@@ -509,31 +510,32 @@ class RunModel:
         if self.save_bin:
             bin_volume = torch.argmax(volume, dim=1)
             bin_volume = nib.Nifti1Image(
-                to_numpy(bin_volume.squeeze()).astype(np.uint8), affine
+                to_numpy(bin_volume[0]).astype(np.uint8), affine
             )
-            nib.save(bin_volume, f'{resdir}/bin_predictions.nii.gz')
+            nib.save(bin_volume, f'{resdir}/bin_{self.save_volume_name}.nii.gz')
 
         volume[volume < self.save_threshold] = 0.
 
         if self.save_channels is not None:
             channels = [self.labels.index(c) for c in self.save_channels]
+            channel_names = self.save_channels
             volume = volume[:, channels, ...]
         else:
-            self.save_channels = self.labels
+            channel_names = self.labels
 
         if self.split_channels:
             for channel in range(volume.shape[1]):
-                label = self.save_channels[channel]
+                label = channel_names[channel]
                 v = nib.Nifti1Image(
-                    to_numpy(volume[:, channel, ...].squeeze()), affine
+                    to_numpy(volume[0, channel, ...]), affine
                 )
                 nib.save(v, f'{resdir}/{label}.nii.gz')
 
         else:
             volume = nib.Nifti1Image(
-                to_numpy(volume.squeeze().permute(1, 2, 3, 0)), affine
+                to_numpy(volume.permute(0, 2, 3, 4, 1).squeeze()), affine
             )
-            nib.save(volume, f'{resdir}/4D_predictions.nii.gz')
+            nib.save(volume, f'{resdir}/{self.save_volume_name}.nii.gz')
 
     def get_regress_random_noise_data(self, data):
         return self.get_regression_data(data, 'random_noise')
