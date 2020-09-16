@@ -76,6 +76,7 @@ class RunModel:
         self.split_channels = struct['save']['split_channels']
         self.save_channels = struct['save']['save_channels']
         self.save_threshold = struct['save']['save_threshold']
+        self.save_volume_name = struct['save']['save_volume_name']
 
         # Keep information to load optimizer and learning rate scheduler
         self.optimizer, self.lr_scheduler = None, None
@@ -511,7 +512,7 @@ class RunModel:
             bin_volume = nib.Nifti1Image(
                 to_numpy(bin_volume[0]).astype(np.uint8), affine
             )
-            nib.save(bin_volume, f'{resdir}/bin_predictions.nii.gz')
+            nib.save(bin_volume, f'{resdir}/bin_{self.save_volume_name}.nii.gz')
 
         volume[volume < self.save_threshold] = 0.
 
@@ -534,7 +535,7 @@ class RunModel:
             volume = nib.Nifti1Image(
                 to_numpy(volume[0].permute(1, 2, 3, 0)), affine
             )
-            nib.save(volume, f'{resdir}/4D_predictions.nii.gz')
+            nib.save(volume, f'{resdir}/{self.save_volume_name}.nii.gz')
 
     def get_regress_random_noise_data(self, data):
         return self.get_regression_data(data, 'random_noise')
