@@ -496,7 +496,8 @@ class Config:
                 self.set_struct_value(criterion, 'channels', None)
                 self.set_struct_value(criterion, 'mask')
                 self.set_struct_value(criterion, 'mask_cut', [0.99, 1])
-                self.set_struct_value(criterion, 'binary', False)
+                self.set_struct_value(criterion, 'binarize_target', False)
+                self.set_struct_value(criterion, 'binarize_prediction', False)
                 self.set_struct_value(criterion, 'binary_volumes', False)
                 self.set_struct_value(criterion, 'activation', activation)
                 self.set_struct_value(criterion, 'weight', 1)
@@ -518,13 +519,14 @@ class Config:
                 c = parse_method_import(criterion)
                 c_list.append({
                     'criterion': MetricOverlay(
-                        c,
-                        criterion['channels'],
-                        criterion['mask'],
-                        criterion['mask_cut'],
-                        criterion['binary'],
-                        a,
-                        criterion['binary_volumes']
+                        metric=c,
+                        channels=criterion['channels'],
+                        mask=criterion['mask'],
+                        mask_cut=criterion['mask_cut'],
+                        binarize_target=criterion['binarize_target'],
+                        activation=a,
+                        binary_volumes=criterion['binary_volumes'],
+                        binarize_prediction=criterion['binarize_prediction']
                     ),
                     'weight': criterion['weight'],
                     'name': criterion['reported_name']
