@@ -92,6 +92,7 @@ class Config:
 
         self.save_transformed_samples = transform_structure['save']
         self.loaded_model_name = None
+        self.post_transforms = transform_structure['post_transforms']
 
         if 'model' in self.main_structure:
             self.model_structure = self.parse_model_file(model_structure)
@@ -437,6 +438,7 @@ class Config:
         self.check_mandatory_keys(struct, TRANSFORM_KEYS,
                                   'TRANSFORM CONFIG FILE')
         self.set_struct_value(struct, 'save', False)
+        self.set_struct_value(struct, 'post_transforms', [])
 
         if return_string:
             return struct
@@ -447,12 +449,17 @@ class Config:
         transform_list = []
         for transform in struct['train_transforms']:
             transform_list.append(parse_transform(transform))
-        struct['train_transforms'] = transform_list
+        struct['train_transforms'] = torchio.transforms.Compose(transform_list)
 
         transform_list = []
         for transform in struct['val_transforms']:
             transform_list.append(parse_transform(transform))
-        struct['val_transforms'] = transform_list
+        struct['val_transforms'] = torchio.transforms.Compose(transform_list)
+
+        transform_list = []
+        for transform in struct['post_transforms']:
+            transform_list.append(parse_transform(transform))
+        struct['post_transforms'] = torchio.transforms.Compose(transform_list)
 
         return struct
 
@@ -708,9 +715,8 @@ class Config:
         def create_dataset(subject_list, transforms):
             if len(subject_list) == 0:
                 return []
-            final_transform = torchio.transforms.Compose(transforms)
             return torchio.SubjectsDataset(
-                subject_list, transform=final_transform)
+                subject_list, transform=transforms)
 
         train_set, val_set, test_set = [], [], []
 
@@ -994,7 +1000,8 @@ class Config:
                                     self.label_key_name, self.labels,
                                     self.logger, self.debug_logger,
                                     self.results_dir, self.batch_size,
-                                    self.patch_size, self.run_structure)
+                                    self.patch_size, self.run_structure,
+                                    self.post_transforms)
 
             if self.mode == 'train':
                 model_runner.train()
@@ -1046,7 +1053,8 @@ class Config:
                                         self.image_key_name,
                                         self.label_key_name, self.labels, None,
                                         None, self.results_dir, self.batch_size,
-                                        self.patch_size, run_structure)
+                                        self.patch_size, run_structure,
+                                        self.post_transforms)
 
                 with torch.no_grad():
                     model_runner.model.eval()
