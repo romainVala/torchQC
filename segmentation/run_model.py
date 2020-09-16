@@ -509,7 +509,7 @@ class RunModel:
         if self.save_bin:
             bin_volume = torch.argmax(volume, dim=1)
             bin_volume = nib.Nifti1Image(
-                to_numpy(bin_volume.squeeze()).astype(np.uint8), affine
+                to_numpy(bin_volume[0]).astype(np.uint8), affine
             )
             nib.save(bin_volume, f'{resdir}/bin_predictions.nii.gz')
 
@@ -525,13 +525,13 @@ class RunModel:
             for channel in range(volume.shape[1]):
                 label = self.save_channels[channel]
                 v = nib.Nifti1Image(
-                    to_numpy(volume[:, channel, ...].squeeze()), affine
+                    to_numpy(volume[0, channel, ...]), affine
                 )
                 nib.save(v, f'{resdir}/{label}.nii.gz')
 
         else:
             volume = nib.Nifti1Image(
-                to_numpy(volume.squeeze().permute(1, 2, 3, 0)), affine
+                to_numpy(volume[0].permute(1, 2, 3, 0)), affine
             )
             nib.save(volume, f'{resdir}/4D_predictions.nii.gz')
 
