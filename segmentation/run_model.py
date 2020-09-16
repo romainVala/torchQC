@@ -34,7 +34,7 @@ class RunModel:
     def __init__(self, model, device, train_loader, val_loader, val_set,
                  test_set, image_key_name, label_key_name, labels,
                  logger, debug_logger, results_dir, batch_size,
-                 patch_size, struct):
+                 patch_size, struct, post_transforms):
         self.model = model
         self.device = device
 
@@ -53,6 +53,8 @@ class RunModel:
 
         self.batch_size = batch_size
         self.patch_size = patch_size
+
+        self.post_transforms = post_transforms
 
         # Set attributes to keep track of information during training
         self.epoch = struct['current_epoch']
@@ -229,12 +231,6 @@ class RunModel:
             # Compute output
             predictions = self.model(volumes)
 
-            if self.save_predictions and not self.model.training:
-                for j, prediction in enumerate(predictions):
-                    self.prediction_saver(
-                        sample, prediction.unsqueeze(0), i * self.batch_size + j
-                    )
-
             # Compute loss
             loss = 0
             for criterion in self.criteria:
@@ -247,6 +243,16 @@ class RunModel:
                 loss.backward()
                 self.optimizer.step()
                 loss = float(loss)
+                predictions = predictions.detach()
+
+            predictions = self.apply_post_transforms(predictions, sample)
+            targets = self.apply_post_transforms(targets, sample)
+
+            if self.save_predictions and not self.model.training:
+                for j, prediction in enumerate(predictions):
+                    self.prediction_saver(
+                        sample, prediction.unsqueeze(0), i * self.batch_size + j
+                    )
 
             # Measure elapsed time
             batch_time = time.time() - start
@@ -311,6 +317,11 @@ class RunModel:
 
             predictions = self.make_prediction_on_whole_volume(sample)
 
+            predictions = self.apply_post_transforms(
+                predictions.unsqueeze(0), sample)[0]
+
+            target = self.apply_post_transforms(target.unsqueeze(0), sample)[0]
+
             if self.save_predictions:
                 self.prediction_saver(sample, predictions.unsqueeze(0), i)
 
@@ -356,6 +367,9 @@ class RunModel:
                 volume, _ = self.data_getter(sample)
                 predictions = self.model(volume.unsqueeze(0))[0]
 
+            predictions = self.apply_post_transforms(
+                predictions.unsqueeze(0), sample)[0]
+
             # Measure elapsed time
             sample_time = time.time() - start
             time_sum += sample_time
@@ -369,6 +383,31 @@ class RunModel:
                 self.log(to_log)
 
             self.prediction_saver(sample, predictions.unsqueeze(0), i)
+
+    def get_affine(self, sample):
+        affine = sample[self.image_key_name]['affine']
+        if affine.ndim == 3:
+            affine = to_numpy(affine[0])
+        return affine
+
+    def apply_post_transforms(self, tensors, sample):
+        if len(self.post_transforms.transform.transforms) == 0:
+            return tensors
+        affine = self.get_affine(sample)
+        # Transforms apply on TorchIO subjects and TorchIO images require
+        # 4D tensors
+        transformed_tensors = []
+        for i, tensor in enumerate(tensors):
+            subject = torchio.Subject(
+                pred=torchio.ScalarImage(
+                    tensor=to_var(tensor, 'cpu'),
+                    affine=affine)
+            )
+            transformed = self.post_transforms(subject)
+            tensor = transformed['pred']['data']
+            transformed_tensors.append(tensor)
+        transformed_tensors = torch.stack(transformed_tensors)
+        return to_var(transformed_tensors, self.device)
 
     def save_checkpoint(self, loss=None):
         optimizer_dict = None
@@ -407,9 +446,7 @@ class RunModel:
         shape = targets.shape
         #size = np.product(shape[2:])
         location = sample.get('index_ini')
-        affine = sample[self.image_key_name]['affine']
-        if is_batch:
-            affine = to_numpy(affine[0])
+        affine = self.get_affine(sample)
         # M is the product between a scaling and a rotation
         M = affine[:3, :3]
         voxel_size = np.diagonal(np.sqrt(M @ M.T)).prod()
