@@ -533,7 +533,7 @@ class RunModel:
 
         else:
             volume = nib.Nifti1Image(
-                to_numpy(volume[0].permute(1, 2, 3, 0)), affine
+                to_numpy(volume.permute(0, 2, 3, 4, 1).squeeze()), affine
             )
             nib.save(volume, f'{resdir}/{self.save_volume_name}.nii.gz')
 
