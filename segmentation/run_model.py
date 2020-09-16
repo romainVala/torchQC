@@ -517,13 +517,14 @@ class RunModel:
 
         if self.save_channels is not None:
             channels = [self.labels.index(c) for c in self.save_channels]
+            channel_names = self.save_channels
             volume = volume[:, channels, ...]
         else:
-            self.save_channels = self.labels
+            channel_names = self.labels
 
         if self.split_channels:
             for channel in range(volume.shape[1]):
-                label = self.save_channels[channel]
+                label = channel_names[channel]
                 v = nib.Nifti1Image(
                     to_numpy(volume[0, channel, ...]), affine
                 )
