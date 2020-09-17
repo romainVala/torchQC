@@ -46,7 +46,7 @@ class MetricOverlay:
             target = self.binarize(target)
 
         if self.binarize_prediction:
-            prediction = self.binarize_prediction
+            prediction = self.binarize(prediction)
 
         if self.mask is not None:
             min_cut, max_cut = self.mask_cut
