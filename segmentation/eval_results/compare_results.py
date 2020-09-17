@@ -177,6 +177,41 @@ def plot_dice_against_patch_overlap():
     plt.plot(overlaps, dice_scores)
 
 
+def aggregate_csv_files(pattern, filename, fragment_position=-3):
+    """Create a CSV file out of smaller ones and add columns 'model',
+    'GM', 'SNR' and 'mode'.
+
+    Example:
+        >>> from segmentation.eval_results.compare_results import aggregate_csv_files
+        >>> pattern = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/RES_1mm/*/*/eval.csv'
+        >>> aggregate_csv_files(pattern, 'some_path.csv')
+    """
+    files = glob.glob(pattern)
+    data_frames = [pd.read_csv(file, index_col=0) for file in files]
+    for i, file in enumerate(files):
+        name = file.split('/')[fragment_position]
+
+        # Get information
+        fragments = name.split('_')
+
+        GM_level = fragments[1]
+        mode = fragments[2]
+        SNR_level = fragments[4]
+        model_name = '_'.join(fragments[6:])
+
+        # Parse information
+        SNR_level = int(SNR_level)
+        GM_level = float(f'0.{GM_level[-1]}')
+
+        data_frames[i]['model'] = model_name
+        data_frames[i]['GM'] = GM_level
+        data_frames[i]['SNR'] = SNR_level
+        data_frames[i]['mode'] = mode
+
+    final_data_frame = pd.concat(data_frames)
+    final_data_frame.to_csv(filename)
+
+
 def create_data_frame(results_dirs, metric, ref_tissue='WM', spacing=(1, 1, 1), label='GM'):
     files = [_get_file(r) for r in results_dirs]
     data_frames = [pd.read_csv(file, index_col=0) for file in files]
