@@ -103,6 +103,7 @@ if __name__ == "__main__":
                             args.visualization, extra_file, args.safe_mode,
                             args.create_jobs_file, gs_struct['keys'], values,
                             args.max_subjects_per_job)
+            config.init()
             result = config.run()
             if result is not None:
                 jobs += result
@@ -124,6 +125,7 @@ if __name__ == "__main__":
                         args.visualization, extra_file, args.safe_mode,
                         args.create_jobs_file,
                         max_subjects_per_job=args.max_subjects_per_job)
+        config.init()
         result = config.run()
         if result is not None:
             jobs += result
