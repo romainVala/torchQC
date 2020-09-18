@@ -850,6 +850,7 @@ class Config:
         if data_struct['subject_shuffle']:
             np.random.seed(data_struct['subject_seed'])
             np.random.shuffle(subjects)
+            np.random.shuffle(train_subjects)
         n_subjects = len(subjects)
 
         # Split between train, validation and test sets
