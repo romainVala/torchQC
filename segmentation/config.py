@@ -50,28 +50,51 @@ class Config:
     def __init__(self, main_file, results_dir, logger=None, debug_logger=None,
                  mode='train', viz=0, extra_file=None, safe_mode=False,
                  create_jobs_file=None, gs_keys=None, gs_values=None,
-                 max_subjects_per_job=None):
+                 max_subjects_per_job=None, save_files=True):
         self.main_file = main_file
-        self.mode = mode
+        self.results_dir = results_dir
         self.logger = logger
         self.debug_logger = debug_logger
+        self.mode = mode
         self.viz = viz
         self.extra_file = extra_file
         self.safe_mode = safe_mode
         self.create_jobs_file = create_jobs_file
+        self.gs_keys = gs_keys
+        self.gs_values = gs_values
         self.max_subjects_per_job = max_subjects_per_job
+        self.save_files = save_files
 
-        self.results_dir = results_dir
-        self.main_structure = self.parse_main_file(main_file)
+        self.main_structure = None
         self.json_config = {}
 
+        self.labels = None
+        self.batch_size = None
+        self.patch_size = None
+        self.sampler = None
+        self.image_key_name = None
+        self.label_key_name = None
+        self.train_set, self.val_set, self.test_set = None, None, None
+        self.train_subjects = None
+        self.val_subjects = None
+        self.test_subjects = None
+        self.train_loader, self.val_loader = None, None
+        self.save_transformed_samples = None
+        self.post_transforms = None
+        self.model_structure = None
+        self.run_structure = None
+        self.viz_structure = None
+
+    def init(self):
+        self.main_structure = self.parse_main_file(self.main_file)
+
         data_structure, transform_structure, model_structure, \
-            run_structure = self.parse_extra_file(extra_file)
+            run_structure = self.parse_extra_file(self.extra_file)
 
         data_structure, transform_structure, model_structure, \
             run_structure = self.parse_gs_items(
-                gs_keys, gs_values, data_structure, transform_structure,
-                model_structure, run_structure)
+                self.gs_keys, self.gs_values, data_structure,
+                transform_structure, model_structure, run_structure)
 
         data_structure, labels, patch_size, sampler = self.parse_data_file(
             data_structure)
@@ -91,7 +114,6 @@ class Config:
             data_structure)
 
         self.save_transformed_samples = transform_structure['save']
-        self.loaded_model_name = None
         self.post_transforms = transform_structure['post_transforms']
 
         if 'model' in self.main_structure:
@@ -171,6 +193,8 @@ class Config:
         return has_changed
 
     def save_json(self, struct, name, compare_existing=True):
+        if not self.save_files:
+            return
         self.debug(f'******** {name.upper()} ********')
         self.debug(json.dumps(struct, indent=4, sort_keys=True))
         file_path = os.path.join(self.results_dir, name)
@@ -922,9 +946,6 @@ class Config:
         else:
             model.load_state_dict(torch.load(file))
 
-        self.loaded_model_name = os.path.basename(file)[
-                                 :-8]  # to remove .pth.tar
-
         return return_model(model, file)
 
     def create_cmd(self, main_file='main.json'):
@@ -1010,7 +1031,6 @@ class Config:
                 model_runner.train()
             elif self.mode == 'eval':
                 model_runner.eval(
-                    model_name=self.loaded_model_name,
                     eval_csv_basename=self.model_structure['eval_csv_basename'],
                     save_transformed_samples=self.save_transformed_samples)
             else:

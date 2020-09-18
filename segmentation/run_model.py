@@ -95,7 +95,6 @@ class RunModel:
         self.prediction_saver = getattr(
             self, struct['save']['prediction_saver'])
 
-        self.eval_model_name = None
         self.eval_csv_basename = None
         self.save_transformed_samples = False
 
@@ -178,11 +177,10 @@ class RunModel:
         # Save model at the end of training
         self.save_checkpoint()
 
-    def eval(self, model_name=None, eval_csv_basename=None,
+    def eval(self, eval_csv_basename=None,
              save_transformed_samples=False):
         """ Evaluate the model on the validation set. """
         self.epoch -= 1
-        self.eval_model_name = model_name
         if eval_csv_basename:
             self.eval_csv_basename = eval_csv_basename
 
