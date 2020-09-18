@@ -343,6 +343,7 @@ class Config:
             self.check_mandatory_keys(pattern, PATTERN_KEYS, 'PATTERN')
             self.set_struct_value(pattern, 'list_name')
             self.set_struct_value(pattern, 'name_pattern')
+            self.set_struct_value(pattern, 'suffix', '')
 
         for path in struct['paths']:
             self.check_mandatory_keys(path, PATH_KEYS, 'PATH')
@@ -732,12 +733,12 @@ class Config:
                 subject_list.append(torchio.Subject(s))
             return subject_list
 
-        def get_name(name_pattern, string):
+        def get_name(name_pattern, string, suffix):
             if name_pattern is None:
-                return os.path.relpath(string, Path(string).parent)
+                return os.path.relpath(string, Path(string).parent) + suffix
             else:
                 matches = re.findall(name_pattern, string)
-                return matches[-1]
+                return '_'.join(matches) + suffix
 
         def create_dataset(subject_list, transforms):
             if len(subject_list) == 0:
@@ -804,7 +805,9 @@ class Config:
                 pattern['list_name'])
             # Sort to get alphabetic order if not shuffle
             for folder_path in sorted(glob.glob(pattern['root'])):
-                name = get_name(pattern['name_pattern'], folder_path)
+                name = get_name(
+                    pattern['name_pattern'], folder_path, pattern['suffix']
+                )
                 subject = relevant_dict.get(name) or {}
 
                 for component_name, component in pattern['components'].items():
