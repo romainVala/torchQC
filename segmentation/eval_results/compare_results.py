@@ -329,3 +329,25 @@ def plot_value_vs_GM_level(results_dirs, metric, ylim=None, save_fig=None, label
     if save_fig is not None:
         fig.savefig(save_fig)
     plt.show()
+
+
+def plot_metric_against_GM_level(result_file, metric, ylim=None, save_fig=None):
+    """ Draw a bar plot of values from a given metric against the GM level
+    from a CSV result file.
+
+    Example:
+        >>> from segmentation.eval_results.compare_results import plot_metric_against_GM_level
+        >>> result_file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res1mm_all.csv'
+        >>> plot_metric_against_GM_level(result_file, 'metric_dice_loss_GM', ylim=(0, 0.1))
+    """
+    df = pd.read_csv(result_file, index_col=0)
+    df['model_and_SNR'] = df['model'].str.cat(df['SNR'].astype(str), sep='_')
+    order = _get_order_from_col(df, 'GM', to_round=False)
+    hue_order = _get_order_from_col(df, 'model_and_SNR', to_round=False)
+    palette = _get_color_palette(
+        len(df['model_and_SNR'].unique()), len(df['SNR'].unique()))
+    fig = _draw_catplot(df, 'GM', metric, order, ylim, 'model_and_SNR',
+                        hue_order, palette)
+    if save_fig is not None:
+        fig.savefig(save_fig)
+    plt.show()
