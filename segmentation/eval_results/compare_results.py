@@ -179,14 +179,18 @@ def plot_dice_against_patch_overlap():
 
 def aggregate_csv_files(pattern, filename, fragment_position=-3):
     """Create a CSV file out of smaller ones and add columns 'model',
-    'GM', 'SNR' and 'mode'.
+    'GM', 'SNR' and 'mode'. Small CSV files are used using a glob pattern
+    or a list of glob patterns.
 
     Example:
         >>> from segmentation.eval_results.compare_results import aggregate_csv_files
         >>> pattern = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/RES_1mm/*/*/eval.csv'
         >>> aggregate_csv_files(pattern, 'some_path.csv')
     """
-    files = glob.glob(pattern)
+    if isinstance(pattern, str):
+        files = glob.glob(pattern)
+    else:
+        files = [f for p in pattern for f in glob.glob(p)]
     data_frames = [pd.read_csv(file, index_col=0) for file in files]
     for i, file in enumerate(files):
         name = file.split('/')[fragment_position]
@@ -326,6 +330,27 @@ def plot_value_vs_GM_level(results_dirs, metric, ylim=None, save_fig=None, label
         len(df['model_and_noise'].unique()), len(df['noise'].unique()))
     fig = _draw_catplot(df, 'GM', metric, order, ylim, 'model_and_noise',
                         hue_order, palette)
+    if save_fig is not None:
+        fig.savefig(save_fig)
+    plt.show()
+
+
+def plot_metric_against_GM_level(result_file, metric, ylim=None, save_fig=None):
+    """ Draw a bar plot of values from a given metric against the GM level
+    from a CSV result file.
+
+    Example:
+        >>> from segmentation.eval_results.compare_results import plot_metric_against_GM_level
+        >>> result_file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res1mm_all.csv'
+        >>> plot_metric_against_GM_level(result_file, 'metric_dice_loss_GM', ylim=(0, 0.1))
+    """
+    df = pd.read_csv(result_file, index_col=0)
+    df.sort_values(['model', 'SNR'], axis=0, inplace=True)
+    df['model_and_SNR'] = df['model'].str.cat(df['SNR'].astype(str), sep='_')
+    palette = _get_color_palette(
+        len(df['model_and_SNR'].unique()), len(df['SNR'].unique()))
+    fig = _draw_catplot(df, 'GM', metric, ylim=ylim, hue='model_and_SNR',
+                        palette=palette)
     if save_fig is not None:
         fig.savefig(save_fig)
     plt.show()
