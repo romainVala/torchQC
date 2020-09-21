@@ -166,13 +166,14 @@ class RunModel:
             # Evaluate on whole images of the validation set
             with torch.no_grad():
                 self.model.eval()
-                if self.patch_size is not None and self.epoch % \
-                        self.whole_image_inference_frequency == 0:
-                    self.log('Validation on whole images')
-                    self.whole_image_evaluation_loop()
+                if self.patch_size is not None \
+                        and self.whole_image_inference_frequency is not None:
+                    if self.epoch % self.whole_image_inference_frequency == 0:
+                        self.log('Validation on whole images')
+                        self.whole_image_evaluation_loop()
 
-                    # Save model after inference
-                    self.save_checkpoint()
+                        # Save model after inference
+                        self.save_checkpoint()
 
         # Save model at the end of training
         self.save_checkpoint()
