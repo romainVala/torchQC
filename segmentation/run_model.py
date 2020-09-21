@@ -12,6 +12,7 @@ import nibabel as nib
 import torchio
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
+from apex import amp
 
 
 class ArrayTensorJSONEncoder(json.JSONEncoder):
@@ -79,6 +80,8 @@ class RunModel:
         self.save_channels = struct['save']['save_channels']
         self.save_threshold = struct['save']['save_threshold']
         self.save_volume_name = struct['save']['save_volume_name']
+        self.mixed_precision = struct['apex']['mixed_precision']
+        self.opt_level = struct['apex']['opt_level']
 
         # Keep information to load optimizer and learning rate scheduler
         self.optimizer, self.lr_scheduler = None, None
@@ -139,6 +142,11 @@ class RunModel:
         self.optimizer, self.lr_scheduler = self.get_optimizer(
             self.optimizer_dict)
 
+        # Initialize Apex
+        self.model, self.optimizer = amp.initialize(
+            self.model, self.optimizer, opt_level=self.opt_level
+        )
+
         # Try to load optimizer state
         opt_files = glob.glob(
             os.path.join(self.results_dir, f'opt_ep{self.epoch - 1}*.pth.tar')
@@ -154,6 +162,13 @@ class RunModel:
             )
             if len(sch_files) > 0:
                 self.lr_scheduler.load_state_dict(torch.load(sch_files[-1]))
+
+        # Try to load Apex
+        amp_files = glob.glob(
+            os.path.join(self.results_dir, f'amp_ep{self.epoch - 1}*.pth.tar')
+        )
+        if len(amp_files) > 0:
+            amp.load_state_dict(torch.load(amp_files[-1]))
 
         for epoch in range(self.epoch, self.n_epochs + 1):
             self.epoch = epoch
@@ -238,7 +253,8 @@ class RunModel:
             # Compute gradient and do SGD step
             if self.model.training:
                 self.optimizer.zero_grad()
-                loss.backward()
+                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
                 self.optimizer.step()
                 loss = float(loss)
                 predictions = predictions.detach()
@@ -422,7 +438,8 @@ class RunModel:
                  'val_loss': loss,
                  'state_dict': self.model.state_dict(),
                  'optimizer': optimizer_dict,
-                 'scheduler': scheduler_dict}
+                 'scheduler': scheduler_dict,
+                 'amp': amp.state_dict()}
 
         save_checkpoint(state, self.results_dir, self.model)
 
