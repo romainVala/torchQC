@@ -52,18 +52,23 @@ class DistanceMetric:
 
         return kernels
 
-    def _pairwise_distances(self, x, y):
+    def _pairwise_distances(self, x, y, single_kernel=False):
         device = x.device
+        kernels = self.distance_kernels.to(device)
+        if single_kernel:
+            kernels = kernels[:-1].sum(dim=0, keepdim=True)
 
         # Compute distances to y points
         distances_to_y = torch.conv3d(
             y.float().expand(1, 1, -1, -1, -1),
-            self.distance_kernels.to(device),
+            kernels,
             padding=self.radius
         )[0]
 
         # Remove zero points from x
-        relevant_distances = distances_to_y.permute(1, 2, 3, 0)[x.nonzero(as_tuple=True)]
+        relevant_distances = distances_to_y.permute(1, 2, 3, 0)[
+            x.nonzero(as_tuple=True)
+        ]
 
         # Compute distances from convolution values
         all_distances = torch.zeros_like(relevant_distances)
@@ -82,7 +87,9 @@ class DistanceMetric:
         target_mask = _get_border(target)
 
         if prediction_mask.sum():
-            min_dist, _ = self._pairwise_distances(prediction_mask, target_mask).min(dim=1)
+            min_dist, _ = self._pairwise_distances(
+                prediction_mask, target_mask
+            ).min(dim=1)
             first_term = min_dist.sum() / prediction.sum()
         else:
             first_term = 0.
@@ -92,7 +99,9 @@ class DistanceMetric:
         target_mask[prediction * target] = 0
 
         if target_mask.sum():
-            min_dist, _ = self._pairwise_distances(target_mask, prediction_mask).min(dim=1)
+            min_dist, _ = self._pairwise_distances(
+                target_mask, prediction_mask
+            ).min(dim=1)
             second_term = min_dist.sum() / target.sum()
         else:
             second_term = 0.
@@ -108,7 +117,9 @@ class DistanceMetric:
         target_mask = _get_border(target)
 
         if prediction_mask.sum():
-            min_dist, _ = self._pairwise_distances(prediction_mask, target_mask).min(dim=1)
+            min_dist, _ = self._pairwise_distances(
+                prediction_mask, target_mask, single_kernel=True
+            ).min(dim=1)
             return (min_dist >= self.radius).sum()
         else:
             return 0.
