@@ -72,6 +72,7 @@ if __name__ == "__main__":
     create_jobs_file = args.create_jobs_file
 
     jobs, jobs_struct = [], {}
+    logger = None
 
     current_dir = os.getcwd()
     if os.path.dirname(file) == '':
@@ -133,3 +134,9 @@ if __name__ == "__main__":
     if create_jobs_file is not None:
         jobs_struct['jobs'] = jobs
         create_jobs(jobs_struct)
+
+    # Get max CPU memory usage
+    main_memory = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    child_memory = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    logger.log(logging.INFO, '******** CPU Memory Usage  ********')
+    logger.log(logging.INFO, f'Peak: {main_memory + child_memory} kB')
