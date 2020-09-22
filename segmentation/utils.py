@@ -164,3 +164,7 @@ def save_checkpoint(state, save_path, model):
     if state['scheduler'] is not None:
         filename = f'{save_path}/sch_ep{epoch}.pth.tar'
         torch.save(state['scheduler'], filename)
+
+    if 'amp' in state:
+        filename = f'{save_path}/amp_ep{epoch}.pth.tar'
+        torch.save(state['amp'], filename)

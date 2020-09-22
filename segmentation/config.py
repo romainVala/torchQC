@@ -574,6 +574,7 @@ class Config:
                 'attributes': {'dim': 1}
             }
         )
+        self.set_struct_value(struct, 'apex', {})
 
         files = glob.glob(os.path.join(self.results_dir, 'model_ep*'))
         if len(files) == 0:
@@ -633,6 +634,9 @@ class Config:
                 struct['validation']['prefix_eval_results_dir'],
                 Path(self.results_dir).name
             )
+
+        # Apex
+        self.set_struct_value(struct, 'apex_opt_level')
 
         if return_string:
             return struct
