@@ -80,8 +80,7 @@ class RunModel:
         self.save_channels = struct['save']['save_channels']
         self.save_threshold = struct['save']['save_threshold']
         self.save_volume_name = struct['save']['save_volume_name']
-        self.mixed_precision = struct['apex']['mixed_precision']
-        self.opt_level = struct['apex']['opt_level']
+        self.apex_opt_level = struct['apex_opt_level']
 
         # Keep information to load optimizer and learning rate scheduler
         self.optimizer, self.lr_scheduler = None, None
@@ -143,9 +142,10 @@ class RunModel:
             self.optimizer_dict)
 
         # Initialize Apex
-        self.model, self.optimizer = amp.initialize(
-            self.model, self.optimizer, opt_level=self.opt_level
-        )
+        if self.apex_opt_level is not None:
+            self.model, self.optimizer = amp.initialize(
+                self.model, self.optimizer, opt_level=self.apex_opt_level
+            )
 
         # Try to load optimizer state
         opt_files = glob.glob(
@@ -164,11 +164,15 @@ class RunModel:
                 self.lr_scheduler.load_state_dict(torch.load(sch_files[-1]))
 
         # Try to load Apex
-        amp_files = glob.glob(
-            os.path.join(self.results_dir, f'amp_ep{self.epoch - 1}*.pth.tar')
-        )
-        if len(amp_files) > 0:
-            amp.load_state_dict(torch.load(amp_files[-1]))
+        if self.apex_opt_level is not None:
+            amp_files = glob.glob(
+                os.path.join(
+                    self.results_dir,
+                    f'amp_ep{self.epoch - 1}*.pth.tar'
+                )
+            )
+            if len(amp_files) > 0:
+                amp.load_state_dict(torch.load(amp_files[-1]))
 
         for epoch in range(self.epoch, self.n_epochs + 1):
             self.epoch = epoch
@@ -253,8 +257,11 @@ class RunModel:
             # Compute gradient and do SGD step
             if self.model.training:
                 self.optimizer.zero_grad()
-                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                    scaled_loss.backward()
+                if self.apex_opt_level is not None:
+                    with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss.backward()
                 self.optimizer.step()
                 loss = float(loss)
                 predictions = predictions.detach()
@@ -438,8 +445,9 @@ class RunModel:
                  'val_loss': loss,
                  'state_dict': self.model.state_dict(),
                  'optimizer': optimizer_dict,
-                 'scheduler': scheduler_dict,
-                 'amp': amp.state_dict()}
+                 'scheduler': scheduler_dict}
+        if self.apex_opt_level is not None:
+            state['amp'] = amp.state_dict()
 
         save_checkpoint(state, self.results_dir, self.model)
 

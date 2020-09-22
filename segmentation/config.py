@@ -636,8 +636,7 @@ class Config:
             )
 
         # Apex
-        self.set_struct_value(struct['apex'], 'mixed_precision', True)
-        self.set_struct_value(struct['apex'], 'opt_level', 'O2')
+        self.set_struct_value(struct, 'apex_opt_level')
 
         if return_string:
             return struct
