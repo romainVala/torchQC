@@ -217,7 +217,7 @@ class RunModel:
 
         df = pd.DataFrame()
         start = time.time()
-        time_sum, loss_sum = 0, 0
+        time_sum, loss_sum, reporting_time_sum = 0, 0, 0
         average_loss, max_loss = None, None
 
         for i, sample in enumerate(loader, 1):
@@ -264,12 +264,24 @@ class RunModel:
             if max_loss is None or max_loss < loss:
                 max_loss = loss
 
+            # Update DataFrame and record it every record_frequency iterations
+            if i % self.record_frequency == 0 or i == len(loader):
+                df, reporting_time = self.batch_recorder(
+                    df, sample, predictions, targets, batch_time, True)
+            else:
+                df, reporting_time = self.batch_recorder(
+                    df, sample, predictions, targets, batch_time, False)
+
+            reporting_time_sum += reporting_time
+            average_reporting_time = reporting_time_sum / i
+
             # Log training or validation information every
             # log_frequency iterations
             if i % self.log_frequency == 0:
                 to_log = summary(
                     self.epoch, i, len(loader), max_loss, batch_time,
-                    average_loss, average_time, model_mode
+                    average_loss, average_time, model_mode,
+                    reporting_time, average_reporting_time
                 )
                 self.log(to_log)
 
@@ -285,14 +297,6 @@ class RunModel:
                 if i == len(loader) and self.lr_scheduler is not None:
                     self.lr_scheduler.step(validation_loss)
 
-            # Update DataFrame and record it every record_frequency iterations
-            if i % self.record_frequency == 0 or i == len(loader):
-                df = self.batch_recorder(
-                    df, sample, predictions, targets, batch_time, True)
-            else:
-                df = self.batch_recorder(
-                    df, sample, predictions, targets, batch_time, False)
-
             start = time.time()
 
         # Save model after an evaluation on the whole validation set
@@ -304,7 +308,7 @@ class RunModel:
     def whole_image_evaluation_loop(self, save_transformed_samples=False):
         df = pd.DataFrame()
         start = time.time()
-        time_sum, loss_sum = 0, 0
+        time_sum, loss_sum, reporting_time_sum = 0, 0, 0
         average_loss = None
 
         for i, sample in enumerate(self.val_set, 1):
@@ -340,24 +344,29 @@ class RunModel:
             average_loss = loss_sum / i
             average_time = time_sum / i
 
-            start = time.time()
+            # Record information about the sample and the performances of
+            # the model on this sample after every iteration
+            df, reporting_time = self.batch_recorder(
+                df, sample, predictions.unsqueeze(0), target.unsqueeze(0),
+                sample_time, True)
+
+            reporting_time_sum += reporting_time
+            average_reporting_time = reporting_time_sum / i
 
             # Log validation information every log_frequency iterations
             if i % self.log_frequency == 0:
                 to_log = summary(self.epoch, i, len(self.val_set),
                                  sample_loss, sample_time, average_loss,
-                                 average_time, 'Val', 'Sample')
+                                 average_time, 'Val', reporting_time,
+                                 average_reporting_time, 'Sample')
                 self.log(to_log)
 
-            # Record information about the sample and the performances of
-            # the model on this sample after every iteration
-            df = self.batch_recorder(df, sample, predictions.unsqueeze(0),
-                                     target.unsqueeze(0), sample_time, True)
+            start = time.time()
         return average_loss
 
     def inference_loop(self):
         start = time.time()
-        time_sum = 0
+        time_sum, saving_time_sum = 0, 0
 
         for i, sample in enumerate(self.test_set, 1):
             if self.patch_size is not None:
@@ -371,17 +380,25 @@ class RunModel:
 
             # Measure elapsed time
             sample_time = time.time() - start
+
             time_sum += sample_time
             average_time = time_sum / i
-            start = time.time()
+
+            saving_start = time.time()
+            self.prediction_saver(sample, predictions.unsqueeze(0), i)
+            saving_time = time.time() - saving_start
+
+            saving_time_sum += saving_time
+            average_saving_time = saving_time_sum / i
 
             # Log time information every log_frequency iterations
             if i % self.log_frequency == 0:
                 to_log = summary('/', i, len(self.test_set), '/', sample_time,
-                                 '/', average_time, 'Val', 'Sample')
+                                 '/', average_time, 'Val', saving_time,
+                                 average_saving_time, 'Sample', 'saving')
                 self.log(to_log)
 
-            self.prediction_saver(sample, predictions.unsqueeze(0), i)
+            start = time.time()
 
     def get_affine(self, sample):
         affine = sample[self.image_key_name]['affine']
@@ -434,6 +451,8 @@ class RunModel:
         on during the segmentation task.
         At evaluation time, additional reporting metrics are recorded.
         """
+        start = time.time()
+
         is_batch = not isinstance(sample, torchio.Subject)
         if self.model.training:
             mode = 'Train'
@@ -453,6 +472,8 @@ class RunModel:
         batch_size = shape[0]
 
         sample_time = batch_time / batch_size
+
+        time_sum = 0
 
         for idx in range(batch_size):
             if is_batch:
@@ -504,6 +525,11 @@ class RunModel:
                         )
                     )
 
+            reporting_time = time.time() - start
+            time_sum += reporting_time
+            info['reporting_time'] = reporting_time
+            start = time.time()
+
             self.record_history(info, sample, idx)
 
             df = df.append(info, ignore_index=True)
@@ -511,7 +537,7 @@ class RunModel:
         if save:
             self.save_info(mode, df, sample)
 
-        return df
+        return df, time_sum
 
     def make_prediction_on_whole_volume(self, sample):
         grid_sampler = torchio.inference.GridSampler(

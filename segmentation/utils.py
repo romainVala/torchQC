@@ -89,7 +89,8 @@ def to_numpy(x):
 
 
 def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time,
-            mode, granularity=None):
+            mode, reporting_time, average_reporting_time, granularity=None,
+            task='reporting'):
     """
     Generate a summary of the model performances on a batch.
     """
@@ -107,8 +108,10 @@ def summary(epoch, i, nb_batch, loss, batch_time, average_loss, average_time,
     else:
         string += f'{loss_prefix} Loss {loss:.4f} '
         string += f'(Average {average_loss:.4f}) \t'
-    string += f'{time_prefix} Time {batch_time:.4f} '
+    string += f'{time_prefix} prediction time {batch_time:.4f} '
     string += f'(Average {average_time:.4f}) \t'
+    string += f'{time_prefix} {task} time {reporting_time:.4f} '
+    string += f'(Average {average_reporting_time:.4f}) \t'
 
     return string
 
