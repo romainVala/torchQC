@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import nibabel as nib
 import torchio
+import resource
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
 from apex import amp
@@ -104,6 +105,13 @@ class RunModel:
         if self.logger is not None:
             self.logger.log(logging.INFO, info)
 
+    def log_peak_CPU_memory(self):
+        # Get max CPU memory usage
+        main_memory = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        child_memory = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+        self.log('******** CPU Memory Usage  ********')
+        self.log(f'Peak: {main_memory + child_memory} kB')
+
     def get_optimizer(self, optimizer_dict):
         optimizer_dict['attributes'].update({'params': self.model.parameters()})
         optimizer = optimizer_dict['optimizer_class'](
@@ -194,6 +202,9 @@ class RunModel:
                         # Save model after inference
                         self.save_checkpoint()
 
+            # Log memory consumption
+            self.log_peak_CPU_memory()
+
         # Save model at the end of training
         self.save_checkpoint()
 
@@ -216,6 +227,9 @@ class RunModel:
                 self.log('Evaluation on whole images')
                 self.whole_image_evaluation_loop(save_transformed_samples)
 
+        # Log memory consumption
+        self.log_peak_CPU_memory()
+
     def infer(self):
         """ Use the model to make predictions on the test set. """
         self.epoch -= 1
@@ -223,6 +237,9 @@ class RunModel:
         with torch.no_grad():
             self.model.eval()
             self.inference_loop()
+
+        # Log memory consumption
+        self.log_peak_CPU_memory()
 
     def train_loop(self, save_model=True):
         if self.model.training:
