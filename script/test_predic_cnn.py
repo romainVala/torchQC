@@ -264,7 +264,6 @@ for dd in td:
 td = doit.train_dataloader
 data = next(iter(td))
 
-
 tensor = data['image']['data'][0].squeeze(0)  # remove channels dim
 affine = data['image']['affine'].squeeze(0)
 
@@ -523,3 +522,88 @@ for i in range(0, 4):
         sm.append(h[0][1]['swallowMagnitudeT'])
         disp.append(h[0][1]['rmse_Disp'])
         plt.plot(ff[0])
+
+
+## test dice PV
+import torchio as tio
+import torch
+from segmentation.losses.dice_loss import Dice
+from segmentation.metrics.distance_metrics import DistanceMetric
+from segmentation.metrics.utils import MetricOverlay
+
+suj = [tio.data.Subject(GM=tio.data.Image('/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/513130/T1w/ROI_PVE_1mm/GM.nii.gz', tio.LABEL),
+                        WM=tio.data.Image(
+                            '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/513130/T1w/ROI_PVE_1mm/WM.nii.gz',
+                            tio.LABEL),
+                        sam_06_01=tio.data.Image(
+                             '/home/romain.valabregue/datal/PVsynth/RES_1mm/t2_like_data_GM_06_01_noise/513130/samseg/posteriors/GM.nii',
+                             tio.LABEL),
+                         sam_06_1=tio.data.Image(
+                             '/home/romain.valabregue/datal/PVsynth/RES_1mm/t2_like_data_GM_06_1_noise/513130/samseg/posteriors/GM.nii',
+                             tio.LABEL),
+                         )]
+suj = [tio.data.Subject(label=tio.data.Image(['/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/513130/T1w/ROI_PVE_1mm/GM.nii.gz',
+                                              '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/513130/T1w/ROI_PVE_1mm/WM.nii.gz'],
+                                              tio.LABEL),
+                        sam_06_01=tio.data.Image(
+                             '/home/romain.valabregue/datal/PVsynth/RES_1mm/t2_like_data_GM_06_01_noise/513130/samseg/posteriors/GM.nii',
+                             tio.LABEL),
+                         sam_06_1=tio.data.Image(
+                             '/home/romain.valabregue/datal/PVsynth/RES_1mm/t2_like_data_GM_06_1_noise/513130/samseg/posteriors/GM.nii',
+                             tio.LABEL),
+                         )]
+
+dataset = tio.data.SubjectsDataset(suj)
+dl = torch.utils.data.DataLoader(dataset, batch_size=1)
+sl = next(iter(dl))
+
+s=next(iter(dataset))
+ov(s['GM']['data'][0])
+ov(s['sam_06_1']['data'][0])
+dd = Dice()
+dd.dice_loss(s['GM']['data'], s['sam_06_1']['data'])
+dpv = s['GM']['data']
+dpv_bin = dpv > 0.5
+dd.dice_loss(dpv, dpv_bin)
+dd.dice_loss(dpv_bin, dpv)
+
+pred = s['sam_06_1']['data']
+ddist = MetricOverlay(DistanceMetric.mean_amount_of_far_points())
+ddist = DistanceMetric()
+ddist.mean_amount_of_far_points(pred.unsqueeze(1), dpv.unsqueeze(1))
+
+
+def parse_json_str(str_in, field_name='sdtrrr'):
+    import json
+    dic = json.loads(str_in)
+    return dic[field_name]
+
+dd = res['T_RandomNoise']
+dd=dd.apply(lambda x: parse_json_str(x, field_name='sdtrrr'))
+
+plt.figure(); plt.scatter(dd, res['metric_L1'])
+plt.grid()
+plt.xlabel('Noise STD')
+plt.ylabel('L1')
+plt.figure(); plt.scatter(dd, res['metric_ssim_old'])
+plt.grid()
+plt.xlabel('Noise STD')
+plt.ylabel('ssim_old')
+
+
+d=gdir('/mnt/rrr/eval/synth_data/T1_T2/dataS_GM6_WM10_C2_SNR_100/','.*')
+dd=gdir('/mnt/rrr/eval/synth_data/T1_T2_14mm/dataS_GM6_WM10_C2_SNR_100/','.*')
+ddd=gdir('/mnt/rrr/eval/synth_data/T1_T2_28mm/dataS_GM6_WM10_C2_SNR_100/','.*')
+suj1 = get_parent_path(ddd)[1]
+suj2 = get_parent_path(dd)[1]
+i=0
+for ss in suj1:
+    if not ss in suj2:
+        print(f'rm -rf */{ss}')
+        i+=1
+print(i)
+
+for ss in suj2:
+    if not ss in suj1:
+        print(ss)
+
