@@ -323,7 +323,6 @@ class Config:
         self.set_struct_value(struct, 'subject_shuffle')
         self.set_struct_value(struct, 'subject_seed')
         self.set_struct_value(struct, 'repartition', [0.7, 0.15, 0.15])
-        self.set_struct_value(struct, 'raise_error', True)
 
         self.set_struct_value(struct, 'num_workers', 0)
         self.set_struct_value(struct, 'queue')
