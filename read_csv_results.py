@@ -1,5 +1,4 @@
 import json
-import torch
 from torchio import Subject, Image
 import torchio
 import dash
@@ -15,6 +14,7 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 plt.interactive(True)
 from os.path import join as opj
+from nibabel.viewers import OrthoSlicer3D as ov
 from .segmentation.utils import custom_import
 
 
@@ -51,8 +51,8 @@ class ModelCSVResults(object):
             try:
                 eval_path = eval(path)
                 return self.read_path(eval_path)
-            except NameError:
-                return opj(eval_path)
+            except Exception:
+                return opj(path)
 
         else:
             raise TypeError("Could not read path: {}".format(path))
@@ -72,7 +72,7 @@ class ModelCSVResults(object):
         subject_row = self.get_row(idx)
         subject_path = self.read_path(subject_row["image_filename"])
         sub = Subject({"volume": Image(subject_path)})
-        if return_orig:
+        if return_orig or "transfo_order" not in self.df_data.columns:
             return sub
         else:
             trsfms, seeds = self.get_transformations(idx)
@@ -135,83 +135,7 @@ class ModelCSVResults(object):
                     trsfm_list.append(trsfm)
             trsfm_composition = Compose(trsfm_list)
             return trsfm_composition, trsfm_seeds
-    """
-    def extract_motion_metrics(self):
-        idx_motion = self.df_data[~self.df_data["T_RandomMotionFromTimeCourse"].isnull()].index.to_list()
-        motion_metrics = defaultdict(list)
-        for idx in idx_motion:
-            tio_data = self.get_volume_torchio(idx, return_orig=True)
-            trsfm_composition, seeds = self.get_transformations(idx)
-            tio_data = trsfm_composition(tio_data, seeds)
-            del tio_data
-            for tr in trsfm_composition.transform.transforms:
-                if isinstance(tr, torchio.RandomMotionFromTimeCourse):
-                    motion_params = tr.parameters_motion
-                    for metric_key, metric_value in motion_params.items():
-                        motion_metrics[metric_key].append(metric_value)
 
-        df_motion = pd.DataFrame.from_dict(motion_metrics)
-        df_motion.index = idx_motion
-        self.df_data = self.df_data.join(df_motion)
-        self.df_data.to_csv(self.csv_path)
-        return df_motion
-
-    def extract_noise_metrics(self):
-        idx_noise = self.df_data[~self.df_data["T_RandomNoise"].isnull()].index.to_list()
-        noise_metrics = defaultdict(list)
-        for idx in idx_noise:
-            tio_data = self.get_volume_torchio(idx, return_orig=True)
-            trsfm_composition, seeds = self.get_transformations(idx)
-            tio_data = trsfm_composition(tio_data, seeds)
-            del tio_data
-            for tr in trsfm_composition.transform.transforms:
-                if isinstance(tr, torchio.RandomNoise):
-                    mean, std = tr.mean, tr.std
-                    noise_metrics["noise_mean"].append(mean)
-                    noise_metrics["noise_std"].append(std)
-        df_noise = pd.DataFrame.from_dict(noise_metrics)
-        df_noise.index = idx_noise
-        self.df_data = self.df_data.join(df_noise)
-        self.df_data.to_csv(self.csv_path)
-        return df_noise
-
-    def extract_spike_metrics(self):
-        idx_spike = self.df_data[~self.df_data["T_RandomSpike"].isnull()].index.to_list()
-        spike_metrics = defaultdict(list)
-        for idx in idx_spike:
-            tio_data = self.get_volume_torchio(idx, return_orig=True)
-            trsfm_composition, seeds = self.get_transformations(idx)
-            tio_data = trsfm_composition(tio_data, seeds)
-            del tio_data
-            for tr in trsfm_composition.transform.transforms:
-                if isinstance(tr, torchio.RandomSpike):
-                    spike_pos, spike_intensity = tr.spikes_positions_param, tr.intensity_param
-                    spike_metrics["spike_pos"].append(spike_pos)
-                    spike_metrics["spike_intensity"].append(spike_intensity)
-        df_spike = pd.DataFrame.from_dict(spike_metrics)
-        df_spike.index = idx_spike
-        self.df_data = self.df_data.join(df_spike)
-        self.df_data.to_csv(self.csv_path)
-        return df_spike
-
-    def extract_bias_metric(self):
-        idx_bias = self.df_data[~self.df_data["T_RandomBiasField"].isnull()].index.to_list()
-        bias_metrics = defaultdict(list)
-        for idx in idx_bias:
-            tio_data = self.get_volume_torchio(idx, return_orig=True)
-            trsfm_composition, seeds = self.get_transformations(idx)
-            tio_data = trsfm_composition(tio_data, seeds)
-            del tio_data
-            for tr in trsfm_composition.transform.transforms:
-                if isinstance(tr, torchio.RandomBiasField):
-                    bias_coefs = tr.coefficients
-                    bias_metrics["bias_coefs"].append(bias_coefs)
-        df_bias = pd.DataFrame.from_dict(bias_metrics)
-        df_bias.index = idx_bias
-        self.df_data = self.df_data.join(df_bias)
-        self.df_data.to_csv(self.csv_path)
-        return df_bias
-    """
     def extract_from_history(self, col, key, save_csv=False, col_name=None):
         data_col = self.df_data[~self.df_data[col].isnull()][col]
         dict_data = data_col.apply(lambda x: json.loads(x)[key])
@@ -306,3 +230,4 @@ class ModelCSVResults(object):
             return "Viewing: {}".format(path)
 
         self.dash_app.run_server(debug=False)
+
