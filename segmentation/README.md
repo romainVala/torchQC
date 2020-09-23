@@ -318,7 +318,14 @@ is saved after every evaluation loop on the validation set,
             "module": "segmentation.losses.dice_loss",  // Name of the module containing the loss
             "name": "Dice",                             // Name of the loss class
             "method": "mean_dice_loss",                 // Method of the loss class
-            "weight": 1                                 // Weight of the loss
+            "weight": 1,                                // Weight of the loss
+            "channels": null,                           // List of channels used to compute the loss, if null, all channels are used
+            "mask": null,                               // Channel from the target used as a mask to compute the loss
+            "mask_cut": [0.99, 1],                      // Thresholds used for the mask
+            "binarize_target": false,                   // If target should be binarized
+            "binarize_prediction": false,               // If prediction should be binarized
+            "binary_volumes": false                     // If prediction and target are given as binary label maps
+            // "activation": {...}                      // Activation function, default uses the model activation function
         }
     ], 
     "optimizer":  // Optimizer used by the network
@@ -355,7 +362,7 @@ is saved after every evaluation loop on the validation set,
         "eval_frequency": 100,                          // Validation frequency (in number of iterations)
         "prefix_eval_results_dir": null,                // Prefix to the result directory to which save predictions and evaluation CSV file, if null, default result directory is used
         "save_predictions": false,                      // If predictions should be saved during evaluation
-        "reporting_metrics":                            // Reported metrics during evaluation
+        "reporting_metrics":                            // Reported metrics during evaluation, work the same way as criteria
         [
             {
                 "module": "segmentation.losses.dice_loss", 
@@ -367,7 +374,7 @@ is saved after every evaluation loop on the validation set,
                 "name": "OverlapMetric",
                 "method": "mean_false_positives",
                 "mask": "white",
-                "reported_name": "FP_grey_in_white",
+                "reported_name": "FP_grey_in_white",    // The name appearing in the CSV prefixed by "metric_"
                 "channels": ["grey"]
             }
         ]
