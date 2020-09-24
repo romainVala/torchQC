@@ -1,4 +1,5 @@
 import math
+import copy
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -239,7 +240,7 @@ class Figure:
                 lab = None
 
                 if self.label_key_name is not None:
-                    lab = s[self.label_key_name]['data'][0].numpy()
+                    lab = s[self.label_key_name]['data'].numpy()
 
                 if self.patch_sampler is not None:
                     image, lab = self.sample_patches(s, image, lab)
@@ -252,7 +253,7 @@ class Figure:
 
         return images, affines, labels
 
-    def sample_patches(self, sample, image, labels):
+    def sample_patches(self, sample, image, label):
         for _ in range(self.nb_patches):
             patch = next(self.patch_sampler(sample))
             spatial_shape = np.array(patch.spatial_shape)
@@ -270,16 +271,15 @@ class Figure:
             image[i_ini:i_fin, j_ini:j_fin, k_ini:k_fin] = im_patch
 
             if self.label_key_name is not None:
-                for label in labels:
-                    label_patch = patch['data'].numpy()[0].copy()
-                    label[
-                        :,
-                        i_ini:i_fin,
-                        j_ini:j_fin,
-                        k_ini:k_fin
-                    ] = label_patch
+                label_patch = patch[self.label_key_name]['data'].numpy().copy()
+                label[
+                    :,
+                    i_ini:i_fin,
+                    j_ini:j_fin,
+                    k_ini:k_fin
+                ] = label_patch
 
-        return image, labels
+        return image, label
 
     def adapt_subject_org(self):
         if np.prod(self.subject_org) < len(self.idx):
@@ -490,7 +490,7 @@ class PlotDataset:
         self.add_text = add_text
         self.label_key_name = label_key_name
         self.alpha = alpha
-        self.cmap = cm.get_cmap(cmap)
+        self.cmap = copy.copy(cm.get_cmap(cmap))
         self.cmap.set_under(color='k', alpha=0)
         self.patch_sampler = patch_sampler
         self.nb_patches = nb_patches
@@ -699,7 +699,8 @@ class NewSlider(Slider):
             xy[2] = val, 1
             xy[3] = val, 0
         self.poly.xy = xy
-        self.valtext.set_text(self.valfmt % val)
+        val_text = self.valfmt % val if self.valfmt is not None else val
+        self.valtext.set_text(val_text)
 
         if self.drawon and self.ax.figure._cachedRenderer is None:
             self.ax.figure.canvas.draw_idle()

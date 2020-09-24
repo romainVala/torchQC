@@ -405,17 +405,25 @@ the Identity can be used for evaluation.
 
 #### visualization.json
 This file defines the visualization parameters. It uses `PlotDataset` to make plots.
-```json
+```json5
 {
-    "kwargs": 
+    "kwargs":     // Attributes of the PlotDataset class, "image_key_name" and "label_key_name" are taken from data.json
     {
         "subject_idx": [0, 1, 2, 3, 4], 
         "update_all_on_scroll": true,
         "nb_patches": 4
     },
-    "set": "val"
+    "set": "val"  // Set to plot, either "train", "val" or "test"
 }
 ```
+When plotting volumes, you can navigate through slices by scrolling on the volumes,
+if `"update_all_on_scroll"` is `true`, all similar views will be updated.
+
+When plotting labels with several channels, you can navigate channels with up
+and down keys.
+
+When plotting subjects on more than one figure, you can navigate through figures
+using pageup or pagedown keys.
 
 #### extra_file.json
 This file can overwrites `data.json`, `transform.json`, `model.json`, `run.json`

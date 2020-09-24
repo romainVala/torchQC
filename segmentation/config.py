@@ -120,9 +120,9 @@ class Config:
             self.model_structure = self.parse_model_file(model_structure)
         if 'run' in self.main_structure:
             self.run_structure = self.parse_run_file(run_structure)
-        if 'visualisation' in self.main_structure:
+        if 'visualization' in self.main_structure:
             self.viz_structure = self.parse_visualization_file(
-                self.main_structure['visualisation'])
+                self.main_structure['visualization'])
 
         self.save_json(self.json_config, 'config_all.json',
                        compare_existing=False)
@@ -1046,7 +1046,7 @@ class Config:
         # Other case would typically be visualization for example
         if self.mode == 'visualization':
             self.viz_structure['kwargs'].update(
-                {'image_key_name': self.image_key_name[0]})
+                {'image_key_name': self.image_key_name})
 
             if self.viz_structure['set'] == 'train':
                 viz_set = self.train_set
