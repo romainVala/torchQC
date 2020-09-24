@@ -625,6 +625,8 @@ class Config:
         self.set_struct_value(struct['validation'], 'save_predictions', False)
         self.set_struct_value(
             struct['validation'], 'prefix_eval_results_dir', None)
+        self.set_struct_value(struct['validation'], 'dense_patch_eval', False)
+        self.set_struct_value(struct['validation'], 'eval_patch_size')
 
         if struct['validation']['prefix_eval_results_dir'] is None:
             struct['validation']['eval_results_dir'] = self.results_dir
