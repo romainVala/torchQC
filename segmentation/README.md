@@ -56,6 +56,7 @@ from subjects. The `"labels"` key defines which channels from the targets will b
                 }
             }
             // "list_name": "train",    // Name of the set to add the subject to (one of "train", "val" or "test")
+            // "prefix": "",            // Prefix to add to the subject name generated from "name_pattern"
             // "suffix": ""             // Suffix to add to the subject name generated from "name_pattern"
         }, 
         {
