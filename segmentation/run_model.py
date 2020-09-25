@@ -815,6 +815,7 @@ class RunModel:
         Record information about the the model was trained or evaluated on during the regression task.
         At evaluation time, additional reporting metrics are recorded.
         """
+        start = time.time()
 
         if isinstance(sample, list):
             batch_size = predictions.shape[0] // len(sample)
@@ -833,6 +834,7 @@ class RunModel:
         shape = sample[self.image_key_name]['data'].shape
         batch_size = shape[0]
         sample_time = batch_time / batch_size
+        time_sum = 0
 
         for idx in range(batch_size):
             info = {
@@ -886,12 +888,17 @@ class RunModel:
 
             self.record_history(info, sample, idx)
 
+            reporting_time = time.time() - start
+            time_sum += reporting_time
+            info['reporting_time'] = reporting_time
+            start = time.time()
+
             df = df.append(info, ignore_index=True)
 
         if save:
             self.save_info(mode, df, sample)
 
-        return df
+        return df, time_sum
 
     @staticmethod
     def record_history(info, sample, idx=None):
