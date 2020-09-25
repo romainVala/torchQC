@@ -584,7 +584,6 @@ class RunModel:
                     # else:
                     #     dicm[key] = to_numpy(val[idx])
                 info.update(dicm)
-                print('AAAAAAAAAAAAAA {}'.format(dicm.keys()))
 
             reporting_time = time.time() - start
             time_sum += reporting_time
