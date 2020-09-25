@@ -226,8 +226,9 @@ class RunModel:
                 self.train_loop(save_model=False)
 
             patch_size = self.patch_size or self.eval_patch_size
-            if patch_size is not None and \
-                    self.whole_image_inference_frequency is not None:
+            do_whole_image_loop = self.dense_patch_eval \
+                or self.whole_image_inference_frequency is not None
+            if patch_size is not None and do_whole_image_loop:
                 self.log('Evaluation on whole images')
                 self.whole_image_evaluation_loop(save_transformed_samples)
 
@@ -428,7 +429,7 @@ class RunModel:
         time_sum, saving_time_sum = 0, 0
 
         for i, sample in enumerate(self.test_set, 1):
-            if self.patch_size is not None:
+            if self.patch_size is not None or self.eval_patch_size is not None:
                 predictions, _ = self.make_prediction_on_whole_volume(
                     sample, None)
             else:
