@@ -120,9 +120,9 @@ class Config:
             self.model_structure = self.parse_model_file(model_structure)
         if 'run' in self.main_structure:
             self.run_structure = self.parse_run_file(run_structure)
-        if 'visualisation' in self.main_structure:
+        if 'visualization' in self.main_structure:
             self.viz_structure = self.parse_visualization_file(
-                self.main_structure['visualisation'])
+                self.main_structure['visualization'])
 
         self.save_json(self.json_config, 'config_all.json',
                        compare_existing=False)
@@ -342,6 +342,7 @@ class Config:
             self.check_mandatory_keys(pattern, PATTERN_KEYS, 'PATTERN')
             self.set_struct_value(pattern, 'list_name')
             self.set_struct_value(pattern, 'name_pattern')
+            self.set_struct_value(pattern, 'prefix', '')
             self.set_struct_value(pattern, 'suffix', '')
 
         for path in struct['paths']:
@@ -603,6 +604,7 @@ class Config:
         self.set_struct_value(struct['save'], 'batch_recorder',
                               'record_segmentation_batch')
         self.set_struct_value(struct['save'], 'prediction_saver', 'save_volume')
+        self.set_struct_value(struct['save'], 'label_saver', 'save_volume')
         self.set_struct_value(struct['save'], 'save_bin', False)
         self.set_struct_value(struct['save'], 'split_channels', False)
         self.set_struct_value(struct['save'], 'save_channels')
@@ -627,6 +629,7 @@ class Config:
             struct['validation'], 'prefix_eval_results_dir', None)
         self.set_struct_value(struct['validation'], 'dense_patch_eval', False)
         self.set_struct_value(struct['validation'], 'eval_patch_size')
+        self.set_struct_value(struct['validation'], 'save_labels', False)
 
         if struct['validation']['prefix_eval_results_dir'] is None:
             struct['validation']['eval_results_dir'] = self.results_dir
@@ -738,12 +741,12 @@ class Config:
                 subject_list.append(torchio.Subject(s))
             return subject_list
 
-        def get_name(name_pattern, string, suffix):
+        def get_name(name_pattern, string, prefix, suffix):
             if name_pattern is None:
-                return os.path.relpath(string, Path(string).parent) + suffix
+                core = os.path.relpath(string, Path(string).parent)
             else:
-                matches = re.findall(name_pattern, string)
-                return '_'.join(matches) + suffix
+                core = '_'.join(re.findall(name_pattern, string))
+            return prefix + core + suffix
 
         def create_dataset(subject_list, transforms):
             if len(subject_list) == 0:
@@ -811,7 +814,10 @@ class Config:
             # Sort to get alphabetic order if not shuffle
             for folder_path in sorted(glob.glob(pattern['root'])):
                 name = get_name(
-                    pattern['name_pattern'], folder_path, pattern['suffix']
+                    pattern['name_pattern'],
+                    folder_path,
+                    pattern['prefix'],
+                    pattern['suffix']
                 )
                 subject = relevant_dict.get(name) or {}
 
@@ -1048,7 +1054,7 @@ class Config:
         # Other case would typically be visualization for example
         if self.mode == 'visualization':
             self.viz_structure['kwargs'].update(
-                {'image_key_name': self.image_key_name[0]})
+                {'image_key_name': self.image_key_name})
 
             if self.viz_structure['set'] == 'train':
                 viz_set = self.train_set

@@ -3,6 +3,7 @@ import logging
 import argparse
 import os
 import resource
+import matplotlib.pyplot as plt
 from pathlib import Path
 from segmentation.utils import instantiate_logger
 from segmentation.config import Config, parse_grid_search_file, \
@@ -105,7 +106,7 @@ if __name__ == "__main__":
                             args.max_subjects_per_job)
             config.init()
             result = config.run()
-            if result is not None:
+            if isinstance(result, list):
                 jobs += result
 
     else:
@@ -127,9 +128,11 @@ if __name__ == "__main__":
                         max_subjects_per_job=args.max_subjects_per_job)
         config.init()
         result = config.run()
-        if result is not None:
+        if isinstance(result, str):
             jobs += result
 
     if create_jobs_file is not None:
         jobs_struct['jobs'] = jobs
         create_jobs(jobs_struct)
+
+    plt.show()

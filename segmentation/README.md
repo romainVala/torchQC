@@ -56,6 +56,7 @@ from subjects. The `"labels"` key defines which channels from the targets will b
                 }
             }
             // "list_name": "train",    // Name of the set to add the subject to (one of "train", "val" or "test")
+            // "prefix": "",            // Prefix to add to the subject name generated from "name_pattern"
             // "suffix": ""             // Suffix to add to the subject name generated from "name_pattern"
         }, 
         {
@@ -349,6 +350,7 @@ is saved after every evaluation loop on the validation set,
         "record_frequency": 10,                         // Frequency (in terms of iterations) at which CSV files are saved
         "batch_recorder": "record_segmentation_batch",  // RunModel method used to record CSV files
         "prediction_saver": "save_volume",              // RunModel method used to save model outputs
+        "label_saver": "save_volume",                   // RunModel method used to save labels (may be useful if transforms were applied)
         "save_bin": false,                              // If binary versions of the model outputs should be saved
         "save_channels": null,                          // List of channel names to be saved, mapping is done using "labels" from data.json
         "save_threshold": 0,                            // Threshold under which values are set to 0 before saving (reduce file size)
@@ -364,6 +366,7 @@ is saved after every evaluation loop on the validation set,
         "save_predictions": false,                      // If predictions should be saved during evaluation
         "dense_patch_eval": false,                      // If patches sampled on a dense grid should be evaluated
         "eval_patch_size": null,                        // Grid sampling patch size, if a non null value is given both for "eval_patch_size" and "whole_image_inference_frequency", grid sampling is done even if there is "queue" is null in data.json 
+        "save_labels": false,                           // If labels should be saved during evaluation
         "reporting_metrics":                            // Reported metrics during evaluation, work the same way as criteria
         [
             {
@@ -400,24 +403,33 @@ Available methods from RunModel to retrieve input data and target using `"data_g
 `"get_regress_random_noise_data"`.
 Available methods from RunModel to record data from a batch using `"batch_recorder"`
 are `"record_segmentation_batch"` and `"record_regression_batch"`.
-Only `"save_volume"` is available to save predictions using `"prediction_saver"`.
+Only `"save_volume"` is available to save predictions or labels using 
+`"prediction_saver"` or `"label_saver"`.
 
 The optimizer is only used at training time so a model with no parameters like 
 the Identity can be used for evaluation.
 
 #### visualization.json
 This file defines the visualization parameters. It uses `PlotDataset` to make plots.
-```json
+```json5
 {
-    "kwargs": 
+    "kwargs":     // Attributes of the PlotDataset class, "image_key_name" and "label_key_name" are taken from data.json
     {
         "subject_idx": [0, 1, 2, 3, 4], 
         "update_all_on_scroll": true,
         "nb_patches": 4
     },
-    "set": "val"
+    "set": "val"  // Set to plot, either "train", "val" or "test"
 }
 ```
+When plotting volumes, you can navigate through slices by scrolling on the volumes,
+if `"update_all_on_scroll"` is `true`, all similar views will be updated.
+
+When plotting labels with several channels, you can navigate channels with up
+and down keys.
+
+When plotting subjects on more than one figure, you can navigate through figures
+using pageup or pagedown keys.
 
 #### extra_file.json
 This file can overwrites `data.json`, `transform.json`, `model.json`, `run.json`

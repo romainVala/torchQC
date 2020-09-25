@@ -75,6 +75,7 @@ class RunModel:
         self.eval_results_dir = struct['validation']['eval_results_dir']
         self.dense_patch_eval = struct['validation']['dense_patch_eval']
         self.eval_patch_size = struct['validation']['eval_patch_size']
+        self.save_labels = struct['validation']['save_labels']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
         self.activation = struct['activation']
@@ -99,6 +100,7 @@ class RunModel:
         self.batch_recorder = getattr(self, struct['save']['batch_recorder'])
         self.prediction_saver = getattr(
             self, struct['save']['prediction_saver'])
+        self.label_saver = getattr(self, struct['save']['label_saver'])
 
         self.eval_csv_basename = None
         self.save_transformed_samples = False
@@ -210,8 +212,7 @@ class RunModel:
         # Save model at the end of training
         self.save_checkpoint()
 
-    def eval(self, eval_csv_basename=None,
-             save_transformed_samples=False):
+    def eval(self, eval_csv_basename=None, save_transformed_samples=False):
         """ Evaluate the model on the validation set. """
         self.epoch -= 1
         if eval_csv_basename:
@@ -292,9 +293,13 @@ class RunModel:
 
             if self.save_predictions and not self.model.training:
                 for j, prediction in enumerate(predictions):
-                    self.prediction_saver(
-                        sample, prediction.unsqueeze(0), i * self.batch_size + j
-                    )
+                    n = i * self.batch_size + j
+                    self.prediction_saver(sample, prediction.unsqueeze(0), n)
+
+            if self.save_labels and not self.model.training:
+                for j, target in enumerate(targets):
+                    n = i * self.batch_size + j
+                    self.label_saver(sample, target.unsqueeze(0), n, 'label')
 
             # Measure elapsed time
             batch_time = time.time() - start
@@ -376,6 +381,9 @@ class RunModel:
 
                 if self.save_predictions:
                     self.prediction_saver(sample, predictions.unsqueeze(0), i)
+                    
+                if self.save_labels:
+                    self.label_saver(sample, target.unsqueeze(0), i, 'label')
 
                 # Compute loss
                 for criterion in self.criteria:
@@ -497,6 +505,87 @@ class RunModel:
             state['amp'] = amp.state_dict()
 
         save_checkpoint(state, self.results_dir, self.model)
+
+    def record_simple(self, df, sample, predictions, targets,
+                                  batch_time, save=False):
+
+        """
+        Record information about the batches the model was trained or evaluated
+        on during the segmentation task.
+        At evaluation time, additional reporting metrics are recorded.
+        """
+        start = time.time()
+
+        is_batch = not isinstance(sample, torchio.Subject)
+        if self.model.training:
+            mode = 'Train'
+        else:
+            if self.eval_results_dir != self.results_dir:
+                df = pd.DataFrame()
+            mode = 'Val' if is_batch else 'Whole_image'
+
+        shape = targets.shape
+        #size = np.product(shape[2:])
+        location = sample.get('index_ini')
+
+        batch_size = shape[0]
+
+        sample_time = batch_time / batch_size
+
+        time_sum = 0
+
+        for idx in range(batch_size):
+            if is_batch:
+                image_path = sample[self.image_key_name]['path'][idx]
+            else:
+                image_path = sample[self.image_key_name]['path']
+            info = {
+                'image_filename': image_path,
+                'shape': to_numpy(shape[2:]),
+                'sample_time': sample_time
+            }
+
+            if is_batch:
+                info['label_filename'] = sample[self.label_key_name][
+                    'path'][idx]
+            else:
+                info['label_filename'] = sample[self.label_key_name]['path']
+
+            if location is not None:
+                info['location'] = to_numpy(location[idx])
+
+            loss = 0
+            for criterion in self.criteria:
+                loss += criterion['weight'] * criterion['criterion'](
+                    predictions[idx].unsqueeze(0),
+                    targets[idx].unsqueeze(0)
+                )
+            info['loss'] = to_numpy(loss)
+
+            if not self.model.training:
+                for metric in self.metrics:
+                    name = f'metric_{metric["name"]}'
+
+                    info[name] = to_numpy(
+                        metric['criterion'](
+                            predictions[idx].unsqueeze(0),
+                            targets[idx].unsqueeze(0)
+                        )
+                    )
+
+            reporting_time = time.time() - start
+            time_sum += reporting_time
+            info['reporting_time'] = reporting_time
+            start = time.time()
+
+            self.record_history(info, sample, idx)
+
+            df = df.append(info, ignore_index=True)
+
+        if save:
+            self.save_info(mode, df, sample)
+
+        return df, time_sum
 
     def record_segmentation_batch(self, df, sample, predictions, targets,
                                   batch_time, save=False, csv_name='eval'):
@@ -630,7 +719,8 @@ class RunModel:
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions, df
 
-    def save_volume(self, sample, volume, idx=0):
+    def save_volume(self, sample, volume, idx=0, volume_name=None):
+        volume_name = volume_name or self.save_volume_name
         affine = sample[self.image_key_name]['affine'].squeeze()
         name = sample.get('name') or f'{idx:06d}'
         if isinstance(name, list):
@@ -645,7 +735,7 @@ class RunModel:
             bin_volume = nib.Nifti1Image(
                 to_numpy(bin_volume[0]).astype(np.uint8), affine
             )
-            nib.save(bin_volume, f'{resdir}/bin_{self.save_volume_name}.nii.gz')
+            nib.save(bin_volume, f'{resdir}/bin_{volume_name}.nii.gz')
 
         volume[volume < self.save_threshold] = 0.
 
@@ -668,7 +758,7 @@ class RunModel:
             volume = nib.Nifti1Image(
                 to_numpy(volume.permute(0, 2, 3, 4, 1).squeeze()), affine
             )
-            nib.save(volume, f'{resdir}/{self.save_volume_name}.nii.gz')
+            nib.save(volume, f'{resdir}/{volume_name}.nii.gz')
 
     def get_regress_random_noise_data(self, data):
         return self.get_regression_data(data, 'random_noise')

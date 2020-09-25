@@ -607,3 +607,26 @@ for ss in suj2:
     if not ss in suj1:
         print(ss)
 
+#test interactive plot
+import numpy as np
+path_csv = "/network/lustre/iss01/cenir/analyse/irm/users/ghiles.reguig/These/Dataset/cati_full/CATI_full_paths.csv"
+
+csv_res = ModelCSVResults(csv_path=path_csv, out_tmp="/home/romain.valabregue/tmp/metrics_trsfm/")
+df_data = csv_res.df_data
+csv_res.df_data[["QCOK", "globalQualitative"]] += np.random.uniform(-0.3, 0.3, (len(df_data), 2))
+csv_res.scatter("QCOK", "globalQualitative")
+
+
+#timing para queue
+d='/home/romain.valabregue/datal/PVsynth/training/multi_res/pv_10_14_28/result/'
+f=['Train_ep006_num_old_queue_worker0.csv', 'Train_ep006_para_queue_16_16_64_num_worker0.csv',
+   'Train_ep006_para_queue_16_16_64_num_worker1.csv', 'Train_ep006.csv',  ]
+legend_str=['queue Nworker 0 ', 'paraQueue Nworker 0', 'paraQueue Nworker 1', 'queue Nworker 8']
+plt.figure()
+for ff in f:
+    r = pd.read_csv(d+ff)
+    t = r['reporting_time']+r['sample_time']
+    tc = np.cumsum(t)
+    plt.plot(tc)
+
+plt.legend(legend_str)
