@@ -364,6 +364,8 @@ is saved after every evaluation loop on the validation set,
         "eval_frequency": 100,                          // Validation frequency (in number of iterations)
         "prefix_eval_results_dir": null,                // Prefix to the result directory to which save predictions and evaluation CSV file, if null, default result directory is used
         "save_predictions": false,                      // If predictions should be saved during evaluation
+        "dense_patch_eval": false,                      // If patches sampled on a dense grid should be evaluated
+        "eval_patch_size": null,                        // Grid sampling patch size, if a non null value is given both for "eval_patch_size" and, "whole_image_inference_frequency" or "dense_patch_eval", grid sampling is done even if there is "queue" is null in data.json 
         "save_labels": false,                           // If labels should be saved during evaluation
         "reporting_metrics":                            // Reported metrics during evaluation, work the same way as criteria
         [

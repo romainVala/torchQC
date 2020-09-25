@@ -73,6 +73,8 @@ class RunModel:
         self.patch_overlap = struct['validation']['patch_overlap']
         self.save_predictions = struct['validation']['save_predictions']
         self.eval_results_dir = struct['validation']['eval_results_dir']
+        self.dense_patch_eval = struct['validation']['dense_patch_eval']
+        self.eval_patch_size = struct['validation']['eval_patch_size']
         self.save_labels = struct['validation']['save_labels']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
@@ -223,8 +225,10 @@ class RunModel:
                 self.log('Evaluation on patches')
                 self.train_loop(save_model=False)
 
-            if self.patch_size is not None and \
-                    self.whole_image_inference_frequency is not None:
+            patch_size = self.patch_size or self.eval_patch_size
+            do_whole_image_loop = self.dense_patch_eval \
+                or self.whole_image_inference_frequency is not None
+            if patch_size is not None and do_whole_image_loop:
                 self.log('Evaluation on whole images')
                 self.whole_image_evaluation_loop(save_transformed_samples)
 
@@ -351,7 +355,7 @@ class RunModel:
         return average_loss
 
     def whole_image_evaluation_loop(self, save_transformed_samples=False):
-        df = pd.DataFrame()
+        df, patch_df = pd.DataFrame(), pd.DataFrame()
         start = time.time()
         time_sum, loss_sum, reporting_time_sum = 0, 0, 0
         average_loss = None
@@ -363,26 +367,32 @@ class RunModel:
             if save_transformed_samples:
                 self.prediction_saver(sample, volume.unsqueeze(0), i)
 
-            predictions = self.make_prediction_on_whole_volume(sample)
-
-            predictions = self.apply_post_transforms(
-                predictions.unsqueeze(0), sample)[0]
-
-            target = self.apply_post_transforms(target.unsqueeze(0), sample)[0]
-
-            if self.save_predictions:
-                self.prediction_saver(sample, predictions.unsqueeze(0), i)
-
-            if self.save_labels:
-                self.label_saver(sample, target.unsqueeze(0), i, 'label')
-
-            # Compute loss
+            predictions, patch_df = self.make_prediction_on_whole_volume(
+                sample, patch_df)
             sample_loss = 0
-            for criterion in self.criteria:
-                sample_loss += criterion['weight'] * \
-                               criterion['criterion'](
-                                   predictions.unsqueeze(0), target.unsqueeze(0)
-                               )
+
+            # As direct inference on whole volume is preferred, aggregated
+            # prediction is not used if a patch evaluation is run
+            if not self.dense_patch_eval:
+                predictions = self.apply_post_transforms(
+                    predictions.unsqueeze(0), sample)[0]
+
+                target = self.apply_post_transforms(
+                    target.unsqueeze(0), sample)[0]
+
+                if self.save_predictions:
+                    self.prediction_saver(sample, predictions.unsqueeze(0), i)
+                    
+                if self.save_labels:
+                    self.label_saver(sample, target.unsqueeze(0), i, 'label')
+
+                # Compute loss
+                for criterion in self.criteria:
+                    sample_loss += criterion['weight'] * \
+                                   criterion['criterion'](
+                                       predictions.unsqueeze(0),
+                                       target.unsqueeze(0)
+                                   )
 
             # Measure elapsed time
             sample_time = time.time() - start
@@ -392,11 +402,13 @@ class RunModel:
             average_loss = loss_sum / i
             average_time = time_sum / i
 
-            # Record information about the sample and the performances of
-            # the model on this sample after every iteration
-            df, reporting_time = self.batch_recorder(
-                df, sample, predictions.unsqueeze(0), target.unsqueeze(0),
-                sample_time, True)
+            reporting_time = 0
+            if not self.dense_patch_eval:
+                # Record information about the sample and the performances of
+                # the model on this sample after every iteration
+                df, reporting_time = self.batch_recorder(
+                    df, sample, predictions.unsqueeze(0), target.unsqueeze(0),
+                    sample_time, True)
 
             reporting_time_sum += reporting_time
             average_reporting_time = reporting_time_sum / i
@@ -417,8 +429,9 @@ class RunModel:
         time_sum, saving_time_sum = 0, 0
 
         for i, sample in enumerate(self.test_set, 1):
-            if self.patch_size is not None:
-                predictions = self.make_prediction_on_whole_volume(sample)
+            if self.patch_size is not None or self.eval_patch_size is not None:
+                predictions, _ = self.make_prediction_on_whole_volume(
+                    sample, None)
             else:
                 volume, _ = self.data_getter(sample)
                 predictions = self.model(volume.unsqueeze(0))[0]
@@ -576,7 +589,7 @@ class RunModel:
         return df, time_sum
 
     def record_segmentation_batch(self, df, sample, predictions, targets,
-                                  batch_time, save=False):
+                                  batch_time, save=False, csv_name='eval'):
         """
         Record information about the batches the model was trained or evaluated
         on during the segmentation task.
@@ -588,13 +601,17 @@ class RunModel:
         if self.model.training:
             mode = 'Train'
         else:
-            if self.eval_results_dir != self.results_dir:
+            if self.eval_results_dir != self.results_dir and csv_name == 'eval':
                 df = pd.DataFrame()
             mode = 'Val' if is_batch else 'Whole_image'
+            if csv_name == 'patch_eval':
+                mode = 'patch_eval'
 
         shape = targets.shape
         #size = np.product(shape[2:])
-        location = sample.get('index_ini')
+        location = sample.get('index_ini') or sample.get('location')
+        if location is not None:
+            location = location[:, :3]
         affine = self.get_affine(sample)
         # M is the product between a scaling and a rotation
         M = affine[:3, :3]
@@ -618,6 +635,9 @@ class RunModel:
             }
             if is_batch:
                 info['batch_size'] = batch_size
+
+            if 'name' in sample:
+                info['name'] = sample['name'][idx]
 
             if is_batch:
                 info['label_filename'] = sample[self.label_key_name][
@@ -666,29 +686,39 @@ class RunModel:
             df = df.append(info, ignore_index=True)
 
         if save:
-            self.save_info(mode, df, sample)
+            self.save_info(mode, df, sample, csv_name)
 
         return df, time_sum
 
-    def make_prediction_on_whole_volume(self, sample):
+    def make_prediction_on_whole_volume(self, sample, df):
+        patch_size = self.eval_patch_size or self.patch_size
         grid_sampler = torchio.inference.GridSampler(
-            sample, self.patch_size, self.patch_overlap, padding_mode='reflect'
+            sample, patch_size, self.patch_overlap, padding_mode='reflect'
         )
         patch_loader = DataLoader(grid_sampler, batch_size=self.batch_size)
         aggregator = torchio.inference.GridAggregator(grid_sampler)
 
+        if self.results_dir != self.eval_results_dir:
+            df = pd.DataFrame()
+
         for patches_batch in patch_loader:
             # Take variables and make sure they are tensors on the right device
-            volumes, _ = self.data_getter(patches_batch)
+            volumes, targets = self.data_getter(patches_batch)
             locations = patches_batch[torchio.LOCATION]
 
             # Compute output
             predictions = self.model(volumes)
             aggregator.add_batch(predictions, locations)
 
+            if self.dense_patch_eval and targets is not None:
+                df, _ = self.batch_recorder(
+                    df, patches_batch, predictions, targets,
+                    0, True, csv_name='patch_eval'
+                )
+
         # Aggregate predictions for the whole image
         predictions = to_var(aggregator.get_output_tensor(), self.device)
-        return predictions
+        return predictions, df
 
     def save_volume(self, sample, volume, idx=0, volume_name=None):
         volume_name = volume_name or self.save_volume_name
@@ -877,7 +907,7 @@ class RunModel:
             order.append(hist[0])
         info['transfo_order'] = '_'.join(order)
 
-    def save_info(self, mode, df, sample):
+    def save_info(self, mode, df, sample, csv_name='eval'):
         name = self.eval_csv_basename or mode
         if mode == 'Train':
             filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}.csv'
@@ -892,5 +922,5 @@ class RunModel:
                 resdir = f'{self.eval_results_dir}/{name}/'
                 if not os.path.isdir(resdir):
                     os.makedirs(resdir)
-                filename = f'{resdir}/eval.csv'
+                filename = f'{resdir}/{csv_name}.csv'
         df.to_csv(filename)
