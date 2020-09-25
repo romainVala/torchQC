@@ -106,7 +106,7 @@ if __name__ == "__main__":
                             args.max_subjects_per_job)
             config.init()
             result = config.run()
-            if isinstance(result, str):
+            if isinstance(result, list):
                 jobs += result
 
     else:
