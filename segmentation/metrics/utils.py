@@ -5,7 +5,7 @@ import torch.nn.functional as F
 class MetricOverlay:
     def __init__(self, metric, channels=None, mask=None, mask_cut=(0.99, 1),
                  binarize_target=False, activation=None, binary_volumes=False,
-                 binarize_prediction=False):
+                 binarize_prediction=False, band_width=None, use_far_mask=False):
         self.metric = metric
         self.channels = channels
         self.mask = mask
@@ -14,6 +14,12 @@ class MetricOverlay:
         self.activation = activation
         self.binary_volumes = binary_volumes
         self.binarize_prediction = binarize_prediction
+
+        if band_width is not None:
+            assert band_width % 2 == 1
+
+        self.band_width = band_width
+        self.use_far_mask = use_far_mask
 
     @staticmethod
     def binarize(tensor):
@@ -27,6 +33,38 @@ class MetricOverlay:
             tensor = tensor[..., :-1]
         tensor = tensor.permute(0, 4, 1, 2, 3).float()
         return tensor
+
+    def get_band_width_kernel(self):
+        dim = 3
+        kernel_shape = [self.band_width for _ in range(dim)]
+        kernel = torch.ones(*kernel_shape)
+        distance_range = torch.arange(
+            -(self.band_width // 2), self.band_width // 2 + 1
+        )
+        distance_grid = torch.meshgrid([distance_range for _ in range(dim)])
+        distance_map = sum(
+            [distance_grid[i].flatten() ** 2 for i in range(dim)]
+        ).float().sqrt().reshape(*kernel_shape)
+        kernel[distance_map > self.band_width // 2] = 0
+        return kernel
+
+    def get_outer_band_mask(self, tensor):
+        channels = tensor.shape[1]
+        kernel = self.get_band_width_kernel().to(tensor.device)
+        band = torch.conv3d(
+            (tensor >= self.mask_cut[0]).float(),
+            kernel.expand(channels, 1, -1, -1, -1),
+            padding=self.band_width // 2,
+            groups=channels
+        )
+        mask = (band > 0).float() - (tensor >= self.mask_cut[0]).float()
+        return mask
+
+    def get_far_mask(self, tensor):
+        far_mask = torch.ones_like(tensor)
+        inner_mask = self.get_outer_band_mask(tensor)
+        far_mask = far_mask - inner_mask - (tensor >= self.mask_cut[0]).float()
+        return far_mask
 
     def __call__(self, prediction, target):
         if (prediction.shape[1] - target.shape[1]) == 1:
@@ -47,6 +85,14 @@ class MetricOverlay:
 
         if self.binarize_prediction:
             prediction = self.binarize(prediction)
+
+        if self.band_width is not None:
+            if self.use_far_mask:
+                band_mask = self.get_far_mask(target)
+            else:
+                band_mask = self.get_outer_band_mask(target)
+            prediction = prediction * band_mask
+            target = target * band_mask
 
         if self.mask is not None:
             min_cut, max_cut = self.mask_cut
