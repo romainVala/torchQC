@@ -604,6 +604,7 @@ class Config:
         self.set_struct_value(struct['save'], 'batch_recorder',
                               'record_segmentation_batch')
         self.set_struct_value(struct['save'], 'prediction_saver', 'save_volume')
+        self.set_struct_value(struct['save'], 'label_saver', 'save_volume')
         self.set_struct_value(struct['save'], 'save_bin', False)
         self.set_struct_value(struct['save'], 'split_channels', False)
         self.set_struct_value(struct['save'], 'save_channels')
@@ -626,6 +627,7 @@ class Config:
         self.set_struct_value(struct['validation'], 'save_predictions', False)
         self.set_struct_value(
             struct['validation'], 'prefix_eval_results_dir', None)
+        self.set_struct_value(struct['validation'], 'save_labels', False)
 
         if struct['validation']['prefix_eval_results_dir'] is None:
             struct['validation']['eval_results_dir'] = self.results_dir

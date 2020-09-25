@@ -73,6 +73,7 @@ class RunModel:
         self.patch_overlap = struct['validation']['patch_overlap']
         self.save_predictions = struct['validation']['save_predictions']
         self.eval_results_dir = struct['validation']['eval_results_dir']
+        self.save_labels = struct['validation']['save_labels']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
         self.activation = struct['activation']
@@ -97,6 +98,7 @@ class RunModel:
         self.batch_recorder = getattr(self, struct['save']['batch_recorder'])
         self.prediction_saver = getattr(
             self, struct['save']['prediction_saver'])
+        self.label_saver = getattr(self, struct['save']['label_saver'])
 
         self.eval_csv_basename = None
         self.save_transformed_samples = False
@@ -208,8 +210,7 @@ class RunModel:
         # Save model at the end of training
         self.save_checkpoint()
 
-    def eval(self, eval_csv_basename=None,
-             save_transformed_samples=False):
+    def eval(self, eval_csv_basename=None, save_transformed_samples=False):
         """ Evaluate the model on the validation set. """
         self.epoch -= 1
         if eval_csv_basename:
@@ -289,9 +290,13 @@ class RunModel:
 
             if self.save_predictions and not self.model.training:
                 for j, prediction in enumerate(predictions):
-                    self.prediction_saver(
-                        sample, prediction.unsqueeze(0), i * self.batch_size + j
-                    )
+                    n = i * self.batch_size + j
+                    self.prediction_saver(sample, prediction.unsqueeze(0), n)
+
+            if self.save_labels and not self.model.training:
+                for j, target in enumerate(targets):
+                    n = i * self.batch_size + j
+                    self.label_saver(sample, target.unsqueeze(0), n, 'label')
 
             # Measure elapsed time
             batch_time = time.time() - start
@@ -367,6 +372,9 @@ class RunModel:
 
             if self.save_predictions:
                 self.prediction_saver(sample, predictions.unsqueeze(0), i)
+
+            if self.save_labels:
+                self.label_saver(sample, target.unsqueeze(0), i, 'label')
 
             # Compute loss
             sample_loss = 0
@@ -682,7 +690,8 @@ class RunModel:
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions
 
-    def save_volume(self, sample, volume, idx=0):
+    def save_volume(self, sample, volume, idx=0, volume_name=None):
+        volume_name = volume_name or self.save_volume_name
         affine = sample[self.image_key_name]['affine'].squeeze()
         name = sample.get('name') or f'{idx:06d}'
         if isinstance(name, list):
@@ -697,7 +706,7 @@ class RunModel:
             bin_volume = nib.Nifti1Image(
                 to_numpy(bin_volume[0]).astype(np.uint8), affine
             )
-            nib.save(bin_volume, f'{resdir}/bin_{self.save_volume_name}.nii.gz')
+            nib.save(bin_volume, f'{resdir}/bin_{volume_name}.nii.gz')
 
         volume[volume < self.save_threshold] = 0.
 
@@ -720,7 +729,7 @@ class RunModel:
             volume = nib.Nifti1Image(
                 to_numpy(volume.permute(0, 2, 3, 4, 1).squeeze()), affine
             )
-            nib.save(volume, f'{resdir}/{self.save_volume_name}.nii.gz')
+            nib.save(volume, f'{resdir}/{volume_name}.nii.gz')
 
     def get_regress_random_noise_data(self, data):
         return self.get_regression_data(data, 'random_noise')

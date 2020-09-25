@@ -350,6 +350,7 @@ is saved after every evaluation loop on the validation set,
         "record_frequency": 10,                         // Frequency (in terms of iterations) at which CSV files are saved
         "batch_recorder": "record_segmentation_batch",  // RunModel method used to record CSV files
         "prediction_saver": "save_volume",              // RunModel method used to save model outputs
+        "label_saver": "save_volume",                   // RunModel method used to save labels (may be useful if transforms were applied)
         "save_bin": false,                              // If binary versions of the model outputs should be saved
         "save_channels": null,                          // List of channel names to be saved, mapping is done using "labels" from data.json
         "save_threshold": 0,                            // Threshold under which values are set to 0 before saving (reduce file size)
@@ -363,6 +364,7 @@ is saved after every evaluation loop on the validation set,
         "eval_frequency": 100,                          // Validation frequency (in number of iterations)
         "prefix_eval_results_dir": null,                // Prefix to the result directory to which save predictions and evaluation CSV file, if null, default result directory is used
         "save_predictions": false,                      // If predictions should be saved during evaluation
+        "save_labels": false,                           // If labels should be saved during evaluation
         "reporting_metrics":                            // Reported metrics during evaluation, work the same way as criteria
         [
             {
@@ -399,7 +401,8 @@ Available methods from RunModel to retrieve input data and target using `"data_g
 `"get_regress_random_noise_data"`.
 Available methods from RunModel to record data from a batch using `"batch_recorder"`
 are `"record_segmentation_batch"` and `"record_regression_batch"`.
-Only `"save_volume"` is available to save predictions using `"prediction_saver"`.
+Only `"save_volume"` is available to save predictions or labels using 
+`"prediction_saver"` or `"label_saver"`.
 
 The optimizer is only used at training time so a model with no parameters like 
 the Identity can be used for evaluation.
