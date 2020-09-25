@@ -573,6 +573,18 @@ class RunModel:
                             targets[idx].unsqueeze(0)
                         )
                     )
+            if 'metrics' in sample[self.image_key_name]:
+                dics = sample[self.image_key_name]['metrics']
+                dicm = {}
+                for key, val in dics.items():
+                    dicm[key] = to_numpy(val[idx])
+                    # if isinstance(val,dict): # hmm SSIM_wrapped still contains dict
+                    #     for kkey, vval in val.items():
+                    #         dicm[key + '_' + kkey] = to_numpy(vval[idx])
+                    # else:
+                    #     dicm[key] = to_numpy(val[idx])
+                info.update(dicm)
+                print('AAAAAAAAAAAAAA {}'.format(dicm.keys()))
 
             reporting_time = time.time() - start
             time_sum += reporting_time
