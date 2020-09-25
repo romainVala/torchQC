@@ -486,6 +486,87 @@ class RunModel:
 
         save_checkpoint(state, self.results_dir, self.model)
 
+    def record_simple(self, df, sample, predictions, targets,
+                                  batch_time, save=False):
+
+        """
+        Record information about the batches the model was trained or evaluated
+        on during the segmentation task.
+        At evaluation time, additional reporting metrics are recorded.
+        """
+        start = time.time()
+
+        is_batch = not isinstance(sample, torchio.Subject)
+        if self.model.training:
+            mode = 'Train'
+        else:
+            if self.eval_results_dir != self.results_dir:
+                df = pd.DataFrame()
+            mode = 'Val' if is_batch else 'Whole_image'
+
+        shape = targets.shape
+        #size = np.product(shape[2:])
+        location = sample.get('index_ini')
+
+        batch_size = shape[0]
+
+        sample_time = batch_time / batch_size
+
+        time_sum = 0
+
+        for idx in range(batch_size):
+            if is_batch:
+                image_path = sample[self.image_key_name]['path'][idx]
+            else:
+                image_path = sample[self.image_key_name]['path']
+            info = {
+                'image_filename': image_path,
+                'shape': to_numpy(shape[2:]),
+                'sample_time': sample_time
+            }
+
+            if is_batch:
+                info['label_filename'] = sample[self.label_key_name][
+                    'path'][idx]
+            else:
+                info['label_filename'] = sample[self.label_key_name]['path']
+
+            if location is not None:
+                info['location'] = to_numpy(location[idx])
+
+            loss = 0
+            for criterion in self.criteria:
+                loss += criterion['weight'] * criterion['criterion'](
+                    predictions[idx].unsqueeze(0),
+                    targets[idx].unsqueeze(0)
+                )
+            info['loss'] = to_numpy(loss)
+
+            if not self.model.training:
+                for metric in self.metrics:
+                    name = f'metric_{metric["name"]}'
+
+                    info[name] = to_numpy(
+                        metric['criterion'](
+                            predictions[idx].unsqueeze(0),
+                            targets[idx].unsqueeze(0)
+                        )
+                    )
+
+            reporting_time = time.time() - start
+            time_sum += reporting_time
+            info['reporting_time'] = reporting_time
+            start = time.time()
+
+            self.record_history(info, sample, idx)
+
+            df = df.append(info, ignore_index=True)
+
+        if save:
+            self.save_info(mode, df, sample)
+
+        return df, time_sum
+
     def record_segmentation_batch(self, df, sample, predictions, targets,
                                   batch_time, save=False):
         """
