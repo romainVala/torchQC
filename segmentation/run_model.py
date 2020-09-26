@@ -620,7 +620,7 @@ class RunModel:
 
         shape = targets.shape
         #size = np.product(shape[2:])
-        location = sample.get('index_ini') or sample.get('location')
+        location = sample.get('index_ini') if 'index_ini' in sample else sample.get('location')
         if location is not None:
             location = location[:, :3]
         affine = self.get_affine(sample)
