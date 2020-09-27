@@ -257,6 +257,8 @@ class RunModel:
             self.log('Validation')
             model_mode = 'Val'
             loader = self.val_loader
+            if loader is None:
+                return 1
 
         df = pd.DataFrame()
         start = time.time()
