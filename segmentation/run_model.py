@@ -219,6 +219,7 @@ class RunModel:
             self.eval_csv_basename = eval_csv_basename
 
         self.log('Evaluation mode')
+        self.log_peak_CPU_memory()
         with torch.no_grad():
             self.model.eval()
             if self.eval_frequency is not None:
@@ -234,6 +235,7 @@ class RunModel:
 
         # Log memory consumption
         self.log_peak_CPU_memory()
+        self.log('Evaluation mode')
 
     def infer(self):
         """ Use the model to make predictions on the test set. """
@@ -317,6 +319,8 @@ class RunModel:
             if i % self.record_frequency == 0 or i == len(loader):
                 df, reporting_time = self.batch_recorder(
                     df, sample, predictions, targets, batch_time, True)
+                self.log_peak_CPU_memory()
+
             else:
                 df, reporting_time = self.batch_recorder(
                     df, sample, predictions, targets, batch_time, False)
