@@ -906,11 +906,21 @@ class Config:
                                         num_workers=struct['num_workers'],
                                         collate_fn=struct['collate_fn'])
         else:
-            if len(self.train_set) > 0:
+            if False:
+                self.log('no PARA_QUEUE ')
+                self.log(struct['queue']['attributes'])
                 train_queue = torchio.Queue(self.train_set,
                                             **struct['queue']['attributes'])
-                train_loader = DataLoader(train_queue, self.batch_size,
-                                          collate_fn=struct['collate_fn'])
+                train_loader = DataLoader(train_queue, self.batch_size, collate_fn=struct['collate_fn'])
+
+            else:
+                if len(self.train_set) > 0:
+                    self.log('PARA_QUEUE 16 16 64 numworker 1')
+                    train_queue = torchio.ParallelQueue(self.train_set, struct['queue']['sampler'], num_patches=16,
+                                                        patch_queue_size=64, max_no_subjects_in_mem=16)
+                    train_loader = DataLoader(train_queue, self.batch_size, num_workers=1,
+                                              collate_fn=struct['collate_fn'])
+
             if len(self.val_set) > 0:
                 val_queue = torchio.Queue(self.val_set,
                                           **struct['queue']['attributes'])
