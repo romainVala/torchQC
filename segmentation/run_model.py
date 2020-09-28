@@ -227,11 +227,12 @@ class RunModel:
         self.log_peak_CPU_memory()
         with torch.no_grad():
             self.model.eval()
+            patch_size = self.patch_size or self.eval_patch_size
             if self.eval_frequency is not None:
-                self.log('Evaluation on patches')
+                if patch_size is not None:
+                    self.log('Evaluation on patches')
                 self.train_loop(save_model=False)
 
-            patch_size = self.patch_size or self.eval_patch_size
             do_whole_image_loop = self.dense_patch_eval \
                 or self.whole_image_inference_frequency is not None
             if patch_size is not None and do_whole_image_loop:
