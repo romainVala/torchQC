@@ -11,6 +11,7 @@ import pandas as pd
 import nibabel as nib
 import torchio
 import resource
+import warnings
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
 from apex import amp
@@ -167,6 +168,10 @@ class RunModel:
             self.optimizer.load_state_dict(torch.load(opt_files[-1]))
 
         # Try to load scheduler state
+        if self.lr_scheduler is not None and self.val_loader is None:
+            warnings.warn('A learning rate scheduler is set but there is no'
+                          'validation set, removing scheduler.')
+            self.lr_scheduler = None
         if self.lr_scheduler is not None:
             sch_files = glob.glob(
                 os.path.join(self.results_dir,
