@@ -1,4 +1,5 @@
 from segmentation.metrics.utils import mean_metric
+import torch
 
 
 class OverlapMetric:
@@ -51,3 +52,20 @@ class OverlapMetric:
         return mean_metric(
             prediction, target, lambda p, t: self.false_negatives_map(p, t).sum()
         )
+
+    @staticmethod
+    def false_positive_matrix(prediction, target):
+        """
+        Compute matrix of false positives between channels.
+        Target is expected to be a discrete one hot encoded label map.
+        Prediction can be discrete or continuous.
+        """
+        n_channels = target.shape[1]
+        fp_matrix = torch.zeros((n_channels, n_channels)).to(prediction.device)
+        for i in range(n_channels):
+            for j in range(n_channels):
+                if i == j:
+                    continue
+                fp_matrix[i, j] = (prediction[:, i] * target[:, j]).sum()
+                fp_matrix[i, j] = fp_matrix[i, j].float() / target[:, j].sum()
+        return fp_matrix
