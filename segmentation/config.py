@@ -910,7 +910,7 @@ class Config:
                                         num_workers=struct['num_workers'],
                                         collate_fn=struct['collate_fn'])
         else:
-            if False:
+            if True:
                 self.log('no PARA_QUEUE ')
                 self.log(struct['queue']['attributes'])
                 train_queue = torchio.Queue(self.train_set,
