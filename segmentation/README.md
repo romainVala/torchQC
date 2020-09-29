@@ -325,7 +325,9 @@ is saved after every evaluation loop on the validation set,
             "mask_cut": [0.99, 1],                      // Thresholds used for the mask
             "binarize_target": false,                   // If target should be binarized
             "binarize_prediction": false,               // If prediction should be binarized
-            "binary_volumes": false                     // If prediction and target are given as binary label maps
+            "binary_volumes": false,                    // If prediction and target are given as binary label maps
+            "band_width": null,                         // If not null, width (in voxel) of the mask around the target volume binarized above lower bound of "mask_cut"
+            "use_far_mask": false                       // If mask of points further than the band mask should be applied
             // "activation": {...}                      // Activation function, default uses the model activation function
         }
     ], 
