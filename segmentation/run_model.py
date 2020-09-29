@@ -25,6 +25,8 @@ class ArrayTensorJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, (torch.Tensor, np.ndarray)):
             return o.tolist()
+        elif isinstance(o, float):
+            return str(o)
         else:
             return json.JSONEncoder.default(self, o)
 
@@ -582,12 +584,12 @@ class RunModel:
                 for metric in self.metrics:
                     name = f'metric_{metric["name"]}'
 
-                    info[name] = to_numpy(
+                    info[name] = json.dumps(to_numpy(
                         metric['criterion'](
                             predictions[idx].unsqueeze(0),
                             targets[idx].unsqueeze(0)
                         )
-                    )
+                    ), cls=ArrayTensorJSONEncoder)
             if 'metrics' in sample[self.image_key_name]:
                 dics = sample[self.image_key_name]['metrics']
                 dicm = {}
@@ -695,12 +697,12 @@ class RunModel:
                 for metric in self.metrics:
                     name = f'metric_{metric["name"]}'
 
-                    info[name] = to_numpy(
+                    info[name] = json.dumps(to_numpy(
                         metric['criterion'](
                             predictions[idx].unsqueeze(0),
                             targets[idx].unsqueeze(0)
                         )
-                    )
+                    ), cls=ArrayTensorJSONEncoder)
 
             reporting_time = time.time() - start
             time_sum += reporting_time
@@ -905,12 +907,12 @@ class RunModel:
                 for metric in self.metrics:
                     name = f'metric_{metric["name"]}'
 
-                    info[name] = to_numpy(
+                    info[name] = json.dumps(to_numpy(
                         metric['criterion'](
                             predictions[idx].unsqueeze(0),
                             targets[idx].unsqueeze(0)
                         )
-                    )
+                    ), cls=ArrayTensorJSONEncoder)
 
             self.record_history(info, sample, idx)
 
