@@ -265,7 +265,7 @@ class RunModel:
             loader = self.val_loader
             if loader is None:
                 # Save model after an evaluation on the whole validation set
-                if save_model and not self.model.training:
+                if save_model:
                     self.save_checkpoint(11)
                 return 1
 
