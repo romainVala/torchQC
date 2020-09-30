@@ -5,6 +5,7 @@ import torch
 import logging
 import sys
 import os
+from torchio import SubjectsDataset
 
 
 def identity_activation(x):
@@ -171,3 +172,24 @@ def save_checkpoint(state, save_path, model):
     if 'amp' in state:
         filename = f'{save_path}/amp_ep{epoch}.pth.tar'
         torch.save(state['amp'], filename)
+
+
+class CustomDataset(SubjectsDataset):
+    def __init__(self, subjects, transform=None, epoch_length=100):
+        super().__init__(subjects=subjects, transform=transform)
+        self.epoch_length = epoch_length
+        assert len(subjects) % epoch_length == 0
+        self.current_index = 0
+        self.current_epoch = 0
+        self.n_epochs = len(subjects) // epoch_length
+
+    def __len__(self):
+        return self.epoch_length
+
+    def __getitem__(self, index: int) -> dict:
+        idx = self.current_epoch * self.epoch_length + index
+        self.current_index += 1
+        if self.current_index == self.epoch_length:
+            self.current_index = 0
+            self.current_epoch = (self.current_epoch + 1) % self.n_epochs
+        return super().__getitem__(idx)
