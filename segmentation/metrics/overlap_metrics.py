@@ -61,7 +61,10 @@ class OverlapMetric:
         Prediction can be discrete or continuous.
         """
         n_channels = target.shape[1]
-        fp_matrix = torch.zeros((n_channels, n_channels)).to(prediction.device)
+        fp_matrix = torch.zeros(
+            (n_channels, n_channels),
+            device=prediction.device
+        )
         for i in range(n_channels):
             for j in range(n_channels):
                 if i == j:
