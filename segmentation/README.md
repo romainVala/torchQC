@@ -100,7 +100,8 @@ from subjects. The `"labels"` key defines which channels from the targets will b
         "module": "segmentation.collate_functions"  // Module that contains the collate function
     },
     "batch_shuffle": true,            // If batches are shuffled
-    "batch_seed": 0                   // Shuffle batch seed
+    "batch_seed": 0,                  // Shuffle batch seed
+    "epoch_length": null              // If not null, CustomDataset is used to split dataset to epochs of length "epoch_length"
     // "csv_file": []                 //
     // "load_sample_from_dir": []     // 
 }

@@ -15,7 +15,7 @@ from copy import deepcopy
 from itertools import product
 from torch.utils.data import DataLoader
 from segmentation.utils import parse_object_import, parse_function_import, \
-    parse_method_import, generate_json_document, custom_import
+    parse_method_import, generate_json_document, custom_import, CustomDataset
 from segmentation.run_model import RunModel
 from segmentation.metrics.utils import MetricOverlay
 from segmentation.metrics.fuzzy_overlap_metrics import minimum_t_norm
@@ -329,6 +329,7 @@ class Config:
         self.set_struct_value(struct, 'batch_shuffle')
         self.set_struct_value(struct, 'collate_fn')
         self.set_struct_value(struct, 'batch_seed')
+        self.set_struct_value(struct, 'epoch_length')
 
         total = sum(struct['repartition'])
         struct['repartition'] = list(
@@ -752,9 +753,11 @@ class Config:
                 core = '_'.join(re.findall(name_pattern, string))
             return prefix + core + suffix
 
-        def create_dataset(subject_list, transforms):
+        def create_dataset(subject_list, transforms, epoch_length=None):
             if len(subject_list) == 0:
                 return []
+            if epoch_length is not None:
+                return CustomDataset(subject_list, transforms, epoch_length)
             return torchio.SubjectsDataset(
                 subject_list, transform=transforms)
 
@@ -887,7 +890,8 @@ class Config:
             self.log('first 3 test suj : {} {}  {} '.format(test_subjects[0]['name'], test_subjects[1]['name'], test_subjects[2]['name']))
 
         train_set = create_dataset(train_subjects,
-                                   transform_struct['train_transforms'])
+                                   transform_struct['train_transforms'],
+                                   data_struct['epoch_length'])
         val_set = create_dataset(val_subjects,
                                  transform_struct['val_transforms'])
         test_set = create_dataset(test_subjects,

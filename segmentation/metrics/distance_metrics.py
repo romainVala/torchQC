@@ -13,7 +13,7 @@ def _get_border(volume, cut=0.5, dim=3):
     for i in range(dim):
         shape = list(spatial_shape)
         shape[i] = 1
-        zeros = torch.zeros(shape).to(volume.device)
+        zeros = torch.zeros(shape, device=volume.device)
 
         slices = [slice(1 * (i == j), spatial_shape[j] + 1 * (i == j)) for j in range(dim)]
         concat = torch.cat([ref, zeros], dim=i)[slices]
