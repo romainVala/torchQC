@@ -879,6 +879,12 @@ class Config:
         self.log(f'{len(train_subjects)} subjects in the train set')
         self.log(f'{len(val_subjects)} subjects in the validation set')
         self.log(f'{len(test_subjects)} subjects in the test set')
+        if len(train_subjects) > 0:
+            self.log('first 3 Train suj : {} {}  {} '.format(train_subjects[0]['name'], train_subjects[1]['name'], train_subjects[2]['name']))
+        elif len(val_subjects) > 0:
+            self.log('first 3 Val suj : {} {}  {} '.format(val_subjects[0]['name'], val_subjects[1]['name'], val_subjects[2]['name']))
+        elif len(test_subjects) > 0:
+            self.log('first 3 test suj : {} {}  {} '.format(test_subjects[0]['name'], test_subjects[1]['name'], test_subjects[2]['name']))
 
         train_set = create_dataset(train_subjects,
                                    transform_struct['train_transforms'])
