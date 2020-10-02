@@ -6,6 +6,7 @@ import seaborn as sns
 import numpy as np
 import os
 import glob
+import json
 
 sns.set()
 
@@ -198,14 +199,28 @@ def aggregate_csv_files(pattern, filename, fragment_position=-3):
         # Get information
         fragments = name.split('_')
 
-        GM_level = fragments[1]
-        mode = fragments[2]
-        SNR_level = fragments[4]
+        if 'T_RandomLabelsToImage' in data_frames[i]:
+            ddic = json.loads(data_frames[i]['T_RandomLabelsToImage'].values[0])
+            gm = ddic['random_parameters_images_dict']['mean'][0]
+            wm = ddic['random_parameters_images_dict']['mean'][2]
+            GM_level = float('{:.1f}'.format(gm))
+            mode = 'T1' if wm > gm else 'T2'
+        else:
+            GM_level = fragments[1]
+            GM_level = float(f'0.{GM_level[-1]}')
+
+            mode = fragments[2]
+        if 'T_RandomNoise' in data_frames[i]:
+            ddic = json.loads(data_frames[i]['T_RandomNoise'].values[0])
+            std = ddic['std']
+            SNR_level = float('{:.3f}'.format(std))
+        else:
+            SNR_level = fragments[4]
+
         model_name = '_'.join(fragments[6:])
 
         # Parse information
-        SNR_level = int(SNR_level)
-        GM_level = float(f'0.{GM_level[-1]}')
+        #SNR_level = int(SNR_level)
 
         data_frames[i]['model'] = model_name
         data_frames[i]['GM'] = GM_level
