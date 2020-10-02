@@ -350,7 +350,7 @@ def plot_value_vs_GM_level(results_dirs, metric, ylim=None, save_fig=None, label
     plt.show()
 
 
-def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None):
+def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None,filter=None):
     """ Draw a bar plot of values from a given metric against the GM level
     from a CSV result file.
 
@@ -360,6 +360,10 @@ def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None)
         >>> plot_metric_against_GM_level(result_file, 'metric_dice_loss_GM', ylim=(0, 0.1))
     """
     df = pd.read_csv(result_file, index_col=0)
+    if filter:
+        rows = df[filter['col']].str.contains(filter['str'])
+        df = df[rows]
+
     df.sort_values(['model', 'SNR'], axis=0, inplace=True)
     df['model_and_SNR'] = df['model'].str.cat(df['SNR'].astype(str), sep='_')
     palette = _get_color_palette(
