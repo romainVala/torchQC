@@ -894,6 +894,7 @@ class RunModel:
             if 'metrics' in sample[self.image_key_name]:
                 dics = sample[self.image_key_name]['metrics']
                 dicm = {}
+                """
                 for key, val in dics.items():
                     dicm[key] = to_numpy(val[idx])
                     # if isinstance(val,dict): # hmm SSIM_wrapped still contains dict
@@ -901,7 +902,8 @@ class RunModel:
                     #         dicm[key + '_' + kkey] = to_numpy(vval[idx])
                     # else:
                     #     dicm[key] = to_numpy(val[idx])
-                info.update(dicm)
+                """
+                info.update({"metrics": {self.image_key_name: dics[idx]}})
 
             if not self.model.training:
                 for metric in self.metrics:

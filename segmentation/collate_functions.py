@@ -1,5 +1,6 @@
 import re
 import torch
+import numpy as np
 from torch._six import container_abcs, string_classes, int_classes
 
 
@@ -47,7 +48,36 @@ def history_collate(batch):
         # The only change to the original function is here:
         # if elem has attribute 'history', then a key 'history' is added to the batch
         # which value is the list of the history of the elements of the batch
-        dictionary = {key: history_collate([d[key] for d in batch]) for key in elem}
+        batch_keys = set.union(*[set(d.keys()) for d in batch])
+        """
+        dictionary = {key: history_collate([d[key] if key in d.keys() else torch.Tensor([[np.nan]*len(batch)])
+                                            for d in batch])
+                      for key in elem}
+        """
+        dictionary = {}
+        metrics_idx = []
+        metrics_values = []
+        for key in elem:
+            to_collate = []
+            for idx, d in enumerate(batch):
+                if key is "metrics":
+                    if "metrics" in d.keys():
+                        metrics_idx.append(idx)
+                        metrics_values.append(d["metrics"])
+                    continue
+                to_collate.append(d[key])
+            if key is "metrics":
+                continue
+            dictionary[key] = history_collate(to_collate)
+
+        if "metrics" in batch_keys:
+            res_metrics = metrics_values
+            if len(metrics_idx) != len(batch):
+                res_metrics = np.asarray([dict()]*4)
+                res_metrics[metrics_idx] = metrics_values
+
+            dictionary.update({"metrics": res_metrics})
+
         if hasattr(elem, 'history'):
             dictionary.update({
                 'history': [d.history for d in batch]
