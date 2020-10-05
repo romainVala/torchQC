@@ -57,7 +57,7 @@ def history_collate(batch):
         dictionary = {}
         metrics_idx = []
         metrics_values = []
-        for key in elem:
+        for key in batch_keys:
             to_collate = []
             for idx, d in enumerate(batch):
                 if key is "metrics":
@@ -75,7 +75,7 @@ def history_collate(batch):
             if len(metrics_idx) != len(batch):
                 res_metrics = np.asarray([dict()]*4)
                 res_metrics[metrics_idx] = metrics_values
-
+            print("res_metrics: {}".format(res_metrics))
             dictionary.update({"metrics": res_metrics})
 
         if hasattr(elem, 'history'):
