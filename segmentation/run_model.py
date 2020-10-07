@@ -942,6 +942,10 @@ class RunModel:
             info[f'T_{hist[0]}'] = json.dumps(
                 hist[1], cls=ArrayTensorJSONEncoder)
             order.append(hist[0])
+            if "_metrics" in hist[1].keys():
+                print(hist[1]["_metrics"])
+                info[f'T_{hist[0]}_metrics'] = json.dumps(
+                    hist[1]["_metrics"], cls=ArrayTensorJSONEncoder)
         info['transfo_order'] = '_'.join(order)
 
     def save_info(self, mode, df, sample, csv_name='eval'):
