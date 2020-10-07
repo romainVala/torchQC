@@ -71,7 +71,8 @@ def history_collate(batch):
 def history_collate_partial_metrics(batch):
     """
     Adapt default_collate from https://github.com/pytorch/pytorch/blob/master/torch/utils/data/_utils/collate.py
-    to handle random transform history in batches.
+    to handle random transform history in batches. when metrics is not present in all sample
+    but not used since now we go with history
     """
 
     elem = batch[0]
