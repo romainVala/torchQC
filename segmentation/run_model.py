@@ -894,6 +894,7 @@ class RunModel:
             if 'metrics' in sample[self.image_key_name]:
                 dics = sample[self.image_key_name]['metrics']
                 dicm = {}
+                """
                 for key, val in dics.items():
                     dicm[key] = to_numpy(val[idx])
                     # if isinstance(val,dict): # hmm SSIM_wrapped still contains dict
@@ -901,7 +902,8 @@ class RunModel:
                     #         dicm[key + '_' + kkey] = to_numpy(vval[idx])
                     # else:
                     #     dicm[key] = to_numpy(val[idx])
-                info.update(dicm)
+                """
+                info.update({"metrics": {self.image_key_name: dics[idx]}})
 
             if not self.model.training:
                 for metric in self.metrics:
@@ -937,9 +939,16 @@ class RunModel:
             return
         relevant_history = history[idx] if is_batch else history
         for hist in relevant_history:
+            if "_metrics" in hist[1].keys():
+                dict_metrics = hist[1]["_metrics"]
+                for sample_key, metric_values in dict_metrics.items():
+                    info[f'T_{hist[0]}_metrics_{sample_key}'] = json.dumps(
+                        metric_values, cls=ArrayTensorJSONEncoder)
+                del hist[1]["_metrics"]
             info[f'T_{hist[0]}'] = json.dumps(
                 hist[1], cls=ArrayTensorJSONEncoder)
             order.append(hist[0])
+
         info['transfo_order'] = '_'.join(order)
 
     def save_info(self, mode, df, sample, csv_name='eval'):
