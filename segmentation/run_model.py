@@ -939,12 +939,16 @@ class RunModel:
             return
         relevant_history = history[idx] if is_batch else history
         for hist in relevant_history:
+            if "_metrics" in hist[1].keys():
+                dict_metrics = hist[1]["_metrics"]
+                for sample_key, metric_values in dict_metrics.items():
+                    info[f'T_{hist[0]}_metrics_{sample_key}'] = json.dumps(
+                        metric_values, cls=ArrayTensorJSONEncoder)
+                del hist[1]["_metrics"]
             info[f'T_{hist[0]}'] = json.dumps(
                 hist[1], cls=ArrayTensorJSONEncoder)
             order.append(hist[0])
-            if "_metrics" in hist[1].keys():
-                info[f'T_{hist[0]}_metrics'] = json.dumps(
-                    hist[1]["_metrics"], cls=ArrayTensorJSONEncoder)
+
         info['transfo_order'] = '_'.join(order)
 
     def save_info(self, mode, df, sample, csv_name='eval'):
