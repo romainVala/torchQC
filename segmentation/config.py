@@ -402,7 +402,7 @@ class Config:
     def parse_transform_file(self, file, return_string=False):
         def parse_metric_wrapper(w):
             try:
-                from torchio.metrics import MetricWrapper, MapMetricWrapper
+                from torchio.metrics import MapMetricWrapper
             except (ModuleNotFoundError, ImportError):
                 self.debug(
                     'Could not import MetricWrapper from torchio.metrics . '
@@ -418,8 +418,6 @@ class Config:
                 return None
             if w['type'] == 'mapmetricwrapper':
                 return MapMetricWrapper(**wrapper_attrs)
-            elif w['type'] == 'metricwrapper':
-                return MetricWrapper(**wrapper_attrs)
             self.debug('Found unknown wrapper type: {}'.format(w['type']))
             return None
 
