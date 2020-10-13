@@ -51,47 +51,6 @@ results_dirs = glob.glob('/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1.4
 results_dirs += glob.glob('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_samseg/eval-1mm*')
 results_dirs += glob.glob('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_samseg/eval-14mm*')
 
-metric = ['dice_loss', 'bin_dice_loss',
-          'dice_loss_GM_mask',  'dice_loss_GM_mask_1',  'dice_loss_GM_mask_NO',  'dice_loss_GM_mask_PV',
-          'l1_loss', 'l1_loss_GM_mask', 'l1_loss_GM_mask_1',  'l1_loss_GM_mask_NO',  'l1_loss_GM_mask_PV',
-          'far_isolated_GM_points_in_CSF', 'far_isolated_GM_points_in_WM',  'average_hausdorff_distance',
-          'volume_ratio',
-#          'predicted_volume_in_mm3', 'label_volume_in_mm3',
-          ]
-resfig = '/home/romain.valabregue/datal/PVsynth/figure/res1mm_on_bin/'
-resolution = '1mm'
-for m in metric:
-    figname = resfig + m + '_' + resolution
-    label = 'GM'
-    if 'far_isol' in m:
-        ylim = (0, 100000)
-        label =''
-    elif 'hausdorff' in m:
-        ylim = None
-    elif 'dice' in m:
-        ylim = (0, 0.02) if 'mask' in m else (0, 0.15) #
-        ylim = (0, 0.15)
-    elif 'l1' in m:
-        ylim = (0, 0.005) if 'mask' in m else (0, 0.03)
-        ylim = (0, 0.025)
-    elif 'ratio' in m:
-        ylim = (0.9, 1.1)
-
-    try:
-        plot_value_vs_GM_level(results_dirs, m, ylim=ylim, save_fig=figname, label=label)
-    except Exception as e:
-        print(e)
-
-
-m='dice_loss_GM_mask_NO'
-m='volume_ratio'
-plot_value_vs_GM_level(results_dirs,m, ylim=(0.98, 1.02),
-                       save_fig=resfig + m + '_' + resolution+'_zoom')
-
-
-
-plot_value_vs_GM_level(results_dirs, 'l1_loss_GM_mask', None,
-                       save_fig='/home/romain.valabregue/datal/PVsynth/figure/test')
 
  #ration volume label 1mm 1.4mm 5.177/5.165
 
@@ -105,7 +64,7 @@ res = gdir('/home/fabien.girka/data/segmentation_tasks/RES_1mm/','data_64_common
 res = gdir('/home/romain.valabregue/datal/PVsynth/training','pve')
 res = gdir('/home/romain.valabregue/datal/PVsynth/jzay/training/RES28mm','data')
 res = gdir('/home/romain.valabregue/datal/PVsynth/jzay/training/RES1mm','data')
-
+res = gdir('/home/romain.valabregue/datal/PVsynth/training/RES_14mm_tissue','data')
 res = gdir(res,'resul')
 report_learning_curves(res)
 
@@ -148,16 +107,32 @@ for seuil in seuils:
 
 
 #concat eval.csv
+res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_14mm_tissue/dataS*/*/eval.csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res14mm_tissue_all.csv'
 res = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/RES_14mm/data_G*/*/eval.csv'
 file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res14mm_all.csv'
+res = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/RES_1mm_tissue/data_S*/*/eval.csv'
+res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_tissue/dataS*/*/eval.csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_all.csv'
+
 aggregate_csv_files(res, file, fragment_position=-3)
 
-file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res1mm_all.csv'
+file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res1mm_tissue_all.csv'
 file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res14mm_all.csv'
 metrics = ['metric_dice_loss_GM', 'metric_bbin_dice_loss_GM', 'metric_bin_dice_loss_GM',
            'metric_l1_loss_GM', 'metric_l1_loss_GM_mask_GM', 'metric_l1_loss_GM_mask_NO_GM',
            'metric_bin_volume_ratio_GM','metric_volume_ratio_GM']
 
+#metrics += ['metric_l1_loss_on_band_GM','metric_l1_loss_on_band_GM_far']
 
-plot_metric_against_GM_level(file, metrics=metrics, save_fig='/home/romain.valabregue/datal/PVsynth/figure/new/ttt')
+filter = dict(col='model', str='M90')
+
+plot_metric_against_GM_level(file, metrics=metrics, filter=filter, kind='boxen', enlarge=True,
+                             save_fig='/home/romain.valabregue/datal/PVsynth/figure/new2/tissue_1mm_M90')
+
+import pandas as pd
+import json
+df = pd.read_csv(file, index_col=0)
+rn = df['T_RandomLabelsToImage']
+noisdic = [json.loads(r)['seed'] for r in rn]
 
