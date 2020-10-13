@@ -1,6 +1,6 @@
 import pandas as pd
 import collections
-from pathlib import Path
+from pathlib import Path, PosixPath
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
@@ -9,6 +9,7 @@ import glob
 import json
 
 sns.set()
+pd.set_option('display.max_rows', None, 'display.max_columns', None, 'display.max_colwidth', -1, 'display.width', 400)
 
 COLORS = ['#ffb380', '#6666ff', '#94b8b8', '#bf80ff', '#ffff80', '#d9b38c']
 
@@ -34,13 +35,19 @@ def _get_order_from_col(df, col, to_round=False):
 
 
 def _draw_catplot(df, col, metric, order=None, ylim=None, hue='model',
-                  hue_order=None, palette=None):
+                  hue_order=None, palette=None, kind='boxen', enlarge=False):
+    #sns.set(style="whitegrid")
+    #sns.despine(offset=10, trim=True);
+
     fig = sns.catplot(
-        x=col, y=metric, hue=hue, kind='bar', col='mode', data=df,
-        order=order, hue_order=hue_order, palette=palette
+        x=col, y=metric, hue=hue, kind=kind, col='mode', data=df,
+        order=order, hue_order=hue_order, palette=palette,
     )
     if ylim is not None:
         plt.ylim(ylim)
+    plt.gcf().set_size_inches(16, 6)
+    if enlarge:
+        plt.gca().set_position(pos=[0.05, 0.05, 0.8, 0.85])
     return fig
 
 
@@ -206,10 +213,10 @@ def aggregate_csv_files(pattern, filename, fragment_position=-3):
             GM_level = float('{:.1f}'.format(gm))
             mode = 'T1' if wm > gm else 'T2'
         else:
-            GM_level = fragments[1]
+            GM_level = fragments[2]
             GM_level = float(f'0.{GM_level[-1]}')
 
-            mode = fragments[2]
+            mode = fragments[1]
         if 'T_RandomNoise' in data_frames[i]:
             ddic = json.loads(data_frames[i]['T_RandomNoise'].values[0])
             std = ddic['std']
@@ -350,7 +357,7 @@ def plot_value_vs_GM_level(results_dirs, metric, ylim=None, save_fig=None, label
     plt.show()
 
 
-def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None,filter=None):
+def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None,filter=None, remove_max=False, **kwargs):
     """ Draw a bar plot of values from a given metric against the GM level
     from a CSV result file.
 
@@ -369,12 +376,25 @@ def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None,
     palette = _get_color_palette(
         len(df['model_and_SNR'].unique()), len(df['SNR'].unique()))
 
+    df.index = range(len(df))
+    from pathlib import PosixPath
+    ff = [eval(fff)[0].parent.name for fff in df['image_filename'].values]
+    df['suj_name'] = ff
+
     for metric in metrics:
+        dg = df[[metric, 'model_and_SNR']].groupby('model_and_SNR')
+        print(dg.describe())
+        index_max = dg.idxmax().values ; index_max = [ii[0] for ii in index_max]
+        max_suj = [ff[ii] for ii in index_max]
+        print('suj max value are {}'.format(np.unique(max_suj)))
+
+        dfdrop = df.drop(index_max) if remove_max else df
+
         if metric not in df:
             print(f'mission column {metric}')
             continue
-        fig = _draw_catplot(df, 'GM', metric, ylim=ylim, hue='model_and_SNR',
-                            palette=palette)
+        fig = _draw_catplot(dfdrop, 'GM', metric, ylim=ylim, hue='model_and_SNR', palette=palette,  **kwargs)
         if save_fig is not None:
             fig.savefig(save_fig + '_' + metric + '.png')
-        plt.show()
+        #plt.show()
+
