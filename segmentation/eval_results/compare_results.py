@@ -35,14 +35,20 @@ def _get_order_from_col(df, col, to_round=False):
 
 
 def _draw_catplot(df, col, metric, order=None, ylim=None, hue='model',
-                  hue_order=None, palette=None, kind='boxen', enlarge=False):
+                  hue_order=None, palette=None, kind='boxen', enlarge=False, add_strip=False,showfliers=True):
     #sns.set(style="whitegrid")
     #sns.despine(offset=10, trim=True);
 
-    fig = sns.catplot(
-        x=col, y=metric, hue=hue, kind=kind, col='mode', data=df,
-        order=order, hue_order=hue_order, palette=palette,
-    )
+    if add_strip:
+        fig = sns.catplot(x=col, y=metric, hue=hue, kind=kind, col='mode', data=df,
+                          order=order, hue_order=hue_order, palette=palette, showfliers=False)
+        g= sns.stripplot(x=col, y=metric, hue=hue, data=df, alpha=0.3,
+                         order=order, hue_order=hue_order, palette=palette, dodge=True)
+        g.legend_.remove()
+    else:
+        fig = sns.catplot(x=col, y=metric, hue=hue, kind=kind, col='mode', data=df, showfliers=showfliers,
+                          order=order, hue_order=hue_order, palette=palette)
+
     if ylim is not None:
         plt.ylim(ylim)
     plt.gcf().set_size_inches(16, 6)
@@ -378,7 +384,11 @@ def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None,
 
     df.index = range(len(df))
     from pathlib import PosixPath
-    ff = [eval(fff)[0].parent.name for fff in df['image_filename'].values]
+    if not isinstance(df['image_filename'][0],str):  #np.isnan(df['image_filename'][0]):
+        ff = [eval(fff)[0].parent.parent.parent.name for fff in df['label_filename'].values]
+    else:
+        ff = [eval(fff)[0].parent.name for fff in df['image_filename'].values]
+
     df['suj_name'] = ff
 
     for metric in metrics:
