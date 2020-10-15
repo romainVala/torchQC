@@ -60,3 +60,27 @@ filename = res+'grid_search.json'
 with open(filename, 'w') as file:
     json.dump(gs, file, indent=4, sort_keys=True)
 
+
+# generting jobs for validation
+from utils_file import gdir, gfile, get_parent_path
+f = gfile('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/training/RES_1mm_tissue/pve_synth_data_92_common_noise_no_gamma/results_cluster',
+          'model.*tar')
+d='/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/training/RES_1mm_tissue/'
+dres = gdir(d,['.*','result'])
+dresname = get_parent_path(dres,level=2)[1]
+dresname = [dd.split('_')[0] + '_' + dd.split('_')[1] for dd in dresname]
+
+for one_res, resn in zip(dres, dresname):
+    f = gfile(one_res,'model.*tar')
+    fname = get_parent_path(f)[1]
+    for ff in f:
+        print('\"{}\",'.format(ff))
+
+for one_res, resn in zip(dres, dresname):
+    f = gfile(one_res,'model.*tar')
+    fname = get_parent_path(f)[1]
+
+    for ff in fname:
+        fname_ep = ff.split('_')[1]
+
+        print('\"{}_{}\",'.format(resn,fname_ep))
