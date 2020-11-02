@@ -633,6 +633,7 @@ class Config:
         self.set_struct_value(struct['validation'], 'dense_patch_eval', False)
         self.set_struct_value(struct['validation'], 'eval_patch_size')
         self.set_struct_value(struct['validation'], 'save_labels', False)
+        self.set_struct_value(struct['validation'], 'eval_dropout', 0)
 
         if struct['validation']['prefix_eval_results_dir'] is None:
             struct['validation']['eval_results_dir'] = self.results_dir
@@ -880,11 +881,11 @@ class Config:
         self.log(f'{len(train_subjects)} subjects in the train set')
         self.log(f'{len(val_subjects)} subjects in the validation set')
         self.log(f'{len(test_subjects)} subjects in the test set')
-        if len(train_subjects) > 0:
+        if len(train_subjects) > 2:
             self.log('first 3 Train suj : {} {}  {} '.format(train_subjects[0]['name'], train_subjects[1]['name'], train_subjects[2]['name']))
-        elif len(val_subjects) > 0:
+        elif len(val_subjects) > 2:
             self.log('first 3 Val suj : {} {}  {} '.format(val_subjects[0]['name'], val_subjects[1]['name'], val_subjects[2]['name']))
-        elif len(test_subjects) > 0:
+        elif len(test_subjects) > 2:
             self.log('first 3 test suj : {} {}  {} '.format(test_subjects[0]['name'], test_subjects[1]['name'], test_subjects[2]['name']))
 
         train_set = create_dataset(train_subjects,

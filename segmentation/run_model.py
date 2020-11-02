@@ -79,6 +79,7 @@ class RunModel:
         self.dense_patch_eval = struct['validation']['dense_patch_eval']
         self.eval_patch_size = struct['validation']['eval_patch_size']
         self.save_labels = struct['validation']['save_labels']
+        self.eval_dropout = struct['validation']['eval_dropout']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
         self.activation = struct['activation']
@@ -257,12 +258,15 @@ class RunModel:
         self.log_peak_CPU_memory()
 
     def train_loop(self, save_model=True):
+        eval_dropout = 0
         if self.model.training:
             self.log('Training')
             model_mode = 'Train'
             loader = self.train_loader
         else:
             self.log('Validation')
+            if self.eval_dropout:
+                eval_dropout = self.eval_dropout
             model_mode = 'Val'
             loader = self.val_loader
             if loader is None:
@@ -284,7 +288,12 @@ class RunModel:
             volumes, targets = self.data_getter(sample)
 
             # Compute output
-            predictions = self.model(volumes)
+            if eval_dropout:
+                self.model.enable_dropout()
+                predictions_dropout = [self.model(volumes) for i in range(0, eval_dropout)]
+                predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
+            else:
+                predictions = self.model(volumes)
 
             # Compute loss
             loss = 0
@@ -304,13 +313,27 @@ class RunModel:
                 loss = float(loss)
                 predictions = predictions.detach()
 
-            predictions = self.apply_post_transforms(predictions, sample)
+            if eval_dropout:
+                predictions_dropout = [self.apply_post_transforms(pp, sample) for pp in predictions_dropout]
+                predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
+            else:
+                predictions = self.apply_post_transforms(predictions, sample)
             targets = self.apply_post_transforms(targets, sample)
 
             if self.save_predictions and not self.model.training:
+                if eval_dropout:
+                    predictions_std = torch.stack([self.activation(pp) for pp in predictions_dropout])
+                    predictions_std = torch.std(predictions_std, axis=0) #arggg
                 for j, prediction in enumerate(predictions):
                     n = i * self.batch_size + j
                     self.prediction_saver(sample, prediction.unsqueeze(0), n)
+                    if eval_dropout:
+                        volume_name = self.save_volume_name + "_std" or "Dp_std"
+                        aaa = self.save_bin
+                        self.save_bin = False
+                        self.prediction_saver(sample,  predictions_std[j].unsqueeze(0), n, volume_name=volume_name,
+                        apply_activation=False)
+                        self.save_bin = aaa
 
             if self.save_labels and not self.model.training:
                 for j, target in enumerate(targets):
@@ -330,17 +353,26 @@ class RunModel:
 
             # Update DataFrame and record it every record_frequency iterations
             if i % self.record_frequency == 0 or i == len(loader):
-                df, reporting_time = self.batch_recorder(
-                    df, sample, predictions, targets, batch_time, True)
+                if eval_dropout:
+                    for i in range(0, eval_dropout):
+                        df, reporting_time = self.batch_recorder(
+                            df, sample, predictions_dropout[i], targets, batch_time, True)
+                else:
+                    df, reporting_time = self.batch_recorder(
+                        df, sample, predictions, targets, batch_time, True)
                 self.log_peak_CPU_memory()
 
             else:
-                df, reporting_time = self.batch_recorder(
-                    df, sample, predictions, targets, batch_time, False)
+                if eval_dropout:
+                    for i in range(0, eval_dropout):
+                        df, reporting_time = self.batch_recorder(
+                            df, sample, predictions[i], targets, batch_time, False)
+                else:
+                    df, reporting_time = self.batch_recorder(
+                        df, sample, predictions, targets, batch_time, False)
 
             reporting_time_sum += reporting_time
             average_reporting_time = reporting_time_sum / i
-
             # Log training or validation information every
             # log_frequency iterations
             if i % self.log_frequency == 0:
@@ -748,13 +780,14 @@ class RunModel:
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions, df
 
-    def save_volume(self, sample, volume, idx=0, volume_name=None):
+    def save_volume(self, sample, volume, idx=0, volume_name=None, apply_activation=True):
         volume_name = volume_name or self.save_volume_name
         affine = sample[self.image_key_name]['affine'].squeeze()
         name = sample.get('name') or f'{idx:06d}'
         if isinstance(name, list):
             name = name[0]
-        volume = self.activation(volume)
+        if apply_activation:
+            volume = self.activation(volume)
         resdir = f'{self.eval_results_dir}/{name}/'
         if not os.path.isdir(resdir):
             os.makedirs(resdir)
