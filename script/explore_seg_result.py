@@ -47,15 +47,8 @@ results_dirs = glob.glob('/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm
 results_dirs = glob.glob('/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1.4mm/eval_metric_on_pv/data_t*')
 results_dirs = glob.glob('/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1.4mm/eval_metric_on_bin/data_t*')
 
-
 results_dirs += glob.glob('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_samseg/eval-1mm*')
 results_dirs += glob.glob('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_samseg/eval-14mm*')
-
-
- #ration volume label 1mm 1.4mm 5.177/5.165
-
-
-
 
 
 #Explore training curve
@@ -85,50 +78,48 @@ for i, ff in enumerate(f):
     #fig.savefig(resfig + resname[i] + '.png')
 
 
-#explore PV proportion
-fpv1 = gfile('/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/513130/T1w/ROI_PVE_1mm','^GM')
-fpv14 = gfile('/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/513130/T1w/ROI_PVE_14mm','^GM')
-seuils = [ [0, 1], [0.01, 0.99], [0.05, 0.95], [0.1, 0.9] ]
-seuil = [0, 1]
-for seuil in seuils:
-    print(seuil)
-    for ff, nn, res in zip( (fpv1 + fpv14), ['1mm', '1.4mm'], [1,1.4] ) :
-        img = nb.load(ff)
-        data = img.get_fdata(dtype=np.float32)
-        fig = plt.figure(nn)
-        dd = data[ (data>seuil[0]) * (data<seuil[1])]
-        nGM = np.sum(data>=seuil[1])
-        nPV = len(dd)
-        volGM = np.sum(data>=0.5)
-        volPV = np.sum(data)
-        print('{} : pure GM {} PV {}  PV/GM {}  Vol GM vox {}  mm {} pvmm{} '.format(nn, nGM, nPV, nPV/nGM, volGM,
-                                                                              volGM*res*res*res, volPV*res*res*res ))
-        hh = plt.hist(dd, bins=500)
-
 
 #concat eval.csv
 res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_14mm_tissue/dataS*/*/eval.csv'
 file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res14mm_tissue_all.csv'
+res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_14mm_tissue_onfly/dataS*/*/eval.csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res14mm_tissue_onfly_all.csv'
+
+res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_tissue_valid_models/dataS*/*/eval.csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_models.csv'
+
+res = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/RES_1mm_tissue/prepare_job_test/dataS*/*csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_models_pve_synth_drop01.csv'
+aggregate_csv_files(res, file, fragment_position=-2)
+
 res = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/RES_14mm/data_G*/*/eval.csv'
 file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res14mm_all.csv'
 res = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/RES_1mm_tissue/data_S*/*/eval.csv'
 res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_tissue/dataS*/*/eval.csv'
 file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_all.csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res14mm_tissue_all.csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/old_csv/res28mm_all.csv'
 
 aggregate_csv_files(res, file, fragment_position=-3)
 
-file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res1mm_tissue_all.csv'
-file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res14mm_all.csv'
 metrics = ['metric_dice_loss_GM', 'metric_bbin_dice_loss_GM', 'metric_bin_dice_loss_GM',
+           'metric_l1_loss_GM', 'metric_l1_loss_GM_mask_GM', 'metric_l1_loss_GM_mask_NO_GM',
+           'metric_bin_volume_ratio_GM','metric_volume_ratio_GM']
+metrics = ['metric_dice_loss_GM',
            'metric_l1_loss_GM', 'metric_l1_loss_GM_mask_GM', 'metric_l1_loss_GM_mask_NO_GM',
            'metric_bin_volume_ratio_GM','metric_volume_ratio_GM']
 
 #metrics += ['metric_l1_loss_on_band_GM','metric_l1_loss_on_band_GM_far']
 
-filter = dict(col='model', str='M90')
+filter = dict(col='model', str='mRes')
+filter = dict(col='model', str='M40')
+filter = dict(col='model', str='(bin_dice)|(bin_syn)|(pve_synth)')
+filter = dict(col='model', str='(pve_mResDp_)|(pve_synth)')
+filter = dict(col='model', str='(synDp)|(pve_synth)')
 
-plot_metric_against_GM_level(file, metrics=metrics, filter=filter, kind='boxen', enlarge=True,
-                             save_fig='/home/romain.valabregue/datal/PVsynth/figure/new2/tissue_1mm_M90')
+plot_metric_against_GM_level(file, metrics=metrics, filter=filter, remove_max=False, add_strip=False,
+                             save_fig='/home/romain.valabregue/datal/PVsynth/figure/new3/tissue_28mm',
+                             kind='box', enlarge=True, showfliers=False)
 
 import pandas as pd
 import json
@@ -136,3 +127,42 @@ df = pd.read_csv(file, index_col=0)
 rn = df['T_RandomLabelsToImage']
 noisdic = [json.loads(r)['seed'] for r in rn]
 
+
+#manual ploting
+import seaborn as sns
+import pandas as pd
+
+df = pd.read_csv(file)
+
+def split_model_name(s):
+    s_list = s.split('_')
+    return str.join('_',s_list[0:2])
+def split_model_epoch(s):
+    s_list = s.split('_')
+    return int(s_list[-1][2:])
+
+df['model_name'] = df['model'].apply(lambda s: split_model_name(s))
+df['epoch'] = df['model'].apply(lambda s: split_model_epoch(s))
+
+from pathlib import PosixPath
+if not isinstance(df['image_filename'][0], str):  # np.isnan(df['image_filename'][0]):
+    ff = [eval(fff)[0].parent.parent.parent.name for fff in df['label_filename'].values]
+else:
+    ff = [eval(fff)[0].parent.name for fff in df['image_filename'].values]
+df['suj_name'] = ff
+
+filter = dict(col='model', str='ep64')
+if filter:
+    rows = df[filter['col']].str.contains(filter['str'])
+    df = df[ ~ rows]
+
+sns.catplot(data=df, x='epoch', y='metric_dice_loss_GM', kind='box', col='model_name')
+sns.catplot(data=df, x='epoch', y='metric_l1_loss_GM_mask_PV_GM', kind='box', col='model_name')
+sns.catplot(data=df, x='suj_name', y='metric_dice_loss_GM', kind='box', col='model_name')
+sns.catplot(data=df, x='suj_name', y='predicted_occupied_volume_GM', kind='box', col='model_name')
+
+for k in df.keys():
+#    if k.startswith('occupied_volume_'): # in k:
+    if k.startswith('metric_'):  # in k:
+        print(k)
+        sns.catplot(data=df, x='suj_name', y=k, kind='box', col='model_name')
