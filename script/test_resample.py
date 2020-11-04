@@ -12,13 +12,13 @@ import copy
 dice = Dice()
 t = tio.RandomAffine(default_pad_value='minimum')
 t = tio.RandomAffine(default_pad_value=0)
-t = tio.RandomElasticDeformation()
+#t = tio.RandomElasticDeformation()
 #t = tio.RandomBlur() #not a good idea since intensity transform won't change the label
 
 dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_07mm/'
 dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_1mm/'
 #dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_14mm/'
-#dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_28mm/'
+dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_28mm/'
 label_list = ['GM', 'WM', 'CSF', 'cereb_GM',  'L_Accu', 'L_Caud', 'L_Pall', 'L_Thal', 'R_Amyg', 'R_Hipp', 'R_Puta', 'BrStem',
  'cereb_WM', 'L_Amyg', 'L_Hipp', 'L_Puta', 'R_Accu', 'R_Caud', 'R_Pall', 'R_Thal', 'skull', 'skin', 'background']
 
@@ -48,7 +48,7 @@ for i, LabName in enumerate(label_list):
     sujdic['vol_' + LabName] = float(pv[i].sum()) * voxel_volume / 1000
     sujdic['volbin_' + LabName] = float(one_hot[i].sum()) * voxel_volume /1000 / sujdic['vol_' + LabName]
 
-for i in range(0,19):
+for i in range(0,20):
     transformed = t(new)
     #from_one_hot = transformed.one_hot.data.argmax(dim=0)  #warning if equal every where (0) -> label 10
     t_pv = copy.deepcopy(transformed.pv.data)
@@ -56,13 +56,14 @@ for i in range(0,19):
     t_label = copy.deepcopy(transformed.label.data[0])
 
     #corect border missing voxel due to padding (as much as possible)
-    border = t_onehot.sum(dim=0) <0.5 #== 0 not enough at the border interpolation create voxel values in [0 1] but taking < 1 will include other point in the brain
-    t_onehot[0][border] = 1
-    t_pv[0][border] = 1 #background
-    t_label[border] = 0
-    for i in range(1,t_onehot.shape[0]):
-        t_onehot[i][border] = 0
-        t_pv[i][border] = 0
+    #but it make it worth ...
+    # border = t_onehot.sum(dim=0) <0.5 #== 0 not enough at the border interpolation create voxel values in [0 1] but taking < 1 will include other point in the brain
+    # t_onehot[0][border] = 1
+    # t_pv[0][border] = 1 #background
+    # t_label[border] = 0
+    # for i in range(1,t_onehot.shape[0]):
+    #     t_onehot[i][border] = 0
+    #     t_pv[i][border] = 0
 
     from_one_hot = t_onehot.argmax(dim=0)
 
@@ -95,7 +96,8 @@ def print_df_mean(df, tags=[''], plot_dice=True, plot_vol=True):
             print('\t{} {:.4} \t{} {:.4} \t{} {:.4}'.format(
                 a.keys()[3], a.iloc[1, 3], a.keys()[4], a.iloc[1, 4], a.keys()[5], a.iloc[1, 5]))
 
-print_df_mean(df, tags=['GM', 'WM','CSF','both_R_Accu','both_R_Thal','backNOpv'])
+print_df_mean(df, tags=['backNOpv', 'GM', 'WM','CSF','both_R_Accu','both_R_Thal','backNOpv'],plot_vol=False)
+print_df_mean(df, tags=['backNOpv', 'GM', 'WM','CSF','both_R_Accu','both_R_Thal','backNOpv'], plot_dice=False)
 
 
 """
