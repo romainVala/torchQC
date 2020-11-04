@@ -352,24 +352,16 @@ class RunModel:
                 max_loss = loss
 
             # Update DataFrame and record it every record_frequency iterations
-            if i % self.record_frequency == 0 or i == len(loader):
-                if eval_dropout:
-                    for i in range(0, eval_dropout):
-                        df, reporting_time = self.batch_recorder(
-                            df, sample, predictions_dropout[i], targets, batch_time, True)
-                else:
-                    df, reporting_time = self.batch_recorder(
-                        df, sample, predictions, targets, batch_time, True)
-                self.log_peak_CPU_memory()
+            write_csv_file = i % self.record_frequency == 0 or i == len(loader)
 
-            else:
-                if eval_dropout:
-                    for i in range(0, eval_dropout):
-                        df, reporting_time = self.batch_recorder(
-                            df, sample, predictions[i], targets, batch_time, False)
-                else:
+            if eval_dropout:
+                for i in range(0, eval_dropout):
                     df, reporting_time = self.batch_recorder(
-                        df, sample, predictions, targets, batch_time, False)
+                        df, sample, predictions_dropout[i], targets, batch_time, write_csv_file)
+            else:
+                df, reporting_time = self.batch_recorder(
+                    df, sample, predictions, targets, batch_time, write_csv_file)
+            if write_csv_file: self.log_peak_CPU_memory()
 
             reporting_time_sum += reporting_time
             average_reporting_time = reporting_time_sum / i
