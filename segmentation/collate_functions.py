@@ -18,6 +18,8 @@ def history_collate(batch):
 
     elem = batch[0]
     elem_type = type(elem)
+    if elem is None:
+        return None
     if isinstance(elem, torch.Tensor):
         out = None
         if torch.utils.data.get_worker_info() is not None:
@@ -77,6 +79,9 @@ def history_collate_partial_metrics(batch):
 
     elem = batch[0]
     elem_type = type(elem)
+    if elem is None:
+        return None
+
     if isinstance(elem, torch.Tensor):
         out = None
         if torch.utils.data.get_worker_info() is not None:
@@ -94,7 +99,7 @@ def history_collate_partial_metrics(batch):
             if np_str_obj_array_pattern.search(elem.dtype.str) is not None:
                 raise TypeError(default_collate_err_msg_format.format(elem.dtype))
 
-            return history_collate([torch.as_tensor(b) for b in batch])
+            return history_collate_partial_metrics([torch.as_tensor(b) for b in batch])
         elif elem.shape == ():  # scalars
             return torch.as_tensor(batch)
     elif isinstance(elem, float):
@@ -122,7 +127,10 @@ def history_collate_partial_metrics(batch):
                 to_collate.append(d[key])
             if key is "metrics":
                 continue
-            dictionary[key] = history_collate(to_collate)
+            if key is "history":
+                dictionary[key] = to_collate
+            else:
+                dictionary[key] = history_collate_partial_metrics(to_collate)
 
         if "metrics" in batch_keys:
             res_metrics = metrics_values
@@ -137,7 +145,7 @@ def history_collate_partial_metrics(batch):
             })
         return dictionary
     elif isinstance(elem, tuple) and hasattr(elem, '_fields'):  # namedtuple
-        return elem_type(*(history_collate(samples) for samples in zip(*batch)))
+        return elem_type(*(history_collate_partial_metrics(samples) for samples in zip(*batch)))
     elif isinstance(elem, container_abcs.Sequence):
         # check to make sure that the elements in batch have consistent size
         it = iter(batch)
@@ -145,6 +153,6 @@ def history_collate_partial_metrics(batch):
         if not all(len(elem) == elem_size for elem in it):
             raise RuntimeError('each element in list of batch should be of equal size')
         transposed = zip(*batch)
-        return [history_collate(samples) for samples in transposed]
+        return [history_collate_partial_metrics(samples) for samples in transposed]
 
     raise TypeError(default_collate_err_msg_format.format(elem_type))
