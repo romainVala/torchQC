@@ -634,6 +634,7 @@ class Config:
         self.set_struct_value(struct['validation'], 'eval_patch_size')
         self.set_struct_value(struct['validation'], 'save_labels', False)
         self.set_struct_value(struct['validation'], 'eval_dropout', 0)
+        self.set_struct_value(struct['validation'], 'split_batch_gpu', False)
 
         if struct['validation']['prefix_eval_results_dir'] is None:
             struct['validation']['eval_results_dir'] = self.results_dir

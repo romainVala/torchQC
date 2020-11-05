@@ -80,6 +80,7 @@ class RunModel:
         self.eval_patch_size = struct['validation']['eval_patch_size']
         self.save_labels = struct['validation']['save_labels']
         self.eval_dropout = struct['validation']['eval_dropout']
+        self.split_batch_gpu = struct['validation']['split_batch_gpu']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
         self.activation = struct['activation']
@@ -112,6 +113,10 @@ class RunModel:
     def log(self, info):
         if self.logger is not None:
             self.logger.log(logging.INFO, info)
+
+    def debug(self, info):
+        if self.debug_logger is not None:
+            self.debug_logger.log(logging.DEBUG, info)
 
     def log_peak_CPU_memory(self):
         # Get max CPU memory usage
@@ -283,6 +288,11 @@ class RunModel:
         for i, sample in enumerate(loader, 1):
             if self.model.training:
                 self.iteration = i
+            if isinstance(sample, list):
+                self.batch_size = self.batch_size * len(sample)
+                for i, ss in enumerate(sample):
+                    ss['list_idx'] = i #add this key to use in save_volume (having different volume name)
+                sample = self.sample_list_to_batch(sample)
 
             # Take variables and make sure they are tensors on the right device
             volumes, targets = self.data_getter(sample)
@@ -290,10 +300,16 @@ class RunModel:
             # Compute output
             if eval_dropout:
                 self.model.enable_dropout()
-                predictions_dropout = [self.model(volumes) for i in range(0, eval_dropout)]
+                if self.split_batch_gpu and self.batch_size > 1:
+                    predictions_dropout = [torch.cat([self.model(v.unsqueeze(0)) for v in volumes]) for i in range(0, eval_dropout)]
+                else:
+                    predictions_dropout = [self.model(volumes) for i in range(0, eval_dropout)]
                 predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
             else:
-                predictions = self.model(volumes)
+                if self.split_batch_gpu and self.batch_size > 1: #usefull, when using ListOf transform that pull sample in batch to avoid big full volume batch in gpu
+                    predictions = torch.cat([self.model(v.unsqueeze(0)) for v in volumes])
+                else:
+                    predictions = self.model(volumes)
 
             # Compute loss
             loss = 0
@@ -326,19 +342,19 @@ class RunModel:
                     predictions_std = torch.std(predictions_std, axis=0) #arggg
                 for j, prediction in enumerate(predictions):
                     n = i * self.batch_size + j
-                    self.prediction_saver(sample, prediction.unsqueeze(0), n)
+                    self.prediction_saver(sample, prediction.unsqueeze(0), n, j)
                     if eval_dropout:
                         volume_name = self.save_volume_name + "_std" or "Dp_std"
                         aaa = self.save_bin
                         self.save_bin = False
-                        self.prediction_saver(sample,  predictions_std[j].unsqueeze(0), n, volume_name=volume_name,
+                        self.prediction_saver(sample,  predictions_std[j].unsqueeze(0), n, j, volume_name=volume_name,
                         apply_activation=False)
                         self.save_bin = aaa
 
             if self.save_labels and not self.model.training:
                 for j, target in enumerate(targets):
                     n = i * self.batch_size + j
-                    self.label_saver(sample, target.unsqueeze(0), n, 'label')
+                    self.label_saver(sample, target.unsqueeze(0), n, j, volume_name='label')
 
             # Measure elapsed time
             batch_time = time.time() - start
@@ -772,17 +788,23 @@ class RunModel:
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions, df
 
-    def save_volume(self, sample, volume, idx=0, volume_name=None, apply_activation=True):
+    def save_volume(self, sample, volume, idx=0, batch_idx=0, volume_name=None, apply_activation=True):
         volume_name = volume_name or self.save_volume_name
-        affine = sample[self.image_key_name]['affine'].squeeze()
+        affine = sample[self.image_key_name]['affine']
+        if affine.dim() == 3:
+            affine = affine[batch_idx].squeeze()
         name = sample.get('name') or f'{idx:06d}'
+
         if isinstance(name, list):
-            name = name[0]
+            name = name[batch_idx]
+            name = name[0] if isinstance(name,list) else name
         if apply_activation:
             volume = self.activation(volume)
         resdir = f'{self.eval_results_dir}/{name}/'
         if not os.path.isdir(resdir):
             os.makedirs(resdir)
+        if 'list_idx' in sample:
+            volume_name = 'l{}_'.format(batch_idx) + volume_name
 
         if self.save_bin:
             bin_volume = torch.argmax(volume, dim=1)
@@ -813,6 +835,7 @@ class RunModel:
                 to_numpy(volume.permute(0, 2, 3, 4, 1).squeeze()), affine
             )
             nib.save(volume, f'{resdir}/{volume_name}.nii.gz')
+            self.debug('saving {}'.format(f'{resdir}/{volume_name}.nii.gz'))
 
     def get_regress_random_noise_data(self, data):
         return self.get_regression_data(data, 'random_noise')
@@ -869,14 +892,6 @@ class RunModel:
         At evaluation time, additional reporting metrics are recorded.
         """
         start = time.time()
-
-        if isinstance(sample, list):
-            batch_size = predictions.shape[0] // len(sample)
-            targets_split = torch.split(targets, batch_size)
-            pred_split = torch.split(predictions, batch_size)
-            for ss, pp, tt in zip(sample, pred_split, targets_split):
-                df = self.record_regression_batch(df, ss, pp, tt, batch_time, save)
-            return df
 
         mode = 'Train' if self.model.training else 'Val'
 
@@ -963,6 +978,8 @@ class RunModel:
         if history is None or len(history) == 0:
             return
         relevant_history = history[idx] if is_batch else history
+        if len(relevant_history)==1 and isinstance(relevant_history[0], list):
+            relevant_history = relevant_history[0] #because ListOf transfo to batch make list of list ...
         for hist in relevant_history:
             if "_metrics" in hist[1].keys():
                 dict_metrics = hist[1]["_metrics"]
@@ -987,9 +1004,26 @@ class RunModel:
             else:
                 name = sample.get('name')
                 if isinstance(name, list):
-                    name = name[0]
+                    name = name[0][0] if isinstance(name[0],list) else name[0]
+
                 resdir = f'{self.eval_results_dir}/{name}/'
                 if not os.path.isdir(resdir):
                     os.makedirs(resdir)
                 filename = f'{resdir}/{csv_name}.csv'
         df.to_csv(filename)
+
+    def sample_list_to_batch(self,sample):
+        #similare to collate function but instead of adding the batch dim to tensor we just do a cat
+        elem = sample[0]
+        keys = elem.keys()
+        new_sample = dict()
+        for k in keys:
+            elem2 = elem[k]
+            if isinstance(elem2, torch.Tensor):
+                new_sample[k] = torch.cat([e[k] for e in sample])
+            elif isinstance(elem2, dict):
+                new_sample[k] = self.sample_list_to_batch([e[k] for e in sample])
+            else:
+                new_sample[k] = [e[k] for e in sample]
+
+        return new_sample
