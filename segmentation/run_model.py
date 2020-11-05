@@ -79,6 +79,7 @@ class RunModel:
         self.dense_patch_eval = struct['validation']['dense_patch_eval']
         self.eval_patch_size = struct['validation']['eval_patch_size']
         self.save_labels = struct['validation']['save_labels']
+        self.save_data = struct['validation']['save_data']
         self.eval_dropout = struct['validation']['eval_dropout']
         self.split_batch_gpu = struct['validation']['split_batch_gpu']
         self.n_epochs = struct['n_epochs']
@@ -355,6 +356,10 @@ class RunModel:
                 for j, target in enumerate(targets):
                     n = i * self.batch_size + j
                     self.label_saver(sample, target.unsqueeze(0), n, j, volume_name='label')
+            if self.save_data and not self.model.training:
+                for j, volumes in enumerate(volumes):
+                    n = i * self.batch_size + j
+                    self.label_saver(sample, volumes.unsqueeze(0), n, j, volume_name='data', apply_activation=False)
 
             # Measure elapsed time
             batch_time = time.time() - start
