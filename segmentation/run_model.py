@@ -291,8 +291,8 @@ class RunModel:
                 self.iteration = i
             if isinstance(sample, list):
                 self.batch_size = self.batch_size * len(sample)
-                for i, ss in enumerate(sample):
-                    ss['list_idx'] = i #add this key to use in save_volume (having different volume name)
+                for ii, ss in enumerate(sample):
+                    ss['list_idx'] = ii #add this key to use in save_volume (having different volume name)
                 sample = self.sample_list_to_batch(sample)
 
             # Take variables and make sure they are tensors on the right device
@@ -302,9 +302,9 @@ class RunModel:
             if eval_dropout:
                 self.model.enable_dropout()
                 if self.split_batch_gpu and self.batch_size > 1:
-                    predictions_dropout = [torch.cat([self.model(v.unsqueeze(0)) for v in volumes]) for i in range(0, eval_dropout)]
+                    predictions_dropout = [torch.cat([self.model(v.unsqueeze(0)) for v in volumes]) for ii in range(0, eval_dropout)]
                 else:
-                    predictions_dropout = [self.model(volumes) for i in range(0, eval_dropout)]
+                    predictions_dropout = [self.model(volumes) for ii in range(0, eval_dropout)]
                 predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
             else:
                 if self.split_batch_gpu and self.batch_size > 1: #usefull, when using ListOf transform that pull sample in batch to avoid big full volume batch in gpu
@@ -331,35 +331,36 @@ class RunModel:
                 predictions = predictions.detach()
 
             if eval_dropout:
-                predictions_dropout = [self.apply_post_transforms(pp, sample) for pp in predictions_dropout]
+                predictions_dropout = [self.apply_post_transforms(pp, sample)[0] for pp in predictions_dropout]
                 predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
             else:
-                predictions = self.apply_post_transforms(predictions, sample)
-            targets = self.apply_post_transforms(targets, sample)
+                predictions, _ = self.apply_post_transforms(predictions, sample)
+            targets, new_affine = self.apply_post_transforms(targets, sample)
 
             if self.save_predictions and not self.model.training:
                 if eval_dropout:
-                    predictions_std = torch.stack([self.activation(pp) for pp in predictions_dropout])
+                    predictions_std = torch.stack([self.activation(pp.cpu().detach()) for pp in predictions_dropout])
                     predictions_std = torch.std(predictions_std, axis=0) #arggg
                 for j, prediction in enumerate(predictions):
                     n = i * self.batch_size + j
-                    self.prediction_saver(sample, prediction.unsqueeze(0), n, j)
+                    self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine)
                     if eval_dropout:
                         volume_name = self.save_volume_name + "_std" or "Dp_std"
                         aaa = self.save_bin
                         self.save_bin = False
                         self.prediction_saver(sample,  predictions_std[j].unsqueeze(0), n, j, volume_name=volume_name,
-                        apply_activation=False)
+                        apply_activation=False, affine=new_affine)
                         self.save_bin = aaa
 
             if self.save_labels and not self.model.training:
                 for j, target in enumerate(targets):
                     n = i * self.batch_size + j
-                    self.label_saver(sample, target.unsqueeze(0), n, j, volume_name='label')
+                    self.label_saver(sample, target.unsqueeze(0), n, j, volume_name='label', affine=new_affine, apply_activation=False,)
             if self.save_data and not self.model.training:
+                volumes, _ = self.apply_post_transforms(volumes, sample)
                 for j, volumes in enumerate(volumes):
                     n = i * self.batch_size + j
-                    self.label_saver(sample, volumes.unsqueeze(0), n, j, volume_name='data', apply_activation=False)
+                    self.label_saver(sample, volumes.unsqueeze(0), n, j, volume_name='data', apply_activation=False, affine=new_affine)
 
             # Measure elapsed time
             batch_time = time.time() - start
@@ -376,9 +377,9 @@ class RunModel:
             write_csv_file = i % self.record_frequency == 0 or i == len(loader)
 
             if eval_dropout:
-                for i in range(0, eval_dropout):
+                for ii in range(0, eval_dropout):
                     df, reporting_time = self.batch_recorder(
-                        df, sample, predictions_dropout[i], targets, batch_time, write_csv_file)
+                        df, sample, predictions_dropout[i], targets, batch_time, write_csv_file, append_in_df=True)
             else:
                 df, reporting_time = self.batch_recorder(
                     df, sample, predictions, targets, batch_time, write_csv_file)
@@ -437,10 +438,10 @@ class RunModel:
             # prediction is not used if a patch evaluation is run
             if not self.dense_patch_eval:
                 predictions = self.apply_post_transforms(
-                    predictions.unsqueeze(0), sample)[0]
+                    predictions.unsqueeze(0), sample)[0][0]
 
                 target = self.apply_post_transforms(
-                    target.unsqueeze(0), sample)[0]
+                    target.unsqueeze(0), sample)[0][0]
 
                 if self.save_predictions:
                     self.prediction_saver(sample, predictions.unsqueeze(0), i)
@@ -498,8 +499,9 @@ class RunModel:
                 volume, _ = self.data_getter(sample)
                 predictions = self.model(volume.unsqueeze(0))[0]
 
-            predictions = self.apply_post_transforms(
-                predictions.unsqueeze(0), sample)[0]
+            predictions, new_affine = self.apply_post_transforms(
+                predictions.unsqueeze(0), sample)
+            predictions = predictions[0]
 
             # Measure elapsed time
             sample_time = time.time() - start
@@ -508,7 +510,7 @@ class RunModel:
             average_time = time_sum / i
 
             saving_start = time.time()
-            self.prediction_saver(sample, predictions.unsqueeze(0), i)
+            self.prediction_saver(sample, predictions.unsqueeze(0), i, affine=new_affine)
             saving_time = time.time() - saving_start
 
             saving_time_sum += saving_time
@@ -530,9 +532,9 @@ class RunModel:
         return affine
 
     def apply_post_transforms(self, tensors, sample):
-        if len(self.post_transforms.transform.transforms) == 0:
-            return tensors
         affine = self.get_affine(sample)
+        if len(self.post_transforms.transform.transforms) == 0:
+            return tensors, affine
         # Transforms apply on TorchIO subjects and TorchIO images require
         # 4D tensors
         transformed_tensors = []
@@ -545,8 +547,9 @@ class RunModel:
             transformed = self.post_transforms(subject)
             tensor = transformed['pred']['data']
             transformed_tensors.append(tensor)
+        new_affine = transformed['pred']['affine']
         transformed_tensors = torch.stack(transformed_tensors)
-        return to_var(transformed_tensors, self.device)
+        return to_var(transformed_tensors, self.device), new_affine
 
     def save_checkpoint(self, loss=None):
         optimizer_dict = None
@@ -662,7 +665,7 @@ class RunModel:
         return df, time_sum
 
     def record_segmentation_batch(self, df, sample, predictions, targets,
-                                  batch_time, save=False, csv_name='eval'):
+                                  batch_time, save=False, csv_name='eval', append_in_df=False):
         """
         Record information about the batches the model was trained or evaluated
         on during the segmentation task.
@@ -674,7 +677,7 @@ class RunModel:
         if self.model.training:
             mode = 'Train'
         else:
-            if self.eval_results_dir != self.results_dir and csv_name == 'eval':
+            if self.eval_results_dir != self.results_dir and csv_name == 'eval' and append_in_df is False:
                 df = pd.DataFrame()
             mode = 'Val' if is_batch else 'Whole_image'
             if csv_name == 'patch_eval':
@@ -793,12 +796,11 @@ class RunModel:
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions, df
 
-    def save_volume(self, sample, volume, idx=0, batch_idx=0, volume_name=None, apply_activation=True):
+    def save_volume(self, sample, volume, idx=0, batch_idx=0, affine=None, volume_name=None, apply_activation=True):
         volume_name = volume_name or self.save_volume_name
-        affine = sample[self.image_key_name]['affine']
-        if affine.dim() == 3:
-            affine = affine[batch_idx].squeeze()
         name = sample.get('name') or f'{idx:06d}'
+        if affine is None:
+            affine = self.get_affine(sample)
 
         if isinstance(name, list):
             name = name[batch_idx]
