@@ -379,7 +379,7 @@ class RunModel:
             if eval_dropout:
                 for ii in range(0, eval_dropout):
                     df, reporting_time = self.batch_recorder(
-                        df, sample, predictions_dropout[i], targets, batch_time, write_csv_file, append_in_df=True)
+                        df, sample, predictions_dropout[ii], targets, batch_time, write_csv_file, append_in_df=True)
             else:
                 df, reporting_time = self.batch_recorder(
                     df, sample, predictions, targets, batch_time, write_csv_file)
@@ -848,7 +848,7 @@ class RunModel:
         return self.get_regression_data(data, 'random_noise')
 
     def get_regress_motion_data(self, data):
-        return self.get_regression_data(data, 'ssim')
+        return self.get_regression_data(data, 'L1_map')
 
     def get_regression_data(self, data, target):
 
@@ -886,6 +886,16 @@ class RunModel:
                 for hhh in hh : #length: number of transfo that lead history info
                     if 'RandomNoise' in hhh:
                         lab.append(hhh[1][self.image_key_name]['std'])
+            labels = torch.Tensor(lab).unsqueeze(1)
+        else :
+            histo = data['history']
+            lab = []
+            for hh in histo: #length = batch size
+                for hhh in hh : #length: number of transfo that lead history info
+                    if '_metrics' in hhh[1].keys():
+                        dict_metrics = hhh[1]["_metrics"][self.image_key_name]
+                        #print(dict_metrics[target])
+                        lab.append(dict_metrics[target])
             labels = torch.Tensor(lab).unsqueeze(1)
 
         inputs = to_var(inputs.float(), self.device)
@@ -993,7 +1003,7 @@ class RunModel:
                 for sample_key, metric_values in dict_metrics.items():
                     info[f'T_{hist[0]}_metrics_{sample_key}'] = json.dumps(
                         metric_values, cls=ArrayTensorJSONEncoder)
-                del hist[1]["_metrics"]
+                #del hist[1]["_metrics"]
             info[f'T_{hist[0]}'] = json.dumps(
                 hist[1], cls=ArrayTensorJSONEncoder)
             order.append(hist[0])
