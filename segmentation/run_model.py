@@ -932,6 +932,9 @@ class RunModel:
             if location is not None:
                 info['location'] = to_numpy(location[idx])
 
+            if self.label_key_name in sample :
+                info['label_filename'] = sample[self.label_key_name]['path'][idx]
+
             with torch.no_grad():
                 loss = 0
                 for criterion in self.criteria:
