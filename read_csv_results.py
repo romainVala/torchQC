@@ -30,7 +30,13 @@ class ModelCSVResults(object):
         self.written_files = []
 
     def open(self, csv_path):
-        self.df_data = pd.read_csv(csv_path)
+        if isinstance(csv_path, list):
+            df_list =[]
+            for one_csv in csv_path:
+                df_list.append(pd.read_csv(one_csv))
+            self.df_data = pd.concat(df_list, sort=False)
+        else:
+            self.df_data = pd.read_csv(csv_path)
 
     def close(self):
         del self.df_data
