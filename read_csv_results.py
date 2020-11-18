@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 plt.interactive(True)
 from os.path import join as opj
 from nibabel.viewers import OrthoSlicer3D as ov
-from .segmentation.utils import custom_import
+from segmentation.utils import custom_import
 
 
 class ModelCSVResults(object):
