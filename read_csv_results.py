@@ -136,6 +136,15 @@ class ModelCSVResults(object):
             trsfm_composition = Compose(trsfm_list)
             return trsfm_composition, trsfm_seeds
 
+    def normalize_dict_to_df(self, col, suffix=None):
+        if suffix is None:
+            suffix = col
+        dict_vals = self.df_data[col].apply(json.loads)
+        val_names = dict_vals[0].keys()
+        for name in val_names:
+            self.df_data[f"{suffix}_{name}"] = dict_vals.apply(lambda x: x[name])
+        return self.df_data
+
     def extract_from_history(self, col, key, save_csv=False, col_name=None):
         data_col = self.df_data[~self.df_data[col].isnull()][col]
         dict_data = data_col.apply(lambda x: json.loads(x)[key])
