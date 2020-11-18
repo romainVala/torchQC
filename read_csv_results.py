@@ -1,5 +1,6 @@
 import json
-from torchio import Subject, Image
+import torch
+from torchio import Subject, LabelMap, ScalarImage
 import torchio
 import dash
 import dash_core_components as dcc
@@ -9,6 +10,7 @@ import os
 import pandas as pd
 import inspect
 import nibabel as nb
+import numpy as np
 from pathlib import PosixPath
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
@@ -31,10 +33,10 @@ class ModelCSVResults(object):
 
     def open(self, csv_path):
         if isinstance(csv_path, list):
-            df_list =[]
+            df_list = []
             for one_csv in csv_path:
                 df_list.append(pd.read_csv(one_csv))
-            self.df_data = pd.concat(df_list, sort=False)
+            self.df_data = pd.concat(df_list, sort=False).reindex()
         else:
             self.df_data = pd.read_csv(csv_path)
 
@@ -48,7 +50,7 @@ class ModelCSVResults(object):
 
     def read_path(self, path):
         if isinstance(path, list):
-            return self.read_path(path[0])
+            return [self.read_path(p) for p in path]
 
         elif isinstance(path, PosixPath):
             return opj(str(path))
@@ -69,24 +71,54 @@ class ModelCSVResults(object):
         if return_orig:
             volume = nb.load(subject_path)
         else:
-            tio_data = self.get_volume_torchio(idx, return_orig=return_orig)["volume"]
+            tio_data = self.get_volume_torchio(idx, return_orig=return_orig)
+            tio_data = tio_data["volume"] if "volume" in tio_data.keys() else tio_data["image_from_labels"]
             data, affine = tio_data["data"], tio_data["affine"]
             volume = nb.Nifti1Image(data, affine)
         return volume
 
     def get_volume_torchio(self, idx, return_orig=False):
         subject_row = self.get_row(idx)
-        subject_path = self.read_path(subject_row["image_filename"])
-        sub = Subject({"volume": Image(subject_path)})
+        dict_suj = dict()
+        if not pd.isna(subject_row["image_filename"]):
+            path_imgs = self.read_path(subject_row["image_filename"])
+            if isinstance(path_imgs, list):
+                imgs = ScalarImage(tensor=np.asarray([nb.load(p).get_fdata for p in path_imgs]))
+            else:
+                imgs = ScalarImage(path_imgs)
+            dict_suj["volume"] = imgs
+
+        if "label_filename" in subject_row.keys() and not pd.isna(subject_row["label_filename"]):
+            path_imgs = self.read_path(subject_row["label_filename"])
+            if isinstance(path_imgs, list):
+                imgs = LabelMap(tensor=np.asarray([nb.load(p).get_fdata() for p in path_imgs]))
+            else:
+                imgs = LabelMap(path_imgs)
+            dict_suj["label"] = imgs
+        sub = Subject(dict_suj)
         if return_orig or "transfo_order" not in self.df_data.columns:
             return sub
         else:
             trsfms, seeds = self.get_transformations(idx)
-            res = trsfms(sub, seeds)
             for tr in trsfms.transform.transforms:
-                if isinstance(tr, torchio.RandomMotionFromTimeCourse):
+                if isinstance(tr, torchio.transforms.RandomLabelsToImage):
+                    tr.label_key = "label"
+                if isinstance(tr, torchio.transforms.RandomMotionFromTimeCourse):
                     output_path = opj(self.out_tmp, "{}.png".format(idx))
-                    fitpars = tr.fitpars
+                    if "fitpars" in self.df_data.columns:
+                        fitpars = np.loadtxt(self.df_data["fitpars"][idx])
+                        tr.fitpars = fitpars
+                        tr.simulate_displacement = False
+                    else:
+
+                        res = sub
+                        for trsfm, seed in zip(trsfms.transform.transforms , seeds):
+                            if seed:
+                                res = trsfm(res, seed)
+                            else:
+                                res = trsfm(res)
+                        del res
+                        fitpars = tr.fitpars
                     plt.figure()
                     plt.plot(fitpars.T)
                     plt.legend(["trans_x", "trans_y", "trans_z", "rot_x", "rot_y", "rot_z"])
@@ -96,6 +128,13 @@ class ModelCSVResults(object):
                     plt.savefig(output_path)
                     plt.close()
                     self.written_files.append(output_path)
+            res = sub
+            for trsfm, seed in zip(trsfms.transform.transforms, seeds):
+                if seed:
+                    res = trsfm(res, seed)
+                else:
+                    res = trsfm(res)
+            #res = trsfms(sub, seeds)
             return res
 
     def display_original_data(self, idx):
@@ -117,43 +156,48 @@ class ModelCSVResults(object):
         return arg_to_eval
 
     def get_transformations(self, idx):
-            from torchio.transforms import compose_from_history, Compose
-            import torchio.transforms
+        from torchio.transforms import compose_from_history, Compose
+        import torchio.transforms
 
-            row = self.get_row(idx)
-            trsfms_order = row["transfo_order"].split("_")
-            trsfm_list = []
-            trsfm_seeds = []
-            for trsfm_name in trsfms_order:
-                if trsfm_name not in ["OneOf"]:
-                    trsfm_history = json.loads(row["T_"+trsfm_name])
-                    trsfm_seed = trsfm_history["seed"]
-                    trsfm_seeds.append(trsfm_seed)
+        row = self.get_row(idx)
+        trsfms_order = [r for r in row["transfo_order"].split("_") if r != ""]
+        trsfm_list = []
+        trsfm_seeds = []
+        for trsfm_name in trsfms_order:
+            if trsfm_name not in ["OneOf"]:
+                trsfm_history = json.loads(row["T_"+trsfm_name])
+                trsfm_seed = trsfm_history["seed"] if "seed" in trsfm_history.keys() else None
+                trsfm_seeds.append(trsfm_seed)
+                if "seed" in trsfm_history.keys():
                     del trsfm_history["seed"]
-                    trsfm = custom_import({"module": "torchio.transforms", "name": trsfm_name})
-                    init_args = inspect.getfullargspec(trsfm.__init__).args
+                trsfm = custom_import({"module": "torchio.transforms", "name": trsfm_name})
+                init_args = inspect.getfullargspec(trsfm.__init__).args
 
-                    hist_kwargs_init = {hist_key: self.trsfm_arg_eval(hist_val)
-                                        for hist_key, hist_val in trsfm_history.items()
-                                        if hist_key in init_args and hist_key not in ['metrics', 'fitpars', "read_func"]}
+                hist_kwargs_init = {hist_key: self.trsfm_arg_eval(hist_val)
+                                    for hist_key, hist_val in trsfm_history.items()
+                                    if hist_key in init_args and hist_key not in ['metrics', 'fitpars', "read_func"]}
 
-                    trsfm = trsfm(**hist_kwargs_init)
-                    trsfm_list.append(trsfm)
-            trsfm_composition = Compose(trsfm_list)
-            return trsfm_composition, trsfm_seeds
+                trsfm = trsfm(**hist_kwargs_init)
+                trsfm_list.append(trsfm)
+        trsfm_composition = Compose(trsfm_list)
+        return trsfm_composition, trsfm_seeds
 
-    def normalize_dict_to_df(self, col, suffix=None):
+    def normalize_dict_to_df(self, col, suffix=None, eval_func=None):
         if suffix is None:
             suffix = col
-        dict_vals = self.df_data[col].apply(json.loads)
-        val_names = dict_vals[0].keys()
+        dict_vals = self.df_data[col]
+        if eval_func:
+            dict_vals = self.df_data[col].apply(eval_func)
+        print(dict_vals[~pd.isna(dict_vals)])
+        val_names = dict_vals[~pd.isna(dict_vals)].iloc[0].keys()
         for name in val_names:
-            self.df_data[f"{suffix}_{name}"] = dict_vals.apply(lambda x: x[name])
+            self.df_data[f"{suffix}_{name}"] = dict_vals.apply(lambda x: x[name] if not(pd.isna(x)) else None)
         return self.df_data
+
 
     def extract_from_history(self, col, key, save_csv=False, col_name=None):
         data_col = self.df_data[~self.df_data[col].isnull()][col]
-        dict_data = data_col.apply(lambda x: json.loads(x)[key])
+        dict_data = data_col.apply(lambda x: eval(x)[key])
         if save_csv:
             if not col_name:
                 col_name = key
@@ -192,7 +236,7 @@ class ModelCSVResults(object):
                                      hovertext=filtered_df["image_filename"], text=filtered_df.index.to_numpy(),
                                      mode="markers", **kwargs))
         else:
-            categories = filtered_df[color].unique()
+            categories = filtered_df[color].unique().astype(str)
             traces = []
             for idx, cat in enumerate(categories):
                 cat_data = filtered_df[filtered_df[color] == cat]
@@ -221,9 +265,9 @@ class ModelCSVResults(object):
             dcc.Graph(
                 id='scatter-plot',
                 figure=fig
-                ),
+            ),
             html.Div(id='output-click'),
-            ])
+        ])
 
         @self.dash_app.callback(
             [Output('output-click', 'children'),],
@@ -234,7 +278,9 @@ class ModelCSVResults(object):
             idx = clickData["points"][0]["text"]
             out_path = opj(self.out_tmp, str(idx) + ".nii")
             if not os.path.exists(out_path):
-                transformed = self.get_volume_torchio(idx)["volume"]
+                transformed = self.get_volume_torchio(idx)
+                key = list(transformed.get_images_dict(intensity_only=True).keys())[0]
+                transformed = transformed[key]
                 data, affine = transformed['data'].squeeze().numpy(), transformed["affine"]
                 nib_volume = nb.Nifti1Image(data, affine)
                 nib_volume.to_filename(out_path)
