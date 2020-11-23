@@ -845,7 +845,7 @@ class RunModel:
             self.debug('saving {}'.format(f'{resdir}/{volume_name}.nii.gz'))
 
 
-    def get_regression_data(self, data, target):
+    def get_regression_data(self, data, target=None, scale_label=1, default_missing_label = 0 ):
 
         if isinstance(data, list):  # case where callate_fn is used
             #inputs = torch.cat([sample[self.image_key_name]['data'].unsqueeze(0) for sample in data]) #this was wen lamba collate x:x
@@ -863,26 +863,27 @@ class RunModel:
         else:
             inputs = data[self.image_key_name]['data']
 
-        labels = torch.zeros(inputs.shape[0], 1) #for eval case without label
+        targets = [target] if isinstance(target, str) else target
+        default_missing_label = [default_missing_label] if isinstance(default_missing_label, str) else default_missing_label
+        scale_label = [scale_label] if isinstance(scale_label, str) else scale_label
 
-        if target == 'random_noise':
-            histo = data['history']
-            lab = []
-            for hh in histo: #length = batch size
-                for hhh in hh : #length: number of transfo that lead history info
-                    if 'RandomNoise' in hhh:
-                        lab.append(hhh[1][self.image_key_name]['std'])
-            labels = torch.Tensor(lab).unsqueeze(1)
-        else :
-            histo = data['history']
-            lab = []
-            for hh in histo: #length = batch size
-                for hhh in hh : #length: number of transfo that lead history info
-                    if '_metrics' in hhh[1].keys():
-                        dict_metrics = hhh[1]["_metrics"][self.image_key_name]
-                        #print(dict_metrics[target])
-                        lab.append(dict_metrics[target])
-            labels = torch.Tensor(lab).unsqueeze(1)
+        #default values for missing label
+        labels = torch.cat([torch.ones(inputs.shape[0],1) * default_lab for default_lab in default_missing_label], dim=1)
+
+        for target_idx, target in enumerate(targets):
+            if target == 'random_noise':
+                histo = data['history']
+                for batch_idx, hh in enumerate(histo): #length = batch size
+                    for hhh in hh : #length: number of transfo that lead history info
+                        if 'RandomNoise' in hhh:
+                            labels[batch_idx, target_idx] = hhh[1]['std'] * scale_label[target_idx]
+            else:
+                histo = data['history']
+                for batch_idx, hh in enumerate(histo): #length = batch size
+                    for hhh in hh : #length: number of transfo that lead history info
+                        if '_metrics' in hhh[1].keys():
+                            dict_metrics = hhh[1]["_metrics"][self.image_key_name]
+                            labels[batch_idx, target_idx] = dict_metrics[target] * scale_label[target_idx]
 
         inputs = to_var(inputs.float(), self.device)
         labels = to_var(labels.float(), self.device)
@@ -926,8 +927,8 @@ class RunModel:
                 for criterion in self.criteria:
                     loss += criterion['weight'] * criterion['criterion'](predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
                 info['loss'] = to_numpy(loss)
-                info['prediction'] = to_numpy(predictions[idx])[0]
-                info['targets'] = to_numpy(targets[idx])[0]
+                info['prediction'] = to_numpy(predictions[idx])
+                info['targets'] = to_numpy(targets[idx])
 
             if 'simu_param' in sample[self.image_key_name]:
                 #dicm = sample[self.image_key_name]['metrics']
