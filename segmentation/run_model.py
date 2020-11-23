@@ -844,11 +844,6 @@ class RunModel:
             nib.save(volume, f'{resdir}/{volume_name}.nii.gz')
             self.debug('saving {}'.format(f'{resdir}/{volume_name}.nii.gz'))
 
-    def get_regress_random_noise_data(self, data):
-        return self.get_regression_data(data, 'random_noise')
-
-    def get_regress_motion_data(self, data):
-        return self.get_regression_data(data, 'L1_map')
 
     def get_regression_data(self, data, target):
 
