@@ -12,19 +12,41 @@ import copy
 dice = Dice()
 t = tio.RandomAffine(default_pad_value='minimum')
 t = tio.RandomAffine(default_pad_value=0)
+resample_to=True
 #t = tio.RandomElasticDeformation()
 #t = tio.RandomBlur() #not a good idea since intensity transform won't change the label
+def apply_inverse_transform(subject, list_transfo_index = 0):
+    trsfm_hist, seeds_hist = tio.compose_from_history(history=subject.history)
+    trsfm_hist[list_transfo_index].get_inverse = True
+    return trsfm_hist[0](subject, seed=seeds_hist[list_transfo_index])
+
 
 dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_07mm/'
 dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_1mm/'
+#dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/700634/T1w/ROI_PVE_1mm/'
 #dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_14mm/'
-dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_28mm/'
+#dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_28mm/'
+dref = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_14mm/'
+dref = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_1mm/'
+dref = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_28mm/'
 label_list = ['GM', 'WM', 'CSF', 'cereb_GM',  'L_Accu', 'L_Caud', 'L_Pall', 'L_Thal', 'R_Amyg', 'R_Hipp', 'R_Puta', 'BrStem',
  'cereb_WM', 'L_Amyg', 'L_Hipp', 'L_Puta', 'R_Accu', 'R_Caud', 'R_Pall', 'R_Thal', 'skull', 'skin', 'background']
 
 label_list = ["backNOpv", "GM", "WM", "CSF", "both_R_Accu", "both_R_Amyg", "both_R_Caud", "both_R_Hipp", "both_R_Pall", "both_R_Puta", "both_R_Thal"]
 
 suj = tio.Subject(label=tio.Image(type=tio.LABEL, path=[dr + ll + '.nii.gz' for ll in label_list]))
+if resample_to:
+    suj_from = suj
+    pv_from = suj_from.label.data
+    pv_img_from = tio.ScalarImage(tensor=pv_from, affine=suj_from.label.affine)
+    label_volume_from = pv_from.argmax(dim=0, keepdim=True)
+    label_from = tio.LabelMap(tensor=label_volume_from, affine=suj_from.label.affine)
+    one_hot_from = torch.nn.functional.one_hot(label_volume_from[0].long()).permute(3, 0, 1, 2)
+    one_hot_img_from = tio.ScalarImage(tensor=one_hot_from, affine=suj_from.label.affine)
+
+    suj = tio.Subject(label=tio.Image(type=tio.LABEL, path=[dref + ll + '.nii.gz' for ll in label_list]))
+    t = tio.Resample(target=str(suj.label.path[1]), image_interpolation=tio.Interpolation.LINEAR)
+
 pv = suj.label.data
 pv_img = tio.ScalarImage(tensor=pv, affine=suj.label.affine)
 label_volume = pv.argmax(dim=0, keepdim=True)
@@ -32,13 +54,16 @@ label = tio.LabelMap(tensor=label_volume, affine=suj.label.affine)
 one_hot = torch.nn.functional.one_hot(label_volume[0].long()).permute(3, 0, 1, 2)
 one_hot_img = tio.ScalarImage(tensor=one_hot, affine=label.affine)
 
-new = tio.Subject(pv=pv_img, label=label, one_hot=one_hot_img)
+if resample_to:
+    new = tio.Subject(pv=pv_img_from, label=label_from, one_hot=one_hot_img_from)
+else:
+    new = tio.Subject(pv=pv_img, label=label, one_hot=one_hot_img)
 ref = label_volume[0]
 
 df = pd.DataFrame()
 
 subject = Path(dr).parent.parent.name
-resolution = Path(dr).name
+resolution = Path(dref).name if resample_to else Path(dr).name
 res = 1.4 if '14mm' in resolution else 2.8 if '28mm' in resolution else 0.7 if '07mm' in resolution else 1
 voxel_volume = res*res*res
 print("Suj {} {}".format(subject,resolution))
@@ -48,8 +73,13 @@ for i, LabName in enumerate(label_list):
     sujdic['vol_' + LabName] = float(pv[i].sum()) * voxel_volume / 1000
     sujdic['volbin_' + LabName] = float(one_hot[i].sum()) * voxel_volume /1000 / sujdic['vol_' + LabName]
 
-for i in range(0,20):
+
+max_range = 1 if resample_to else 20
+for i in range(0, max_range):
     transformed = t(new)
+    if not resample_to:
+        transformed = apply_inverse_transform(transformed)
+
     #from_one_hot = transformed.one_hot.data.argmax(dim=0)  #warning if equal every where (0) -> label 10
     t_pv = copy.deepcopy(transformed.pv.data)
     t_onehot = copy.deepcopy(transformed.one_hot.data)
@@ -167,3 +197,31 @@ dd[:] = 0
 
 new_sub.plot()
 
+
+import torchio as tio
+
+sub = tio.datasets.Colin27()
+sub.pop('brain'); sub.pop('head')
+
+t = tio.Compose([tio.Pad(padding=10, padding_mode="reflect"), tio.Crop(bounds_parameters=10)])
+new_sub = t(sub)
+new_sub.t1.affine
+sub.t1.affine
+
+#test inverse elastic
+import torchio as tio
+import SimpleITK as sitk
+
+colin = tio.datasets.Colin27()
+transform = tio.RandomElasticDeformation()
+transformed = transform(colin)
+
+trsfm_hist, seeds_hist = tio.compose_from_history(history=transformed.history)
+trsfm_hist[0].get_inverse = True
+colin_back = trsfm_hist[0](transformed, seed=seeds_hist[0])
+
+transformed.t1.save('/tmp/tcolin.nii')
+colin_back.t1.save('/tmp/t_back_colin.nii')
+colin.t1.save('/tmp/colin.nii')
+
+grid = -transformed.history[0][1]['coarse_grid']
