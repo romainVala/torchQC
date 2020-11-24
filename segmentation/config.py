@@ -473,6 +473,7 @@ class Config:
         transform_list = []
         for transform in struct['train_transforms']:
             transform_list.append(parse_transform(transform))
+        self.train_transfo_list = transform_list
         struct['train_transforms'] = torchio.transforms.Compose(transform_list)
 
         transform_list = []
@@ -1049,6 +1050,19 @@ class Config:
             self.save_json(main_structure, main_name)
             main_files.append(main_name)
         return main_files
+
+    def get_runner(self):
+        model, device = self.load_model(self.model_structure)
+
+        model_runner = RunModel(model, device, self.train_loader,
+                                self.val_loader, self.val_set,
+                                self.test_set, self.image_key_name,
+                                self.label_key_name, self.labels,
+                                self.logger, self.debug_logger,
+                                self.results_dir, self.batch_size,
+                                self.patch_size, self.run_structure,
+                                self.post_transforms)
+        return model_runner
 
     def run(self):
         if self.create_jobs_file is not None and self.max_subjects_per_job is None:
