@@ -19,6 +19,15 @@ from os.path import join as opj
 from nibabel.viewers import OrthoSlicer3D as ov
 from segmentation.utils import custom_import
 
+def default_json_str_to_eval_python(x):
+    if pd.isna(x):
+        return None
+    x = x.replace('true', 'True')
+    x = x.replace('false', 'False')
+    x = x.replace('null', 'None')
+    x = eval(x)
+    return x
+
 
 class ModelCSVResults(object):
 
@@ -182,13 +191,21 @@ class ModelCSVResults(object):
         trsfm_composition = Compose(trsfm_list)
         return trsfm_composition, trsfm_seeds
 
-    def normalize_dict_to_df(self, col, suffix=None, eval_func=None):
+    def normalize_dict_to_df(self, col, suffix=None, eval_func=default_json_str_to_eval_python):
+        if isinstance(col, list):
+            for one_col in col:
+                if one_col not in self.df_data:
+                    print('WARNING col {} is missing'.format(one_col))
+                else:
+                    df = self.normalize_dict_to_df(one_col, suffix=suffix, eval_func=eval_func)
+            return df
+
         if suffix is None:
             suffix = col
         dict_vals = self.df_data[col]
         if eval_func:
             dict_vals = self.df_data[col].apply(eval_func)
-        print(dict_vals[~pd.isna(dict_vals)])
+        #print(dict_vals[~pd.isna(dict_vals)])
         val_names = dict_vals[~pd.isna(dict_vals)].iloc[0].keys()
         for name in val_names:
             self.df_data[f"{suffix}_{name}"] = dict_vals.apply(lambda x: x[name] if not(pd.isna(x)) else None)
