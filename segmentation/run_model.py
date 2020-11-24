@@ -907,10 +907,11 @@ class RunModel:
         batch_size = shape[0]
         sample_time = batch_time / batch_size
         time_sum = 0
+        is_batch = not isinstance(sample, torchio.Subject)
 
         for idx in range(batch_size):
             info = {
-                'image_filename': sample[self.image_key_name]['path'][idx],
+                'image_filename': sample[self.image_key_name]['path'][idx] if is_batch else sample[self.image_key_name]['path'],
                 'shape': to_numpy(shape[2:]),
                 'sample_time': sample_time,
                 'batch_size': batch_size
@@ -920,7 +921,7 @@ class RunModel:
                 info['location'] = to_numpy(location[idx])
 
             if self.label_key_name in sample :
-                info['label_filename'] = sample[self.label_key_name]['path'][idx]
+                info['label_filename'] = sample[self.label_key_name]['path'][idx]  if is_batch else sample[self.label_key_name]['path']
 
             with torch.no_grad():
                 loss = 0
