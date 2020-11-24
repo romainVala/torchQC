@@ -90,7 +90,14 @@ file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_models
 
 res = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/RES_1mm_tissue/prepare_job_test/dataS*/*csv'
 file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_models_pve_synth_drop01.csv'
-aggregate_csv_files(res, file, fragment_position=-2)
+
+res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_tissue_eval_augment/dataS*/*/*csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augment_pve_bin_01.csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augment_pve_bin_02.csv'
+res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_tissue_eval_augment/dataS*mod3*/*/*csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augment_mod3_01.csv'
+
+aggregate_csv_files(res, file, fragment_position=-3)
 
 res = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/RES_14mm/data_G*/*/eval.csv'
 file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res14mm_all.csv'
@@ -140,18 +147,22 @@ def split_model_name(s):
 def split_model_epoch(s):
     s_list = s.split('_')
     return int(s_list[-1][2:])
+def gess_transfo(s):
+    return 'affine' if 'RandomAffine' in s else 'bias' if 'BiasFiel' in s else 'motion' if 'Motion' in s else None
 
 df['model_name'] = df['model'].apply(lambda s: split_model_name(s))
 df['epoch'] = df['model'].apply(lambda s: split_model_epoch(s))
+df['transfo'] = df['transfo_order'].apply(lambda s: gess_transfo(s))
 
 from pathlib import PosixPath
 if not isinstance(df['image_filename'][0], str):  # np.isnan(df['image_filename'][0]):
-    ff = [eval(fff)[0].parent.parent.parent.name for fff in df['label_filename'].values]
+    ffarg = [eval(fff)[0] for fff in df['label_filename'].values]
+    ff = [eval(fff)[0].parent.parent.parent.name for fff in ffarg] #df['label_filename'].values]
 else:
     ff = [eval(fff)[0].parent.name for fff in df['image_filename'].values]
 df['suj_name'] = ff
 
-filter = dict(col='model', str='ep64')
+filter = dict(col='model', str='ep60')
 if filter:
     rows = df[filter['col']].str.contains(filter['str'])
     df = df[ ~ rows]
@@ -161,8 +172,51 @@ sns.catplot(data=df, x='epoch', y='metric_l1_loss_GM_mask_PV_GM', kind='box', co
 sns.catplot(data=df, x='suj_name', y='metric_dice_loss_GM', kind='box', col='model_name')
 sns.catplot(data=df, x='suj_name', y='predicted_occupied_volume_GM', kind='box', col='model_name')
 
+sns.catplot(data=df, x='transfo', y='predicted_occupied_volume_GM', kind='box', col='model')
+sns.catplot(data=df, x='transfo', y='metric_dice_loss_GM', kind='box', col='SNR', hue='GM')
+
 for k in df.keys():
+    if k.rfind('ratio')>0:
 #    if k.startswith('occupied_volume_'): # in k:
-    if k.startswith('metric_'):  # in k:
+#    if k.startswith('metric_'):  # in k:
+
         print(k)
-        sns.catplot(data=df, x='suj_name', y=k, kind='box', col='model_name')
+        #sns.catplot(data=df, x='suj_name', y=k, kind='box', col='model_name')
+        sns.catplot(data=df, x='transfo', y=k, kind='box', col='SNR', hue='GM')
+
+
+#read transform param and metric form train.csv
+import glob, os, numpy as np, pandas as pd, matplotlib.pyplot as plt
+from read_csv_results import ModelCSVResults
+ft = glob.glob('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/train_random_synth/result_regre*/Tra*csv')
+ft.sort(key=os.path.getmtime)
+
+mres = ModelCSVResults(ft[29],  out_tmp="/tmp/rrr")
+mres.normalize_dict_to_df('T_RandomMotionFromTimeCourse_metrics_t1', suffix=None)
+mres.normalize_dict_to_df('T_RandomAffine', suffix=None)
+mres.normalize_dict_to_df('T_RandomLabelsToImage')
+mres.normalize_dict_to_df('T_RandomNoise')
+
+mres.scatter('loss','T_RandomMotionFromTimeCourse_metrics_t1_L1_map')
+mres.scatter('T_RandomMotionFromTimeCourse_metrics_t1_L1_map','T_RandomMotionFromTimeCourse_metrics_t1_SSIM_ssim_SSIM')
+mres.scatter('T_RandomMotionFromTimeCourse_metrics_t1_SSIM_ssim_SSIM','T_RandomMotionFromTimeCourse_metrics_t1_NCC')
+
+from torch import tensor
+df['scale'] = df['T_RandomAffine_apply_scales'].apply(lambda x: eval(x).prod().numpy() if not (pd.isna(x)) else None)
+
+
+df['mean_mean'] = df['T_RandomLabelsToImage_random_parameters_images_dict'].apply(lambda x: np.mean(x['mean']))
+
+df = mres.df_data
+plt.scatter(df['loss'], df['T_RandomNoise_std'])
+plt.scatter(df['loss'], df['scale'])
+plt.scatter(df['loss'], df['mean_mean'])
+plt.scatter(df['T_RandomMotionFromTimeCourse_metrics_t1_L1_map'], df['T_RandomMotionFromTimeCourse_metrics_t1_SSIM_ssim_SSIM'])
+plt.scatter(df['loss'], df['T_RandomMotionFromTimeCourse_metrics_t1_SSIM_ssim_SSIM'])
+plt.scatter(df['T_RandomMotionFromTimeCourse_metrics_t1_SSIM_structure_SSIM'], df['T_RandomMotionFromTimeCourse_metrics_t1_SSIM_ssim_SSIM'])
+plt.scatter(df['T_RandomMotionFromTimeCourse_metrics_t1_SSIM_contrast_SSIM'], df['T_RandomMotionFromTimeCourse_metrics_t1_SSIM_ssim_SSIM'])
+plt.scatter(df['T_RandomMotionFromTimeCourse_metrics_t1_SSIM_contrast_SSIM'],df['T_RandomMotionFromTimeCourse_metrics_t1_NCC'])
+df.shape
+df['error'] = df['l']
+pd.isna(df['T_RandomElasticDeformation']).sum()
+pd.isna(df['T_RandomMotionFromTimeCourse_metrics_t1']).sum()
