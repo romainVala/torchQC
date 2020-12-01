@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import nibabel as nib
 import torchio
+import torchio as tio
 import resource
 import warnings
 from torch.utils.data import DataLoader
@@ -875,15 +876,18 @@ class RunModel:
                 histo = data['history']
                 for batch_idx, hh in enumerate(histo): #length = batch size
                     for hhh in hh : #length: number of transfo that lead history info
-                        if 'RandomNoise' in hhh:
-                            labels[batch_idx, target_idx] = hhh[1]['std'] * scale_label[target_idx]
+                        if isinstance(hhh, tio.transforms.augmentation.intensity.random_noise.Noise)  :
+                            labels[batch_idx, target_idx] = hhh.std[self.image_key_name] * scale_label[target_idx]
             else:
                 histo = data['history']
                 for batch_idx, hh in enumerate(histo): #length = batch size
                     for hhh in hh : #length: number of transfo that lead history info
-                        if '_metrics' in hhh[1].keys():
-                            dict_metrics = hhh[1]["_metrics"][self.image_key_name]
-                            labels[batch_idx, target_idx] = dict_metrics[target] * scale_label[target_idx]
+                        #if '_metrics' in hhh[1].keys():
+                        if isinstance(hhh,dict): #hhh.name == 'RandomMotionFromTimeCourse':
+                            #dict_metrics = hhh[1]["_metrics"][self.image_key_name]
+                            if '_metrics' in hhh:
+                                dict_metrics = hhh['_metrics'][self.image_key_name]
+                                labels[batch_idx, target_idx] = dict_metrics[target] * scale_label[target_idx]
 
         inputs = to_var(inputs.float(), self.device)
         labels = to_var(labels.float(), self.device)
@@ -989,15 +993,16 @@ class RunModel:
         if len(relevant_history)==1 and isinstance(relevant_history[0], list):
             relevant_history = relevant_history[0] #because ListOf transfo to batch make list of list ...
         for hist in relevant_history:
-            if "_metrics" in hist[1].keys():
+            if 0 : #"_metrics" in hist[1].keys():
                 dict_metrics = hist[1]["_metrics"]
                 for sample_key, metric_values in dict_metrics.items():
                     info[f'T_{hist[0]}_metrics_{sample_key}'] = json.dumps(
                         metric_values, cls=ArrayTensorJSONEncoder)
                 #del hist[1]["_metrics"]
-            info[f'T_{hist[0]}'] = json.dumps(
-                hist[1], cls=ArrayTensorJSONEncoder)
-            order.append(hist[0])
+            histo_name = hist['name'] if isinstance(hist,dict) else hist.name #arg bad idea to mixt transfo and dict
+            info[f'T_{histo_name}'] = json.dumps(
+                str(hist), cls=ArrayTensorJSONEncoder)
+            order.append(histo_name)
 
         info['transfo_order'] = '_'.join(order)
 
