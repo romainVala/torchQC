@@ -867,6 +867,8 @@ class RunModel:
         targets = [target] if isinstance(target, str) else target
         default_missing_label = [default_missing_label] if isinstance(default_missing_label, str) else default_missing_label
         scale_label = [scale_label] if isinstance(scale_label, str) else scale_label
+        self.target_name = targets
+        self.scale_label = scale_label
 
         #default values for missing label
         labels = torch.cat([torch.ones(inputs.shape[0],1) * default_lab for default_lab in default_missing_label], dim=1)
@@ -934,6 +936,14 @@ class RunModel:
                 info['loss'] = to_numpy(loss)
                 info['prediction'] = to_numpy(predictions[idx])
                 info['targets'] = to_numpy(targets[idx])
+                if 'target_name' in self.__dict__.keys():
+                    for i_target, tgn in enumerate(self.target_name):
+                        info['tar_' + tgn] = to_numpy(targets[idx][i_target])
+                        info['pred_' + tgn] = to_numpy(predictions[idx][i_target])
+                if 'scale_label' in self.__dict__.keys():
+                    for i_target, tgn in enumerate(self.target_name):
+                        info['scale_'+tgn] = self.scale_label[i_target]
+
 
             if 'simu_param' in sample[self.image_key_name]:
                 #dicm = sample[self.image_key_name]['metrics']
