@@ -1003,15 +1003,24 @@ class RunModel:
         if len(relevant_history)==1 and isinstance(relevant_history[0], list):
             relevant_history = relevant_history[0] #because ListOf transfo to batch make list of list ...
         for hist in relevant_history:
-            if 0 : #"_metrics" in hist[1].keys():
-                dict_metrics = hist[1]["_metrics"]
-                for sample_key, metric_values in dict_metrics.items():
-                    info[f'T_{hist[0]}_metrics_{sample_key}'] = json.dumps(
-                        metric_values, cls=ArrayTensorJSONEncoder)
-                #del hist[1]["_metrics"]
-            histo_name = hist['name'] if isinstance(hist,dict) else hist.name #arg bad idea to mixt transfo and dict
+            if isinstance(hist, dict) :
+                histo_name = hist['name']
+                for key, val in hist.items():
+                    if callable(val):
+                        hist[key] = str(val)
+                str_hist = str( hist )
+            else:
+                histo_name = hist.name #arg bad idea to mixt transfo and dict
+                str_hist = dict()
+                for name in  hist.args_names :
+                    val = getattr(hist, name)
+                    if callable(val):
+                        val = str(val)
+                    str_hist[name] = val
+#               str_hist = {name: str() if isinstance(getattr(hist, name),funtion) else getattr(hist, name) for name in hist.args_names}
+            #instead of using str(hist) wich is not correct as a python eval, make a dict of input_param
             info[f'T_{histo_name}'] = json.dumps(
-                str(hist), cls=ArrayTensorJSONEncoder)
+                str_hist, cls=ArrayTensorJSONEncoder)
             order.append(histo_name)
 
         info['transfo_order'] = '_'.join(order)
