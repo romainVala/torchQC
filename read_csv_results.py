@@ -22,10 +22,26 @@ from segmentation.utils import custom_import
 def default_json_str_to_eval_python(x):
     if pd.isna(x):
         return None
+    if not isinstance(x,str):
+        return x
     x = x.replace('true', 'True')
     x = x.replace('false', 'False')
     x = x.replace('null', 'None')
+    x = x.replace("<","'<")
+    x = x.replace(">", ">'")  #when python function are print in csv so transform as str
+    #same with array, more difficult
+    ind_array = x.find('array')
+    while ind_array>0:
+        ind_next_tag = x[ind_array:].find("'") #suposing next tag
+        cut_int = ind_array + ind_next_tag
+        #x = x[:ind_array] + "'" + x[ind_array:cut_int] + "', " + x[cut_int:] #make the array a str
+        #let's just remove it
+        x = x[:ind_array] + "'aray_removed', " + x[cut_int:]
+        ind_array = x.find('array')
+
     x = eval(x)
+    if isinstance(x,str):
+        x = eval(x)
     return x
 
 
@@ -193,11 +209,13 @@ class ModelCSVResults(object):
 
     def normalize_dict_to_df(self, col, suffix=None, eval_func=default_json_str_to_eval_python):
         if isinstance(col, list):
-            for one_col in col:
+            if not isinstance(suffix, list):
+                suffix = [suffix for _ in col]
+            for one_col, one_suffix in zip(col, suffix):
                 if one_col not in self.df_data:
                     print('WARNING col {} is missing'.format(one_col))
                 else:
-                    df = self.normalize_dict_to_df(one_col, suffix=suffix, eval_func=eval_func)
+                    df = self.normalize_dict_to_df(one_col, suffix=one_suffix, eval_func=eval_func)
             return df
 
         if suffix is None:
@@ -208,7 +226,8 @@ class ModelCSVResults(object):
         #print(dict_vals[~pd.isna(dict_vals)])
         val_names = dict_vals[~pd.isna(dict_vals)].iloc[0].keys()
         for name in val_names:
-            self.df_data[f"{suffix}_{name}"] = dict_vals.apply(lambda x: x[name] if not(pd.isna(x)) else None)
+            added_key_name = f"{suffix}_{name}" if suffix else f"{name}"
+            self.df_data[added_key_name] = dict_vals.apply(lambda x: x[name] if not(pd.isna(x)) else None)
         return self.df_data
 
 
