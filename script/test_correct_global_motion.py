@@ -1,36 +1,17 @@
-from pprint import pprint
-from torchio import Image, transforms, INTENSITY, LABEL, Subject, SubjectsDataset
-import torchio
-from torchvision.transforms import Compose
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-import pandas as pd
-from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, CenterCropOrPad
-from copy import deepcopy
-from nibabel.viewers import OrthoSlicer3D as ov
-from torchvision.transforms import Compose
-import sys
-from torchio.data.image import read_image
 import torch
-import seaborn as sns
+import matplotlib.pyplot as plt, seaborn as sns, pandas as pd
+import numpy as np
+import os, sys, math
+from nibabel.viewers import OrthoSlicer3D as ov
+import torchio as tio
+from utils_file import gfile, get_parent_path
 sns.set(style="whitegrid")
 pd.set_option('display.max_rows', None, 'display.max_columns', None, 'display.max_colwidth', -1, 'display.width', 400)
 
-#from torchQC import do_training
-#dt = do_training('/tmp')
-l1_loss = torch.nn.L1Loss()
-
-"""
-Comparing result with retromocoToolbox
-"""
-from utils_file import gfile, get_parent_path
-import pandas as pd
-from doit_train import do_training
 
 def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], center='zero' ):
     fp = np.zeros((6, 200))
-    x = np.arange(0,200)
+    x = np.arange(0, 200)
     if method=='gauss':
         y = np.exp(-(x - x0) ** 2 / float(2 * sigma ** 2))*amplitude
     elif method == 'step':
@@ -58,7 +39,6 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         fp[xx,:] = y
     return y
 
-import math
 def _translate_freq_domain( freq_domain, translations, inv_transfo=False):
     translations = -translations if inv_transfo else translations
 
@@ -75,8 +55,11 @@ def print_fft(Fi):
     s1 = np.sum(np.imag(Fi[0:100]))
     s2 = np.sum(np.imag(Fi[101:]))
     print('ks1 {} ks2 {} ks1+ks2 {} sum {}'.format(s1,s2,s1+s2,np.sum(np.imag(Fi))))
+    s1 = np.sum(Fi[0:100])
+    s2 = np.sum(Fi[101:])
+    print('ks1 {} ks2 {} ks1+ks2 {} sum {}'.format(s1,s2,s1+s2,np.sum(Fi)))
 
-def sym_imag(Fi):
+def sym_imag(Fi, Fo=None):
     lin_spaces = [np.linspace(-0.5, 0.5, x) for x in Fi.shape] #todo it suposes 1 vox = 1mm
     meshgrids = np.meshgrid(*lin_spaces, indexing='ij')
     grid_coords = np.array([mg.flatten() for mg in meshgrids])
@@ -84,7 +67,7 @@ def sym_imag(Fi):
     sum_ini = np.sum(np.imag(Fi[0:100])) + np.sum(np.imag(Fi[101:]));
     print(f'sum_ini is {sum_ini}, ')
     resolution=1000
-    xx = np.arange(-10000,30000)
+    xx = np.arange(-30000,30000)
     for i in xx:
         t1 = np.ones(200) * i /resolution
         t2 = np.ones(200) * (i+1)/resolution
@@ -100,7 +83,7 @@ def sym_imag(Fi):
         sum_list.append(s1)
         #s2 = np.sum(np.imag(Fit2)) #marche pas pour sinus
         #print(f's1 {s1} s2 {s2}')
-        if s2*s1 <0 or s1*s2 < 1e-4:
+        if s2*s1 <0 :#or s1*s2 < 1e-4:
             if np.abs(s1) < np.abs(s2):
                 Fmin = Fit1; phase_shift = 1/resolution #phase_shift1
             else:
@@ -117,17 +100,34 @@ def sym_imag(Fi):
     return Fi
 #fmc = sym_imag(fm)
 
-fp = corrupt_data(100, sigma=2,center='zerio')
-#fp = corrupt_data(100, sigma=20, method='step')
+fpok = corrupt_data(100, sigma=20,center='zefro')
+#fp = corrupt_data(90, sigma=20, method='step',center='zero')
 so = corrupt_data(50,sigma=30, method='Ustep',center='None')
 #so = corrupt_data(50,sigma=20, method='sin')+1
 fi = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex))
-fm =_translate_freq_domain(fi, fp)
-print_fft(fm);
-# fm = sym_imag(fm)
-so2 = np.fft.ifftshift(np.fft.ifftn(fm))
+#fm =_translate_freq_domain(fi, fp)
+
+kx = np.arange(-1,1+2/200,2/(200-1))
+fp = np.ones_like(kx)*1
+fp = fpok
+fp_kspace = np.exp(-1j * math.pi * kx * fp)
+fp_im = np.fft.ifftshift(np.fft.ifftn(fp_kspace))
+print_fft(fp_kspace)
+fp_kspace = sym_imag(fp_kspace)
+
+plt.figure(); plt.plot(np.imag(fp_kspace))
+
+fm = fi * fp_kspace
+som = np.fft.ifftshift(np.fft.ifftn(fm))
+
+sconv_fft = np.fft.ifftshift(np.fft.ifftn(fi*fm))
+
+plt.figure(); plt.plot(so); plt.plot(abs(som));
 plt.figure();plt.plot(fp.T)
-plt.figure();plt.plot(abs(so2)); plt.plot(so)
 plt.figure(); plt.plot(np.real(fi)); plt.plot(np.imag(fi));plt.plot(np.real(fm)); plt.plot(np.imag(fm)); plt.legend(['Sr','Sim','Tr','Tim'])
 
 #output = (np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(image)))).astype(np.complex128)
+siconv = np.convolve(so,so, mode='same')
+soconv = np.abs(np.convolve(som, so, mode='same'))
+
+plt.figure();plt.plot(siconv); plt.plot(soconv); plt.plot(np.abs(sconv_fft)); plt.legend(['auto','conv_img','conv_fft'])
