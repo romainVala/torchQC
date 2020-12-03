@@ -54,7 +54,7 @@ def report_learning_curves(results_dirs, save=False):
         iter_max, iter_min, ymeans = plot_losses('/Train_ep*.csv', 'blue', 'train mean loss')
         train_loss.append(ymeans)
 
-        plot_losses('/Val_ep*.csv', 'green', 'val mean loss')
+        #plot_losses('/Val_ep*.csv', 'green', 'val mean loss')
 
         if iter_max==iter_min:
             plt.xlabel('epch ( {} iter)'.format(iter_max))
