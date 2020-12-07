@@ -907,6 +907,7 @@ class RunModel:
 
         if self.eval_results_dir != self.results_dir:
             df = pd.DataFrame()
+            save=True
 
         location = sample.get('index_ini')
         shape = sample[self.image_key_name]['data'].shape
