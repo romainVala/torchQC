@@ -928,6 +928,8 @@ class RunModel:
 
             if self.label_key_name in sample :
                 info['label_filename'] = sample[self.label_key_name]['path'][idx]  if is_batch else sample[self.label_key_name]['path']
+            if 'name' in sample:
+                info['subject_name'] = sample['name'][idx] if is_batch else sample['name']
 
             with torch.no_grad():
                 loss = 0
