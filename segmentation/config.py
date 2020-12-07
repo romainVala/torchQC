@@ -316,8 +316,8 @@ class Config:
         struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, DATA_KEYS, 'DATA CONFIG FILE')
-        self.set_struct_value(struct, 'label_key_name', [])
-        self.set_struct_value(struct, 'labels', [])
+        self.set_struct_value(struct, 'label_key_name')
+        self.set_struct_value(struct, 'labels')
         self.set_struct_value(struct, 'patterns', [])
         self.set_struct_value(struct, 'csv', [])
         self.set_struct_value(struct, 'paths', [])
