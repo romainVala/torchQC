@@ -239,7 +239,7 @@ class RunModel:
         for nb_eval in range(self.eval_repeate):
             with torch.no_grad():
                 self.model.eval()
-                if nb_eval > 1:
+                if nb_eval > 0:
                     self.eval_csv_basename = f'V{nb_eval}'+ self.eval_csv_basename if self.eval_csv_basename else f'V{nb_eval}'
                 patch_size = self.patch_size or self.eval_patch_size
                 if self.eval_frequency is not None:
