@@ -83,6 +83,7 @@ class RunModel:
         self.save_data = struct['validation']['save_data']
         self.eval_dropout = struct['validation']['eval_dropout']
         self.split_batch_gpu = struct['validation']['split_batch_gpu']
+        self.eval_repeate =  struct['validation']['repeate_eval']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
         self.activation = struct['activation']
@@ -235,19 +236,22 @@ class RunModel:
 
         self.log('Evaluation mode')
         self.log_peak_CPU_memory()
-        with torch.no_grad():
-            self.model.eval()
-            patch_size = self.patch_size or self.eval_patch_size
-            if self.eval_frequency is not None:
-                if patch_size is not None:
-                    self.log('Evaluation on patches')
-                self.train_loop(save_model=False)
+        for nb_eval in range(self.eval_repeate):
+            with torch.no_grad():
+                self.model.eval()
+                if nb_eval > 1:
+                    self.eval_csv_basename = f'V{nb_eval}'+ self.eval_csv_basename if self.eval_csv_basename else f'V{nb_eval}'
+                patch_size = self.patch_size or self.eval_patch_size
+                if self.eval_frequency is not None:
+                    if patch_size is not None:
+                        self.log('Evaluation on patches')
+                    self.train_loop(save_model=False)
 
-            do_whole_image_loop = self.dense_patch_eval \
-                or self.whole_image_inference_frequency is not None
-            if patch_size is not None and do_whole_image_loop:
-                self.log('Evaluation on whole images')
-                self.whole_image_evaluation_loop(save_transformed_samples)
+                do_whole_image_loop = self.dense_patch_eval \
+                    or self.whole_image_inference_frequency is not None
+                if patch_size is not None and do_whole_image_loop:
+                    self.log('Evaluation on whole images')
+                    self.whole_image_evaluation_loop(save_transformed_samples)
 
         # Log memory consumption
         self.log_peak_CPU_memory()
@@ -1044,6 +1048,8 @@ class RunModel:
                 resdir = f'{self.eval_results_dir}/{name}/'
                 if not os.path.isdir(resdir):
                     os.makedirs(resdir)
+                if self.eval_csv_basename is not None:
+                    csv_name = self.eval_csv_basename + '_' + csv_name #if repeate_eval the val loop change eval_csv_basename
                 filename = f'{resdir}/{csv_name}.csv'
         df.to_csv(filename)
 
