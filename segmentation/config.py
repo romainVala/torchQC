@@ -25,10 +25,11 @@ import pandas as pd
 
 MAIN_KEYS = ['data', 'transform', 'model']
 
-DATA_KEYS = ['images', 'batch_size', 'image_key_name', 'label_key_name',
-             'labels']
+DATA_KEYS = ['images', 'batch_size', 'image_key_name' ]\
+            #, 'label_key_name','labels']
 IMAGE_KEYS = ['type', 'components']
 PATTERN_KEYS = ['root', 'components']
+CSV_KEYS = ['root', 'components', 'name']
 PATH_KEYS = ['name', 'components']
 LOAD_FROM_DIR_KEYS = ['root', 'list_name']
 QUEUE_KEYS = ['sampler']
@@ -112,7 +113,6 @@ class Config:
                 data_structure, transform_structure)
         self.train_loader, self.val_loader = self.generate_data_loaders(
             data_structure)
-
         self.save_transformed_samples = transform_structure['save']
         self.post_transforms = transform_structure['post_transforms']
 
@@ -316,7 +316,10 @@ class Config:
         struct = self.read_json(file)
 
         self.check_mandatory_keys(struct, DATA_KEYS, 'DATA CONFIG FILE')
+        self.set_struct_value(struct, 'label_key_name', [])
+        self.set_struct_value(struct, 'labels', [])
         self.set_struct_value(struct, 'patterns', [])
+        self.set_struct_value(struct, 'csv', [])
         self.set_struct_value(struct, 'paths', [])
         self.set_struct_value(struct, 'load_sample_from_dir', [])
         self.set_struct_value(struct, 'csv_file', [])
@@ -345,6 +348,11 @@ class Config:
             self.set_struct_value(pattern, 'name_pattern')
             self.set_struct_value(pattern, 'prefix', '')
             self.set_struct_value(pattern, 'suffix', '')
+
+        for csv in struct['csv_file']:
+            self.check_mandatory_keys(csv, CSV_KEYS, 'CSV_FILE')
+            self.set_struct_value(csv, 'name')
+            self.set_struct_value(csv, 'list_name')
 
         for path in struct['paths']:
             self.check_mandatory_keys(path, PATH_KEYS, 'PATH')
@@ -396,7 +404,6 @@ class Config:
             struct['queue']['sampler'] = sampler
             struct['queue']['attributes'].update(
                 {'num_workers': struct['num_workers'], 'sampler': sampler})
-
         return struct, struct['labels'], patch_size, sampler
 
     def parse_transform_file(self, file, return_string=False):
@@ -584,7 +591,7 @@ class Config:
         if len(files) == 0:
             struct['current_epoch'] = 1
         else:
-            last_model = max(files, key=os.path.getctime)
+            last_model = max(files, key=os.path.getmtime)
             matches = re.findall('ep([0-9]+)', last_model)
             struct['current_epoch'] = int(matches[-1]) + 1 if matches else 1
 
@@ -744,7 +751,8 @@ class Config:
                         **image_attributes
                     )
                     s[img_name] = img
-                s['name'] = n
+                if 'name' not in s:
+                    s['name'] = n
                 subject_list.append(torchio.Subject(s))
             return subject_list
 
@@ -806,13 +814,12 @@ class Config:
             res = pd.read_csv(csv_file["root"])
 
             for suj_idx in range(len(res)):
-                subject = {'name': res['name'][suj_idx]}
+                subject = {'name': res[csv_file['name']][suj_idx]}
                 for component_name, component in csv_file['components'].items():
                     component_path = res[component['column_name']][suj_idx]
                     image_name = component['image']
                     update_subject(subject, data_struct['images'],
                                    component_name, component_path, image_name)
-
                 relevant_dict[suj_idx] = subject
 
         # Retrieve subjects using patterns
@@ -973,8 +980,7 @@ class Config:
             files = glob.glob(os.path.join(self.results_dir, 'model_ep*'))
             if len(files) == 0:
                 return return_model(model)
-            file = max(files, key=os.path.getctime)
-
+            file = max(files, key=os.path.getmtime)
         else:
             file = struct['path']
             if file is None or not Path(file).exists():
