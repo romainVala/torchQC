@@ -17,13 +17,14 @@ import matplotlib.pyplot as plt
 plt.interactive(True)
 from os.path import join as opj
 from nibabel.viewers import OrthoSlicer3D as ov
-from segmentation.utils import custom_import
+
 
 def default_json_str_to_eval_python(x):
     if pd.isna(x):
         return None
     if not isinstance(x,str):
         return x
+
     x = x.replace('true', 'True')
     x = x.replace('false', 'False')
     x = x.replace('null', 'None')
@@ -167,7 +168,6 @@ class ModelCSVResults(object):
         ov(volume.get_data())
 
     def trsfm_arg_eval(self, arg_to_eval):
-        from torchio import Interpolation
         from torchio.transforms.preprocessing.intensity.normalization_transform import NormalizationTransform
 
         if isinstance(arg_to_eval, str):
@@ -181,7 +181,7 @@ class ModelCSVResults(object):
         return arg_to_eval
 
     def get_transformations(self, idx):
-        from torchio.transforms import compose_from_history, Compose
+        from torchio.transforms import Compose
         import torchio.transforms
 
         row = self.get_row(idx)
@@ -190,19 +190,36 @@ class ModelCSVResults(object):
         trsfm_seeds = []
         for trsfm_name in trsfms_order:
             if trsfm_name not in ["OneOf"]:
-                trsfm_history = json.loads(row["T_"+trsfm_name])
-                trsfm_seed = trsfm_history["seed"] if "seed" in trsfm_history.keys() else None
-                trsfm_seeds.append(trsfm_seed)
-                if "seed" in trsfm_history.keys():
+                trsfm_history = default_json_str_to_eval_python(row["T_"+trsfm_name])
+                trsfm = getattr(torchio.transforms, trsfm_name)
+                #trsfm_seed = trsfm_history["seed"] if "seed" in trsfm_history.keys() else None
+                if trsfm_name == "RandomMotionFromTimeCourse":
+                    trsfm_seeds.append(trsfm_history["seed"])
                     del trsfm_history["seed"]
-                trsfm = custom_import({"module": "torchio.transforms", "name": trsfm_name})
-                init_args = inspect.getfullargspec(trsfm.__init__).args
+                    init_args = inspect.getfullargspec(trsfm.__init__).args
+                    print(init_args)
+                    trsfm_history = {hist_key: self.trsfm_arg_eval(hist_val)
+                                     for hist_key, hist_val in trsfm_history.items()
+                                     if hist_key in init_args and hist_key not in ['metrics', 'fitpars', "read_func"]}
+                else:
+                    trsfm_seeds.append(None)
 
+                if trsfm_name == "RescaleIntensity":
+                    trsfm_history["masking_method"] = None #self.trsfm_arg_eval(str(trsfm_history["masking_method"]))
+                #if "seed" in trsfm_history.keys():
+                #    del trsfm_history["seed"]
+                print(f"Found transform: {trsfm_name}\n{trsfm_history}")
+
+                trsfm_history = {k: v for k, v in trsfm_history.items() if k not in ["probability"]}
+                trsfm = trsfm(**trsfm_history)
+                #init_args = inspect.getfullargspec(trsfm.__init__).args
+                """
                 hist_kwargs_init = {hist_key: self.trsfm_arg_eval(hist_val)
                                     for hist_key, hist_val in trsfm_history.items()
                                     if hist_key in init_args and hist_key not in ['metrics', 'fitpars', "read_func"]}
 
                 trsfm = trsfm(**hist_kwargs_init)
+                """
                 trsfm_list.append(trsfm)
         trsfm_composition = Compose(trsfm_list)
         return trsfm_composition, trsfm_seeds
@@ -327,4 +344,3 @@ class ModelCSVResults(object):
             return "Viewing: {}".format(path)
 
         self.dash_app.run_server(debug=False)
-
