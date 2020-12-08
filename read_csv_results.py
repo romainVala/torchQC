@@ -111,7 +111,7 @@ class ModelCSVResults(object):
         if not pd.isna(subject_row["image_filename"]):
             path_imgs = self.read_path(subject_row["image_filename"])
             if isinstance(path_imgs, list):
-                imgs = ScalarImage(tensor=np.asarray([nb.load(p).get_fdata for p in path_imgs]))
+                imgs = ScalarImage(tensor=np.asarray([nb.load(p).get_fdata() for p in path_imgs]))
             else:
                 imgs = ScalarImage(path_imgs)
             dict_suj["volume"] = imgs
