@@ -48,12 +48,14 @@ def default_json_str_to_eval_python(x):
 
 class ModelCSVResults(object):
 
-    def __init__(self, csv_path=None, out_tmp=""):
+    def __init__(self, csv_path=None, df_data=None, out_tmp=""):
         self.csv_path = csv_path
         self.df_data = None
         self.out_tmp = out_tmp
         if csv_path:
             self.open(csv_path=csv_path)
+        if df_data is not None:
+            self.df_data = df_data
         self.dash_app = None
         self.written_files = []
 
@@ -281,7 +283,7 @@ class ModelCSVResults(object):
             plt.savefig(save)
         plt.close()
 
-    def scatter(self, col_x, col_y, renderer="browser", color=None, **kwargs):
+    def scatter(self, col_x, col_y, renderer="browser", color=None, port_number=8050, **kwargs):
         fig = go.Figure()
         filtered_df = self.df_data[~self.df_data[col_x].isnull() & ~self.df_data[col_y].isnull()]
         if not color or color not in self.df_data.columns:
@@ -343,4 +345,4 @@ class ModelCSVResults(object):
                 os.system("mrviewv " + out_path)
             return "Viewing: {}".format(path)
 
-        self.dash_app.run_server(debug=False)
+        self.dash_app.run_server(debug=False, port=port_number)
