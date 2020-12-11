@@ -87,6 +87,10 @@ class Config:
         self.viz_structure = None
 
     def init(self):
+        if os.path.dirname(self.main_file) == self.results_dir:
+            self.save_files = False
+            self.debug('Forcing no json save because input json  {} are in the result_dir {} '.format(self.main_file,self.results_dir))
+
         self.main_structure = self.parse_main_file(self.main_file)
 
         data_structure, transform_structure, model_structure, \
