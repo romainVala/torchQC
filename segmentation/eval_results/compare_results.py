@@ -243,6 +243,28 @@ def aggregate_csv_files(pattern, filename, fragment_position=-3):
     final_data_frame = pd.concat(data_frames)
     final_data_frame.to_csv(filename)
 
+def aggregate_all_csv(pattern, filename, parse_names=['Suj','model'],  fragment_position=-3):
+
+    if isinstance(pattern, str):
+        files = glob.glob(pattern)
+    else:
+        files = [f for p in pattern for f in glob.glob(p)]
+    data_frames = [pd.read_csv(file, index_col=0) for file in files]
+    for i, file in enumerate(files):
+        name = file.split('/')[fragment_position]
+
+        # Get information
+        fragments = name.split('_')
+        ind_pat = [fragments.index(pp) for pp in parse_names]
+        ind_pat.append(len(fragments))
+        for ii in range(len(ind_pat)-1):
+            val_list = fragments[ind_pat[ii]+1:ind_pat[ii+1]]
+            val = val_list
+            data_frames[i][parse_names[ii]] = '_'.join(val_list)
+
+    final_data_frame = pd.concat(data_frames, sort=False)
+    final_data_frame.to_csv(filename)
+
 
 def create_data_frame(results_dirs, metric, ref_tissue='WM', spacing=(1, 1, 1), label='GM'):
     files = [_get_file(r) for r in results_dirs]
