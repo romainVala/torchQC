@@ -27,11 +27,19 @@ def get_ep_iter_from_res_name(resname, nbit, batch_size=4):
     name_sorted, ep_sorted, it_sorted = aa[:, 0], aa[:, 1], aa[:, 2]
     ep_sorted = np.array([int(ee) for ee in ep_sorted])
     it_sorted = np.array([int(ee) for ee in it_sorted])
+    ep_sorted = ep_sorted - ep_sorted[0] #so that the first is 0
     return name_sorted, ep_sorted, it_sorted
 
 def my_read_csv_split_columns(fres):
     df = pd.read_csv(fres)
 
+def convert_string_array_to_array(x):
+    x = x.replace('[','')
+    x = x.replace(']', '')
+    x = ','.join(x.split())
+    if x.startswith(','):
+        x = x[1:]
+    return np.array(eval(x))
 
 def plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Val.*csv',
                            prediction_column_name='prediction', target_column_name='targets',
@@ -55,17 +63,27 @@ def plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Va
         fresV_sorted, b, c = get_ep_iter_from_res_name(resname, nbite)
         ite_tot = c+b*nbite
         ite_tottt = np.hstack([0, ite_tot])
-
+        print(ite_tot)
         resV = [pd.read_csv(resdir[0] + '/' + ff) for ff in fresV_sorted]
         df_val = pd.concat(resV, ignore_index=True, sort=False)
 
         for rr in resV:
             if 'sample_time' not in rr:
                 rr['sample_time'] = rr['batch_time'] / 4 #for old result always runed with batchsize 4
-        for rr in resT:
-            if 'sample_time' not in rr:
-                rr['sample_time'] = rr['batch_time'] / 4
-
+            if isinstance(rr[prediction_column_name][0], str):
+                rr[prediction_column_name] = rr[prediction_column_name].apply(
+                    lambda s: convert_string_array_to_array(s))
+                rr[target_column_name] = rr[target_column_name].apply(
+                    lambda s: convert_string_array_to_array(s))
+        if is_train:
+            for rr in resT:
+                if 'sample_time' not in rr:
+                    rr['sample_time'] = rr['batch_time'] / 4
+                if isinstance(rr[prediction_column_name][0], str):
+                    rr[prediction_column_name] = rr[prediction_column_name].apply(
+                        lambda s: convert_string_array_to_array(s))
+                    rr[target_column_name] = rr[target_column_name].apply(
+                        lambda s: convert_string_array_to_array(s))
 
         if is_train:
             df_train = pd.concat(resT, ignore_index=True, sort=False)
@@ -89,15 +107,20 @@ def plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Va
         if is_train: plt.plot(ite_tot, TimeTrain,color=col[ii], linewidth=6)
 
         #print some summary information on the results
+        if not is_train:
+            TimeTrain=0
+        nb_res = len(resT) if is_train else 0
+        np_iter = len(resT[0]) if is_train else 0
+
         totiter, mbtt, mbtv = ite_tot[-1] / 1000, np.nanmean(TimeTrain), np.mean(TimeVal)
-        tot_time = len(resT) * len(resT[0]) * mbtt + len(resV) * len(resV[0]) * mbtv
-        percent_train = len(resT) * len(resT[0]) * mbtt / tot_time
+        tot_time = nb_res * np_iter * mbtt + len(resV) * len(resV[0]) * mbtv
+        percent_train = nb_res * np_iter * mbtt / tot_time
         tot_time_day = np.floor( tot_time/60/60/24 )
         tot_time_hour = (tot_time - tot_time_day*24*60*60) / 60/60
         print('Result : {} \t {} '.format(
             colored(get_parent_path(resdir[0])[1], 'green'), sresname[ii] ))
         print('\t{} epoch of {} vol {} val on {} vol Tot ({:.1f}%train) {} d {:.1f} h'.format(
-            len(resT), len(resT[0]), len(resV),len(resV[0]), percent_train, tot_time_day, tot_time_hour ))
+            nb_res, np_iter, len(resV),len(resV[0]), percent_train, tot_time_day, tot_time_hour ))
 
         fj = gfile(oneres,'data.json')
         if len(fj)==1:
