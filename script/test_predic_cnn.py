@@ -17,13 +17,7 @@ import torch.optim as optim
 from torchvision.transforms import Compose
 import torchio as tio
 from torchio.data.io import write_image, read_image
-from torchio.transforms import RandomMotionFromTimeCourse, RandomAffine, \
-    CenterCropOrPad, RandomElasticDeformation, CropOrPad, RandomNoise, ApplyMask
-from torchio.transforms.augmentation.spatial.random_affine_fft import RandomAffineFFT
-
-from torchio import Image, ImagesDataset, transforms, INTENSITY, LABEL, Interpolation, Subject
 from utils_file import get_parent_path, gfile, gdir
-from doit_train import do_training, get_motion_transform
 from slices_2 import do_figures_from_file
 from utils import reduce_name_list, remove_string_from_name_list
 from utils_plot_results import get_ep_iter_from_res_name, plot_resdf, plot_train_val_results, \
@@ -92,6 +86,49 @@ for rr, fign in zip(dres_reg_exp, figname):
     plot_train_val_results(dres, train_csv_regex='Train.*csv', val_csv_regex='Val.*csv',
                            prediction_column_name='prediction', target_column_name='targets',
                            target_scale=1, fign=fign, sresname=sresname)
+
+d='/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/train_random_synth/'
+dres = [d+'train_synth_noise_AND_SSIM_AND_NCC/result']
+dres = [d+'train_synth_noise_AND_SSIM/result']
+dres = [d+'train_synth_ssim_brain/result']
+dres = [d+'train_synth_contrast_ssim/result']
+dres = [d+'train_synth_noise_without_motion_mask/result']
+dres = [d+'train_synth_noise/result']
+ft = gfile(dres,'^Train_ep130.csv') #a partir de 124 le csv est ok
+dres = [d+"train_synth_noise/result"]
+ft = gfile(dres,'^Train_ep05..csv')
+dres = [d+'result_regressL1']
+ft = gfile(dres,'Train_ep02..csv')
+dres = [d+'res_small_noise_contrast_SSIM']
+ft = gfile(dres,'Train_ep15..csv')
+
+plot_train_val_results(dres, train_csv_regex='^Train.*csv', val_csv_regex='^Train.*csv',prediction_column_name='prediction', target_column_name='targets',
+                           target_scale=1, fign='figrrr', sresname='sresname')
+
+resT = [pd.read_csv(ff) for ff in ft]
+df = pd.concat(resT, sort=False); print(df.shape)
+#plt.figure(); plt.scatter(df['prediction'], df['targets']); plt.plot([0.6, 1], [0.6, 1],c='k'); plt.grid()
+for k in ['random_noise','ssim_SSIM_brain','NCC','contrast_SSIM']:
+    if 'pred_'+k in df:
+        plt.figure();
+        plt.scatter(df['pred_'+k], df['tar_'+k]);
+        plt.plot([0, 1], [0, 1], c='k'); plt.ylabel('target ' + k)
+        plt.grid()
+        L1loss = np.sum(np.abs(df['pred_'+k] - df['tar_'+k])) / len(df.prediction)
+        print('mean error for {} {}'.format(k,L1loss))
+        plt.title(f'csv 130-9 L{L1loss}')
+
+print('mean error {}'.format(np.sum(np.abs(df.prediction-df.targets)) / len(df.prediction)))
+
+plt.figure(); plt.scatter(df['pred_NCC'], df['tar_NCC']); plt.plot([0.8, 1], [0.8, 1],c='k'); plt.grid()
+print('mean error NCC{}'.format(np.sum(np.abs(df.pred_NCC-df.tar_NCC)) / len(df.pred_NCC)))
+plt.figure(); plt.scatter(df['pred_random_noise'], df['tar_random_noise']); plt.plot([0, 1], [0, 1],c='k'); plt.grid(); plt.ylabel('target noise');plt.grid()
+print('mean error std noise {}'.format(np.sum(np.abs(df.pred_random_noise-df.tar_random_noise)) / len(df.pred_random_noise)))
+plt.figure(); plt.scatter(df['pred_ssim_SSIM_brain'], df['tar_ssim_SSIM_brain']); plt.plot([0.2, 1], [0.2, 1],c='k'); plt.grid(); plt.ylabel('target ssimBrain'); plt.grid()
+print('mean error ssim {}'.format(np.sum(np.abs(df.pred_ssim_SSIM_brain-df.tar_ssim_SSIM_brain)) / len(df.pred_random_noise)))
+
+plt.figure(); plt.scatter(df.prediction, df.targets); plt.plot([0.6, 1], [0.6, 1],c='k'); plt.grid()
+np.sum(np.abs(df.prediction-df.targets)) / len(df.prediction)
 
 #new res EvalOn
 d='/network/lustre/iss01/home/romain.valabregue/datal/QCcnn/NN_regres_motion_New/result_HCP_T1_AffEla_mvt_rescal_mask_no_seed/eval_with_list_transfo2'

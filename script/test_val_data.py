@@ -350,3 +350,57 @@ rmriqc_not_cenir = rmriqc_not_cenir.iloc[index_remove,:]
 
 rlabel_not_cenir.to_csv(resdir + 'CATI_allQC_center_sorted_not_cenir.csv')
 rmriqc_not_cenir.to_csv(resdir + 'res_mriqc_9118_singu15_not_cenir.csv')
+
+
+#2020/12 redo csv cati QC4 cenir
+df = pd.read_csv('/home/romain.valabregue/datal/QC/CATI/CATI_allQC_center.csv')
+dfQC4 = df[df.globalQualitative==4]
+aa=dfQC4.mvtWrinkles + dfQC4.mvtBlur + dfQC4.mvtDuplication + dfQC4.artefactCortex + dfQC4.artefactHippo +dfQC4.artefactOther+dfQC4.mvtGhost + dfQC4.backgroundGhost
+df100 = dfQC4[aa==0]
+
+df100= pd.DataFrame()
+for i in range(0,4):
+    dfsel = df[df.globalQualitative== i]
+    if len(dfsel)>100:
+        i = np.random.randint(0, len(dfsel), 100);
+        dfsel = dfsel.iloc[i, :]
+    df100 = df100.append(dfsel)
+
+df100.index=range(0,len(df100))
+
+for ii,ff in enumerate(df100.serie_path_proc):
+    if ff.find('/network/lustre/dtlake01/opendata/data/ds000030/rrr/')<0:
+        print(ff)
+        df100.at[ii, 'serie_path_conv']
+    new_path=ff[:52] + 'nii/' + ff[52:]
+    df100.at[ii,'serie_path_conv']=new_path
+    if not os.path.exists(new_path):
+        print(new_path);ppp
+    dc = gdir(new_path,'cat')
+    fms = gfile(dc, '^ms.*nii')
+    fs = gfile(dc,'^s.*nii')
+    fmask = gfile(dc,'^mask_brain')
+    if not (len(fms) == 1) or not (len(fs)==1) or not (len(fmask)==1):
+        print('arggg');kkqsdf
+    df100.at[ii,'serie_path'] = fms[0]
+    df100.at[ii,'dataPathConv'] = fs[0]
+    df100.at[ii, 'dataPath_orig'] = fmask[0]
+
+df100 = df100.rename({'serie_path_conv':'serie_path_proc_new', 'serie_path':'volume_ms',
+                      'dataPathConv': 'volume_T1', 'dataPath_orig': 'volume_mask_brain'}, axis='columns')
+df100 = df100.drop('serie_path_proc',axis='columns')
+df100 = df100.rename({'serie_path_proc_new':'serie_path_proc'}, axis='columns')
+
+
+df100.to_csv('/home/romain.valabregue/datal/QC/CATI/CATI_QCall_100suj.csv')
+df100.to_csv('/home/romain.valabregue/datal/QC/CATI/CATI_QC4_100suj.csv')
+
+#csv HCP validation
+suj = gdir('/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii','^7')
+suj = gdir(suj,['T1w','T1_1mm'])
+sujname  = get_parent_path(suj,level=3)[1]
+vol_T1 = gfile(suj,'^T1w_1mm.nii.gz')
+vol_T1ms = gfile(suj,'^mT')
+vol_brain = gfile(suj,'^brain_T1w_1mm.nii.gz')
+df = pd.DataFrame({"volume_T1": vol_T1, "volume_mask_brain":vol_brain,"volume_ms":vol_T1ms,  "suj_name":sujname})
+df.to_csv('/home/romain.valabregue/datal/QCcnn/CATI_datasets/HCP_val44_suj7.csv')

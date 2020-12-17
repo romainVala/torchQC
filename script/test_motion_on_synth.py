@@ -50,17 +50,21 @@ transfo_list = config.train_transfo_list
 df = pd.DataFrame()
 
 #same motion random label
+exclude_t = ['RescaleIntensity']
 for i in range(500):
     s=s1
     for t in transfo_list:
-        if isinstance(t, tio.transforms.augmentation.composition.OneOf): #skip affine elastic
+        if t.name in exclude_t:
             continue
         if isinstance(t, tio.transforms.augmentation.intensity.RandomMotionFromTimeCourse):
+            continue
+            t.displacement_shift_strategy = 'center_zero'
             s = t(s, seed=5555)
         else:
             s = t(s)
         if isinstance(t, tio.transforms.augmentation.intensity.random_labels_to_image.RandomLabelsToImage):
             mean_S = s.t1.data.mean().numpy()
+
     df, batch_time = mr.record_regression_batch( df, s, torch.zeros(1).unsqueeze(0), torch.zeros(1).unsqueeze(0), mean_S, save=True)
     print(i)
 
@@ -75,6 +79,8 @@ for i in range(500):
     for t in transfo_list:
         if isinstance(t, tio.transforms.augmentation.composition.OneOf): #skip affine elastic
             continue
+        if isinstance(t, tio.transforms.augmentation.intensity.RandomMotionFromTimeCourse):
+            t.displacement_shift_strategy = 'center_zero'
         s = t(s)
     df, batch_time = mr.record_regression_batch( df, s, torch.zeros(1).unsqueeze(0), torch.zeros(1).unsqueeze(0), 1, save=True)
     print(i)
@@ -155,7 +161,7 @@ from read_csv_results import ModelCSVResults
 d= result_dir + '/'
 f1= d+ 'Train_ep001.csv'
 f1 = d + 'Train_random_label_one_small_motion.csv'
-f2 = d + 'Train_ep002.csv'
+f2 = d + 'Train_ep003.csv'
 f2 = d + 'Train_random_label_affine_one_small_motion.csv'
 f2 = d + 'Train_one_contrast_radom_motion_small.csv'
 
@@ -163,8 +169,12 @@ mres = ModelCSVResults(f1,  out_tmp="/tmp/rrr")
 mres2 = ModelCSVResults(f2,  out_tmp="/tmp/rrr")
 keys_unpack = ['T_RandomLabelsToImage','T_RandomMotionFromTimeCourse_metrics_t1','T_RandomAffine', 'T_RandomMotionFromTimeCourse']
 suffix = ['Tl', '', 'Tr', 'Tm']
-df1 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix); df1 = df1.rename(columns = {"sample_time":"meanS"})
-df2 = mres2.normalize_dict_to_df(keys_unpack, suffix=suffix); df2 = df2.rename(columns = {"sample_time":"meanS"})
+keys_unpack = ['T_Affine','T_ElasticDeformation', 'T_Noise','T_RandomMotionFromTimeCourse', 'T_BiasField','T_LabelsToImage']
+suffix = ['Taff', 'Tela','Tnoi', 'Tmot', 'Tbias', 'Tlab']
+df1 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix);
+
+df1 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix); #df1 = df1.rename(columns = {"sample_time":"meanS"})
+df2 = mres2.normalize_dict_to_df(keys_unpack, suffix=suffix); #df2 = df2.rename(columns = {"sample_time":"meanS"})
 
 keys = df1.keys()
 sel_key=[]

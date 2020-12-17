@@ -77,9 +77,10 @@ df2 = mres2.normalize_dict_to_df(keys_unpack, suffix=suffix); df2 = df2.rename(c
 
 sel_key = ['luminance_SSIM', 'structure_SSIM', 'contrast_SSIM', 'ssim_SSIM', 'L1','NCC' ]
 sel_key = ['nL2e', 'pSNR', 'metric_ssim_old', 'L1_map', 'NCC', 'meanS', 'Tm_mean_DispP']
-sel_key = ['nL2e', 'pSNRm', 'L1', 'L2', 'NCC', 'ssim_SSIM','l2ns_SSIM'] #'meanS'
+sel_key = ['nL2e', 'pSNRm', 'L1', 'L2', 'NCC', 'ssim_SSIM','ssim_SSIM_brain'] #'meanS'
 sel_key = ['ssim_SSIM', 'ssim_SSIM_brain', 'NCC', 'NCC_brain','contrast_SSIM', 'contrast_SSIM_brain' ]
 sel_key =  ['Tm_mean_DispP', 'Tm_rmse_Disp', 'Tm_meanDispP_wTF2', 'Tm_rmse_Disp_wTF2', 'NCC']
+sel_key =  ['m_NCC', 'm_L1', 'm_L2',  'Tm_mean_DispP']
 
 #sur le graphe one motion different contrast,
 #L1 L2 pSNR tres correle

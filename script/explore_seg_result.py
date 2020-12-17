@@ -22,12 +22,17 @@ from utils_plot_results import get_ep_iter_from_res_name, plot_resdf, plot_train
     transform_history_to_factor, parse_history
 from utils_file import get_parent_path, gfile, gdir
 
-from segmentation.eval_results.compare_results import plot_value_vs_GM_level, aggregate_csv_files, plot_metric_against_GM_level
+from segmentation.eval_results.compare_results import plot_value_vs_GM_level, aggregate_csv_files,aggregate_all_csv, plot_metric_against_GM_level
 import glob
 from segmentation.eval_results.learning_curves import  report_learning_curves
 import nibabel as nb
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt, pandas as pd
+#manual ploting
+import seaborn as sns
+import pandas as pd
+import json
+sns.set_style("darkgrid")
 
 results_dirs = glob.glob('/home/fabien.girka/data/segmentation_tasks/RES_1.4mm/eval_models_with_more_metrics/data_t*')
 results_dirs += glob.glob('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_samseg/eval-14mm*')
@@ -96,6 +101,9 @@ file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augmen
 file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augment_pve_bin_02.csv'
 res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_tissue_eval_augment/dataS*mod3*/*/*csv'
 file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augment_mod3_01.csv'
+res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_tissue_eval_augment/dataS*mod3*/*/*csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augment_mod3_01.csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augment_mod3_02.csv'
 
 aggregate_csv_files(res, file, fragment_position=-3)
 
@@ -128,16 +136,9 @@ plot_metric_against_GM_level(file, metrics=metrics, filter=filter, remove_max=Fa
                              save_fig='/home/romain.valabregue/datal/PVsynth/figure/new3/tissue_28mm',
                              kind='box', enlarge=True, showfliers=False)
 
-import pandas as pd
-import json
 df = pd.read_csv(file, index_col=0)
 rn = df['T_RandomLabelsToImage']
 noisdic = [json.loads(r)['seed'] for r in rn]
-
-
-#manual ploting
-import seaborn as sns
-import pandas as pd
 
 df = pd.read_csv(file)
 
@@ -173,17 +174,31 @@ sns.catplot(data=df, x='suj_name', y='metric_dice_loss_GM', kind='box', col='mod
 sns.catplot(data=df, x='suj_name', y='predicted_occupied_volume_GM', kind='box', col='model_name')
 
 sns.catplot(data=df, x='transfo', y='predicted_occupied_volume_GM', kind='box', col='model')
-sns.catplot(data=df, x='transfo', y='metric_dice_loss_GM', kind='box', col='SNR', hue='GM')
+sns.catplot(data=df2, x='transfo', y='metric_dice_loss_GM', kind='box', col='SNR', hue='GM')
+sns.catplot(data=df, x='transfo', y='metric_dice_loss_GM', kind='box', col='model', hue='GM')
+df1 = df[df.model=='dp_mod3_ep90']
+df2 = df[df.model=='dp_mod3_Aug_ep90']
+dff=pd.concat([df1,df2])
+df['gm_snr'] = df['GM'].astype(str).str.cat(df['SNR'].astype(str), sep='_')
+dff['gm_snr'] = dff['GM'].astype(str).str.cat(dff['SNR'].astype(str), sep='_')
+
+sns.catplot(data=dff, x='transfo', y='metric_dice_loss_GM', kind='box', col='model', hue='gm_snr')
+sns.catplot(data=dff, x='transfo', y='metric_dice_loss_CSF', kind='box', col='model', hue='gm_snr')
+sns.catplot(data=dff, x='transfo', y='metric_l1_loss_GM_mask_PV_GM', kind='box', col='model', hue='gm_snr')
+dd = df2.loc[(df2.GM==0.6) & (df2.SNR==0.01) & (df2.transfo=='bias') & (df2.metric_dice_loss_GM>0.1),:]
+dd = df1.loc[(df1.GM==0.6) & (df1.SNR==0.01) & (df1.transfo=='motion'),:]
 
 for k in df.keys():
-    if k.rfind('ratio')>0:
+#    if k.rfind('ratio')>0:
 #    if k.startswith('occupied_volume_'): # in k:
-#    if k.startswith('metric_'):  # in k:
+    if k.startswith('metric_'):  # in k:
 
         print(k)
         #sns.catplot(data=df, x='suj_name', y=k, kind='box', col='model_name')
-        sns.catplot(data=df, x='transfo', y=k, kind='box', col='SNR', hue='GM')
-
+        sns.catplot(data=df1, x='transfo', y=k, kind='box', col='SNR', hue='GM')
+        plt.show()
+metric_mean_dice_loss
+metric_dice_loss_CSF
 
 #read transform param and metric form train.csv
 import glob, os, numpy as np, pandas as pd, matplotlib.pyplot as plt
@@ -192,10 +207,12 @@ ft = glob.glob('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/
 ft.sort(key=os.path.getmtime)
 
 mres = ModelCSVResults(ft[29],  out_tmp="/tmp/rrr")
-mres.normalize_dict_to_df('T_RandomMotionFromTimeCourse_metrics_t1', suffix=None)
-mres.normalize_dict_to_df('T_RandomAffine', suffix=None)
-mres.normalize_dict_to_df('T_RandomLabelsToImage')
-mres.normalize_dict_to_df('T_RandomNoise')
+evalfunc = lambda x: eval(x) if not (pd.isna(x)) else None
+
+mres.normalize_dict_to_df('T_RandomMotionFromTimeCourse_metrics_t1', eval_func=evalfunc)
+mres.normalize_dict_to_df('T_RandomAffine', eval_func=evalfunc)
+mres.normalize_dict_to_df('T_RandomLabelsToImage', eval_func=evalfunc)
+mres.normalize_dict_to_df('T_RandomNoise', eval_func=evalfunc)
 
 mres.scatter('loss','T_RandomMotionFromTimeCourse_metrics_t1_L1_map')
 mres.scatter('T_RandomMotionFromTimeCourse_metrics_t1_L1_map','T_RandomMotionFromTimeCourse_metrics_t1_SSIM_ssim_SSIM')
@@ -220,3 +237,37 @@ df.shape
 df['error'] = df['l']
 pd.isna(df['T_RandomElasticDeformation']).sum()
 pd.isna(df['T_RandomMotionFromTimeCourse_metrics_t1']).sum()
+
+
+res = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/train_random_synth/eval/data/S*/*/*csv'
+file = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/train_random_synth/eval/res_eval1.csv'
+aggregate_all_csv(res, file, parse_names=['Suj','model'], fragment_position=-3)
+
+df = pd.read_csv('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/NN_regres_motion_New/train_random_synth/eval/res_eval1.csv')
+#sns.relplot(data=df, x='pred_ssim_SSIM_brain', y = 'tar_ssim_SSIM_brain', col='Suj', hue='model',kind='scatter')
+for s in df.Suj.unique():
+    for m in df.model.unique():
+        dfsub = df[df.Suj==s]
+        dfsub = dfsub[dfsub.model==m ]
+        plt.figure()
+        plt.title(s+' mod ' + m)
+        plt.scatter(dfsub.pred_ssim_SSIM_brain,dfsub.tar_ssim_SSIM_brain)
+        plt.xlabel('prediction'); plt.ylabel('target ssim_brain')
+        plt.plot([0, 1], [0,1])
+
+dfsub = df[df.Suj=='hcp_synth']; dfsub = dfsub[dfsub.model=='noise_sim']
+
+mres = ModelCSVResults(df_data=dfsub,  out_tmp="/tmp/rrr")
+mres.scatter('pred_ssim_SSIM_brain', 'tar_ssim_SSIM_brain',port_number=8086)
+#keys_unpack = ['T_RandomLabelsToImage','T_RandomMotionFromTimeCourse_metrics_t1','T_RandomAffine', 'T_RandomMotionFromTimeCourse']
+keys_unpack = ['T_Affine','T_ElasticDeformation', 'T_Noise','T_RandomMotionFromTimeCourse', 'T_BiasField','T_LabelsToImage']
+suffix = ['Taff', 'Tela','Tnoi', 'Tmot', 'Tbias', 'Tlab']
+df1 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix);
+
+def xxx(s):
+    return s['t1'] if s is not None else 0
+df1.Tnoi_std = df1.Tnoi_std.apply(lambda  x: xxx(x))
+
+sns.scatterplot(data=df1,x ='pred_ssim_SSIM_brain',y = 'tar_ssim_SSIM_brain', hue='Tnoi_std', legend="full")
+df1.loc[['pred_ssim_SSIM_brain','tar_ssim_SSIM_brain','Tnoi_std']].describe()
+

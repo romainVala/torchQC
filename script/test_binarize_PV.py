@@ -114,6 +114,7 @@ for k in df.keys():
         #df[k] = df[k].apply(lambda s: to_num(s))
         df[k] = df[k] * df['res']* df['res']* df['res']
 
+sns.catplot(data=df, x='resolution', y='PV_in_GM_T2')
 
 sns.catplot(data=df, x='subject', y='vol_mm_T2', hue='resolution')
 sns.catplot(data=df, x='subject', y='vol_mm_T3', hue='resolution')
@@ -123,9 +124,11 @@ sns.catplot(data=df, x='subject', y='GM_vol', hue='resolution')
 sns.catplot(data=df, x='subject', y='CSF_vol', hue='resolution') #pourquoi CSF vol a 1mm est different des autres ???
 sns.catplot(data=df, x='subject', y='WM_vol', hue='resolution')
 df['GM_ratio'] = df['GM_vol'] / (df['WM_vol'] + df['CSF_vol'])
+df['GM_ratio'] = df['GM_vol'] / df['WM_vol']
 sns.catplot(data=df, x='subject', y='GM_ratio', hue='resolution')
 sns.catplot(data=df_seuil, x='seuil', y='vol_gm', hue='subject', col='resolution')
-sns.catplot(data=df_seuil, x='seuil', y='vol_gm', col='resolution')
+sns.catplot(data=df_seuil, x='seuil', y='vol_gm', col='resolution', col_order=hue_order)
+sns.catplot(data=df_seuil, x='seuil', y='vol_gm', hue='resolution', hue_order=hue_order,kind='strip', dodge=True)
 sns.catplot(data=df, x='resolution', y='GM_vol')
 for k in df.keys():
     if '_vol' in k:
@@ -157,9 +160,9 @@ plt.title('GM volume estimate from PV map', y=0.9, backgroundcolor='w')
 
 #plot abs volumes over columns
 sns.catplot(data=df, x='resolution', y='GM_vol')
-
-sel_keys =[ 'GM_vol', 'CSF_vol',  'WM_vol',  'L_Accu_vol', 'L_Amyg_vol', 'L_Caud_vol', 'L_Hipp_vol', 'L_Pall_vol', 'L_Puta_vol',
-        'BrStem_vol','cereb_GM_vol', 'cereb_WM_vol',  'skin_vol', 'skull_vol','background_vol']
+'L_Accu', 'L_Caud', 'L_Pall', 'L_Amyg', 'L_Hipp', 'L_Puta',
+sel_keys =[ 'GM_vol', 'CSF_vol',  'WM_vol',  'L_Accu_vol', 'L_Amyg_vol', 'L_Caud_vol', 'L_Hipp_vol', 'L_Pall_vol',
+            'L_Puta_vol', 'L_Thal_vol', 'BrStem_vol','cereb_GM_vol', 'cereb_WM_vol',  'skin_vol', 'skull_vol','background_vol']
 sel_val = ['subject', 'resolution']
 
 dfrel = df
@@ -167,12 +170,30 @@ for k in sel_keys:
     dfrel[k] = dfrel[k] / dfrel[k].mean()
 
 dfm = dfrel.melt(id_vars=sel_val, value_vars=sel_keys, var_name='structure', value_name='Volume')
-sns.catplot(data=dfm[dfm['resolution']=='ROI_PVE_07mm'], x='structure', y='Volume')
+g=sns.catplot(data=dfm[dfm['resolution']=='ROI_PVE_07mm'], x='structure', y='Volume')
+ax = g.axes.flat[0];
+xx = [x.replace('_vol','') for x in sel_keys]
+ax.set_xticklabels(xx)
+plt.grid()
 
-ax.yaxis
+sel_keys=[k for k in df.keys() if (k.find('T2')>0)]
+sel_keys = ['PV_in_GM_T2', 'PV_in_CSF_T2', 'PV_in_WM_T2', 'PV_in_L_Accu_T2', 'PV_in_L_Amyg_T2', 'PV_in_L_Caud_T2', 'PV_in_L_Hipp_T2',
+ 'PV_in_L_Pall_T2', 'PV_in_L_Puta_T2', 'PV_in_L_Thal_T2']
+sel_keys = ['PV_in_GM_T3', 'PV_in_CSF_T3', 'PV_in_WM_T3', 'PV_in_L_Accu_T3', 'PV_in_L_Amyg_T3', 'PV_in_L_Caud_T3', 'PV_in_L_Hipp_T3',
+ 'PV_in_L_Pall_T3', 'PV_in_L_Puta_T3', 'PV_in_L_Thal_T3']
+sel_keys = ['PV_in_GM_Tot', 'PV_in_CSF_Tot', 'PV_in_WM_Tot', 'PV_in_L_Accu_Tot', 'PV_in_L_Amyg_Tot', 'PV_in_L_Caud_Tot', 'PV_in_L_Hipp_Tot',
+ 'PV_in_L_Pall_Tot', 'PV_in_L_Puta_Tot', 'PV_in_L_Thal_Tot']
+hue_order = ['ROI_PVE_07mm', 'ROI_PVE_1mm', 'ROI_PVE_14mm', 'ROI_PVE_28mm']
 
-for ax in g.axes.flat:
-    ax.yaxis.
+sel_val = ['subject', 'resolution']
+dfm = df.melt(id_vars=sel_val, value_vars=sel_keys, var_name='structure', value_name='Volume')
+#g=sns.catplot(data=dfm[dfm['resolution']=='ROI_PVE_07mm'], x='structure', y='Volume')
+g=sns.catplot(data=dfm, x='structure', y='Volume', hue='resolution', hue_order=hue_order,kind='strip', dodge=True)
+xx = [x.replace('PV_in_','') for x in sel_keys]; xx = [x.replace('_Tot','') for x in xx]
+g.axes.flat[0].set_xticklabels(xx)
+plt.ylabel('3 tissue Partial Volume relatif to structure volume')
+plt.grid()
+
 labels = [item.get_text() for item in ax.get_xticklabels()]
 
 
