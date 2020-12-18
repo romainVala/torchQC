@@ -154,6 +154,19 @@ class RunModel:
             targets = to_var(targets[torchio.DATA].float(), self.device)
         return volumes, targets
 
+    def get_segmentation_data_and_regress_key(self, sample, regress_key):
+        volumes = sample[self.image_key_name]
+        volumes = to_var(volumes[torchio.DATA].float(), self.device)
+
+        targets = None
+        if self.label_key_name in sample:
+            targets = sample[self.label_key_name]
+            targets = to_var(targets[torchio.DATA].float(), self.device)
+        if regress_key in sample:
+            targets_to_regress = to_var(sample[regress_key][torchio.DATA].float(), self.device)
+            targets = torch.cat((targets, targets_to_regress), dim=1)
+        return volumes, targets
+
     def train(self):
         """ Train the model on the training set and evaluate it on
         the validation set. """
@@ -726,7 +739,11 @@ class RunModel:
             else:
                 info['label_filename'] = sample[self.label_key_name]['path']
 
-            for channel in list(range(shape[1])):
+            if self.criteria[0]['criterion'].mixt_activation:
+                max_chanel = shape[1] - self.criteria[0]['criterion'].mixt_activation
+            else:
+                max_chanel = shape[1]
+            for channel in list(range(max_chanel)):
                 suffix = self.labels[channel]
                 info[f'occupied_volume_{suffix}'] = to_numpy(
                    targets[idx, channel].sum() * voxel_size

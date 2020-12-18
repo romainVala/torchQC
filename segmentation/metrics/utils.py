@@ -5,7 +5,7 @@ import torch.nn.functional as F
 class MetricOverlay:
     def __init__(self, metric, channels=None, mask=None, mask_cut=(0.99, 1),
                  binarize_target=False, activation=None, binary_volumes=False,
-                 binarize_prediction=False, band_width=None, use_far_mask=False):
+                 binarize_prediction=False, band_width=None, use_far_mask=False, mixt_activation=0):
         self.metric = metric
         self.channels = channels
         self.mask = mask
@@ -20,6 +20,7 @@ class MetricOverlay:
 
         self.band_width = band_width
         self.use_far_mask = use_far_mask
+        self.mixt_activation = mixt_activation
 
     @staticmethod
     def binarize(tensor):
@@ -78,7 +79,17 @@ class MetricOverlay:
                 .permute(0, 4, 1, 2, 3).float()
 
         if self.activation is not None:
-            prediction = self.activation(prediction)
+            if self.mixt_activation:
+                pred_seg = self.activation(prediction[:,:-self.mixt_activation,...])
+                pred_reg = prediction[:,-self.mixt_activation:,...]
+                prediction = [pred_seg, pred_reg]
+                target_seg = target[:,:-self.mixt_activation,...]
+                target_reg = target[:,-self.mixt_activation:,...]
+                target = [target_seg, target_reg]
+                # torch.cat( (self.activation(pred_with_act), pred_no_act), dim=1)
+                #print(f'shape {pred_no_act.shape} and {pred_with_act.shape} and {prediction.shape}')
+            else:
+                prediction = self.activation(prediction)
 
         if self.binarize_target:
             target = self.binarize(target)

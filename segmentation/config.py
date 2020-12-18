@@ -539,6 +539,7 @@ class Config:
                 self.set_struct_value(criterion, 'weight', 1)
                 self.set_struct_value(criterion, 'band_width')
                 self.set_struct_value(criterion, 'use_far_mask', False)
+                self.set_struct_value(criterion, 'mixt_activation', 0)
                 self.set_struct_value(
                     criterion, 'reported_name',
                     f'{criterion["name"]}_{criterion["method"]}')
@@ -566,7 +567,8 @@ class Config:
                         binary_volumes=criterion['binary_volumes'],
                         binarize_prediction=criterion['binarize_prediction'],
                         band_width=criterion['band_width'],
-                        use_far_mask=criterion['use_far_mask']
+                        use_far_mask=criterion['use_far_mask'],
+                        mixt_activation=criterion['mixt_activation']
                     ),
                     'weight': criterion['weight'],
                     'name': criterion['reported_name']

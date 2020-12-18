@@ -1,5 +1,41 @@
 from segmentation.metrics.utils import mean_metric
+import torch.nn as nn
+import torch
 
+class MultiTaskLoss(nn.Module):
+    def __init__(self, tasks):
+        super(MultiTaskLoss, self).__init__()
+        self.tasks = nn.ModuleList(tasks)
+        self.sigma = nn.Parameter(torch.ones(len(tasks)))
+        self.mse = nn.MSELoss()
+
+    def forward(self, x, targets):
+       l = [self.mse(f(x), y) for y, f in zip(targets, self.tasks)]
+       l = 0.5 * torch.Tensor(l) / self.sigma**2
+       l = l.sum() + torch.log(self.sigma.prod())
+       return l
+
+
+class MultiTaskLossSegAndReg(nn.Module): #segmentation with dice and Regression with L1
+    def __init__(self, task_num=2):
+        super(MultiTaskLossSegAndReg, self).__init__()
+        self.task_num = task_num
+        self.log_vars = nn.Parameter(torch.zeros((task_num)))
+
+    def forward(self, prediction, target):
+        Diceloss = Dice()
+        loss0 = Diceloss.mean_dice_loss(prediction[0], target[0])
+
+        l1loss = nn.L1Loss()
+        loss1 = l1loss(prediction[1], target[1])
+
+        precision0 = torch.exp(-self.log_vars[0])
+        loss0 = precision0 * loss0 + self.log_vars[0]
+
+        precision1 = torch.exp(-self.log_vars[1])
+        loss1 = precision1 * loss1 + self.log_vars[1]
+
+        return loss0 + loss1
 
 class Dice:
     """
