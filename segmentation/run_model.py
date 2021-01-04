@@ -333,8 +333,10 @@ class RunModel:
             # Compute loss
             loss = 0
             for criterion in self.criteria:
-                loss += criterion['weight'] * criterion['criterion'](
-                    predictions, targets)
+                one_loss = criterion['criterion'](predictions, targets)
+                if isinstance(one_loss, tuple): #multiple task loss may return tuple to report each loss
+                    one_loss = one_loss[0]
+                loss += criterion['weight'] * one_loss
 
             # Compute gradient and do SGD step
             if self.model.training:
@@ -551,7 +553,7 @@ class RunModel:
 
     def apply_post_transforms(self, tensors, sample):
         affine = self.get_affine(sample)
-        if len(self.post_transforms.transform.transforms) == 0:
+        if len(self.post_transforms) == 0:
             return tensors, affine
         # Transforms apply on TorchIO subjects and TorchIO images require
         # 4D tensors
@@ -757,10 +759,17 @@ class RunModel:
 
             loss = 0
             for criterion in self.criteria:
-                loss += criterion['weight'] * criterion['criterion'](
-                    predictions[idx].unsqueeze(0),
-                    targets[idx].unsqueeze(0)
-                )
+                one_loss = criterion['criterion'](predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+                if isinstance(one_loss, tuple): #multiple task loss may return tuple to report each loss
+                    for i in range(1,len(one_loss)):
+                        aaa = one_loss[i]
+                        if aaa.requires_grad:
+                            aaa = aaa.detach()
+                        info[f'loss_{i}'] = to_numpy(aaa)
+                        
+                    one_loss = one_loss[0]
+                loss += criterion['weight'] * one_loss
+
             info['loss'] = to_numpy(loss)
 
             if not self.model.training:

@@ -24,18 +24,18 @@ class MultiTaskLossSegAndReg(nn.Module): #segmentation with dice and Regression 
 
     def forward(self, prediction, target):
         Diceloss = Dice()
-        loss0 = Diceloss.mean_dice_loss(prediction[0], target[0])
+        loss00 = Diceloss.mean_dice_loss(prediction[0], target[0])
 
         l1loss = nn.L1Loss()
-        loss1 = l1loss(prediction[1], target[1])
+        loss10 = l1loss(prediction[1], target[1])
 
         precision0 = torch.exp(-self.log_vars[0])
-        loss0 = precision0 * loss0 + self.log_vars[0]
+        loss0 = precision0 * loss00 + self.log_vars[0]
 
         precision1 = torch.exp(-self.log_vars[1])
-        loss1 = precision1 * loss1 + self.log_vars[1]
+        loss1 = precision1 * loss10 + self.log_vars[1]
 
-        return loss0 + loss1
+        return loss0 + loss1, loss00, precision0, loss10, precision1
 
 class Dice:
     """
