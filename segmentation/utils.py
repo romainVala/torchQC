@@ -52,6 +52,13 @@ def parse_method_import(method_dict):
     object_instance, _ = parse_object_import(method_dict)
     return getattr(object_instance, method_dict['method'])
 
+def parse_class_and_method_import(method_dict):
+    """
+    Import the class instance and the method using a dictionary that specifies
+    where to find it.
+    """
+    object_instance, _ = parse_object_import(method_dict)
+    return object_instance, getattr(object_instance, method_dict['method'])
 
 def generate_json_document(filename, **kwargs):
     """
