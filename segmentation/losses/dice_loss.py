@@ -20,7 +20,9 @@ class MultiTaskLossSegAndReg(nn.Module): #segmentation with dice and Regression 
     def __init__(self, task_num=2):
         super(MultiTaskLossSegAndReg, self).__init__()
         self.task_num = task_num
-        self.log_vars = nn.Parameter(torch.zeros((task_num)))
+        self.log_vars = nn.Parameter(torch.zeros((task_num), device='cuda'))
+        print('.... Using MultiTaskLoss, with learning weights for the combinaison ! ')
+        print(f' is lead is {self.log_vars.is_leaf}')
 
     def forward(self, prediction, target):
         Diceloss = Dice()

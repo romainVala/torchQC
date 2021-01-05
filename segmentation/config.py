@@ -14,7 +14,7 @@ from inspect import signature
 from copy import deepcopy
 from itertools import product
 from torch.utils.data import DataLoader
-from segmentation.utils import parse_object_import, parse_function_import, \
+from segmentation.utils import parse_object_import, parse_function_import, parse_class_and_method_import, \
     parse_method_import, generate_json_document, custom_import, CustomDataset
 from segmentation.run_model import RunModel
 from segmentation.metrics.utils import MetricOverlay
@@ -555,7 +555,9 @@ class Config:
 
                 a = parse_function_import(criterion['activation'])
 
-                c = parse_method_import(criterion)
+                class_instance, c = parse_class_and_method_import(criterion)
+                additional_learned_param = class_instance.log_vars if hasattr(class_instance, 'log_vars') else None
+
                 c_list.append({
                     'criterion': MetricOverlay(
                         metric=c,
@@ -568,7 +570,8 @@ class Config:
                         binarize_prediction=criterion['binarize_prediction'],
                         band_width=criterion['band_width'],
                         use_far_mask=criterion['use_far_mask'],
-                        mixt_activation=criterion['mixt_activation']
+                        mixt_activation=criterion['mixt_activation'],
+                        additional_learned_param=additional_learned_param
                     ),
                     'weight': criterion['weight'],
                     'name': criterion['reported_name']

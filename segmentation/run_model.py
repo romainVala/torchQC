@@ -129,9 +129,14 @@ class RunModel:
         self.log(f'Peak: {main_memory + child_memory} kB')
 
     def get_optimizer(self, optimizer_dict):
-        optimizer_dict['attributes'].update({'params': self.model.parameters()})
-        optimizer = optimizer_dict['optimizer_class'](
-            **optimizer_dict['attributes'])
+        optimizer_dict['attributes'].update({'params': list(self.model.parameters())})
+        for cc in self.criteria:
+            if cc['criterion'].additional_learned_param is not None:
+                #optimizer.add_param_group({'params': cc['criterion'].additional_learned_param})
+                #print(f"is leaf {cc['criterion'].additional_learned_param.is_leaf}")
+                optimizer_dict['attributes']['params'] += [cc['criterion'].additional_learned_param]
+
+        optimizer = optimizer_dict['optimizer_class'](**optimizer_dict['attributes'])
 
         scheduler = None
         if optimizer_dict['lr_scheduler'] is not None:
@@ -766,7 +771,7 @@ class RunModel:
                         if aaa.requires_grad:
                             aaa = aaa.detach()
                         info[f'loss_{i}'] = to_numpy(aaa)
-                        
+
                     one_loss = one_loss[0]
                 loss += criterion['weight'] * one_loss
 
