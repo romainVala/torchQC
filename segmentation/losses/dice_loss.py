@@ -17,10 +17,12 @@ class MultiTaskLoss(nn.Module):
 
 
 class MultiTaskLossSegAndReg(nn.Module): #segmentation with dice and Regression with L1
-    def __init__(self, task_num=2):
+    def __init__(self, task_num=2, init_weights = [1, 1]):
         super(MultiTaskLossSegAndReg, self).__init__()
         self.task_num = task_num
-        self.log_vars = nn.Parameter(torch.zeros((task_num), device='cuda'))
+        #self.log_vars = nn.Parameter(torch.zeros((task_num), device='cuda'))
+        self.log_vars = nn.Parameter(torch.ones((task_num), device='cuda')*
+                                     torch.tensor(init_weights, device='cuda'))
 
     def forward(self, prediction, target):
         Diceloss = Dice()
@@ -29,13 +31,19 @@ class MultiTaskLossSegAndReg(nn.Module): #segmentation with dice and Regression 
         l1loss = nn.L1Loss()
         loss10 = l1loss(prediction[1], target[1])
 
-        precision0 = torch.exp(-self.log_vars[0])
-        loss0 = precision0 * loss00 + self.log_vars[0]
+        #this can lead to log_vars negativ and then a negativ los but also the other solution
+        #precision0 = torch.exp(-self.log_vars[0])
+        #loss0 = precision0 * loss00 + self.log_vars[0]
+        #precision1 = torch.exp(-self.log_vars[1])
+        #loss1 = precision1 * loss10 + self.log_vars[1]
 
-        precision1 = torch.exp(-self.log_vars[1])
-        loss1 = precision1 * loss10 + self.log_vars[1]
+        precision0 = 0.5 / self.log_vars[0]**2
+        loss0 = precision0 * loss00 + torch.log(self.log_vars[0] )
+        precision1 = 0.5 / self.log_vars[1]**2
+        loss1 = precision1 * loss10 + torch.log(self.log_vars[1] )
 
-        return loss0 + loss1, loss00, precision0, loss10, precision1
+        #return loss0 + loss1, loss00, precision0, loss10, precision1
+        return loss0 + loss1, loss00, self.log_vars[0], loss10, self.log_vars[1]
 
 class Dice:
     """
