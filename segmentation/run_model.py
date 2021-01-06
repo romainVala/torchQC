@@ -3,6 +3,7 @@
 import json
 import torch
 import time
+import pickle
 import logging
 import glob
 import os
@@ -867,7 +868,7 @@ class RunModel:
             self.debug('saving {}'.format(f'{resdir}/{volume_name}.nii.gz'))
 
 
-    def get_regression_data(self, data, target=None, scale_label=1, default_missing_label = 0 ):
+    def get_regression_data(self, data, target=None, scale_label=[1], default_missing_label = 0 ):
 
         if isinstance(data, list):  # case where callate_fn is used
             #inputs = torch.cat([sample[self.image_key_name]['data'].unsqueeze(0) for sample in data]) #this was wen lamba collate x:x
@@ -886,11 +887,9 @@ class RunModel:
             inputs = data[self.image_key_name]['data']
 
         targets = [target] if isinstance(target, str) else target
-        default_missing_label = [default_missing_label] if isinstance(default_missing_label, str) else default_missing_label
-        scale_label = [scale_label] if isinstance(scale_label, str) else scale_label
+        default_missing_label = [default_missing_label] if not isinstance(default_missing_label, list) else default_missing_label
         self.target_name = targets
-        self.scale_label = scale_label
-
+        self.scale_label = [scale_label] if not isinstance(scale_label, list) else scale_label
         #default values for missing label
         labels = torch.cat([torch.ones(inputs.shape[0],1) * default_lab for default_lab in default_missing_label], dim=1)
 
@@ -1024,6 +1023,7 @@ class RunModel:
         if history is None or len(history) == 0:
             return
         relevant_history = history[idx] if is_batch else history
+        info["history"] = relevant_history
         if len(relevant_history)==1 and isinstance(relevant_history[0], list):
             relevant_history = relevant_history[0] #because ListOf transfo to batch make list of list ...
         for hist in relevant_history:
@@ -1052,11 +1052,11 @@ class RunModel:
     def save_info(self, mode, df, sample, csv_name='eval'):
         name = self.eval_csv_basename or mode
         if mode == 'Train':
-            filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}.csv'
+            filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}'
         else:
             if self.eval_results_dir == self.results_dir:
                 filename = f'{self.results_dir}/{name}_ep{self.epoch:03d}' \
-                           f'_it{self.iteration:04d}.csv'
+                           f'_it{self.iteration:04d}'
             else:
                 name = sample.get('name')
                 if isinstance(name, list):
@@ -1067,8 +1067,10 @@ class RunModel:
                     os.makedirs(resdir)
                 if self.eval_csv_basename is not None:
                     csv_name = self.eval_csv_basename + '_' + csv_name #if repeate_eval the val loop change eval_csv_basename
-                filename = f'{resdir}/{csv_name}.csv'
-        df.to_csv(filename)
+                filename = f'{resdir}/{csv_name}'
+        df.to_pickle(filename+'.gz', protocol=3)
+        df = df.drop(columns=["history"])
+        df.to_csv(filename+".csv")
 
     def sample_list_to_batch(self,sample):
         #similare to collate function but instead of adding the batch dim to tensor we just do a cat
