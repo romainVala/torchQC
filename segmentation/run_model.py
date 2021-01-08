@@ -443,6 +443,7 @@ class RunModel:
         average_loss = None
 
         for i, sample in enumerate(self.val_set, 1):
+
             # Load target for the whole image
             volume, target = self.data_getter(sample)
 
@@ -552,6 +553,8 @@ class RunModel:
 
     def apply_post_transforms(self, tensors, sample):
         affine = self.get_affine(sample)
+        if not self.post_transforms:
+            return tensors, affine
         if len(self.post_transforms.transform.transforms) == 0:
             return tensors, affine
         # Transforms apply on TorchIO subjects and TorchIO images require
@@ -892,7 +895,6 @@ class RunModel:
         self.scale_label = [scale_label] if not isinstance(scale_label, list) else scale_label
         #default values for missing label
         labels = torch.cat([torch.ones(inputs.shape[0],1) * default_lab for default_lab in default_missing_label], dim=1)
-
         for target_idx, target in enumerate(targets):
             if target == 'random_noise':
                 histo = data['history']
@@ -922,9 +924,7 @@ class RunModel:
         At evaluation time, additional reporting metrics are recorded.
         """
         start = time.time()
-
         mode = 'Train' if self.model.training else 'Val'
-
         if self.eval_results_dir != self.results_dir:
             df = pd.DataFrame()
             save=True
@@ -941,14 +941,14 @@ class RunModel:
                 'image_filename': sample[self.image_key_name]['path'][idx] if is_batch else sample[self.image_key_name]['path'],
                 'shape': to_numpy(shape[2:]),
                 'sample_time': sample_time,
-                'batch_size': batch_size
+                'batch_size': batch_size,
             }
 
             if location is not None:
                 info['location'] = to_numpy(location[idx])
 
             if self.label_key_name in sample :
-                info['label_filename'] = sample[self.label_key_name]['path'][idx]  if is_batch else sample[self.label_key_name]['path']
+                info['label_filename'] = sample[self.label_key_name]['path'][idx] if is_batch else sample[self.label_key_name]['path']
             if 'name' in sample:
                 info['subject_name'] = sample['name'][idx] if is_batch else sample['name']
 
@@ -1020,10 +1020,14 @@ class RunModel:
         is_batch = not isinstance(sample, torchio.Subject)
         order = []
         history = sample.get('history') if is_batch else sample.history
+        transforms_metrics = sample.get("transforms_metrics") if is_batch else sample.transforms_metrics
         if history is None or len(history) == 0:
             return
         relevant_history = history[idx] if is_batch else history
         info["history"] = relevant_history
+
+        relevant_metrics = transforms_metrics[idx] if is_batch else history
+        info["transforms_metrics"] = relevant_metrics
         if len(relevant_history)==1 and isinstance(relevant_history[0], list):
             relevant_history = relevant_history[0] #because ListOf transfo to batch make list of list ...
         for hist in relevant_history:

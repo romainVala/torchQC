@@ -55,6 +55,10 @@ def history_collate(batch):
             dictionary.update({
                 'history': [d.history for d in batch]
             })
+        if hasattr(elem, 'transforms_metrics'):
+            dictionary.update({
+                'transforms_metrics': [d.transforms_metrics for d in batch]
+            })
         return dictionary
     elif isinstance(elem, tuple) and hasattr(elem, '_fields'):  # namedtuple
         return elem_type(*(history_collate(samples) for samples in zip(*batch)))
@@ -142,6 +146,10 @@ def history_collate_partial_metrics(batch):
         if hasattr(elem, 'history'):
             dictionary.update({
                 'history': [d.history for d in batch]
+            })
+        if hasattr(elem, 'transforms_metrics'):
+            dictionary.update({
+                'transforms_metrics': [d.transforms_metrics for d in batch]
             })
         return dictionary
     elif isinstance(elem, tuple) and hasattr(elem, '_fields'):  # namedtuple
