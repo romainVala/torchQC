@@ -403,6 +403,8 @@ class RunModel:
             write_csv_file = i % self.record_frequency == 0 or i == len(loader)
 
             if eval_dropout:
+                if self.eval_results_dir != self.results_dir: #todo case where not csv_name == 'eval':
+                    df = pd.DataFrame()
                 for ii in range(0, eval_dropout):
                     df, reporting_time = self.batch_recorder(
                         df, sample, predictions_dropout[ii], targets, batch_time, write_csv_file, append_in_df=True)
