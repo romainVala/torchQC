@@ -112,7 +112,8 @@ class GZReader:
         else:
             trsfms = self.get_transformations(idx)
             res = sub
-            for tr in trsfms.transform.transforms:
+            for tr in trsfms.transforms: #.transforms:
+                print(tr.name)
                 if isinstance(tr, torchio.transforms.LabelsToImage):
                     tr.label_key = "label"
                 if isinstance(tr, torchio.transforms.MotionFromTimeCourse):
