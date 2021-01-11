@@ -561,7 +561,9 @@ class RunModel:
 
     def apply_post_transforms(self, tensors, sample):
         affine = self.get_affine(sample)
-        if len(self.post_transforms) == 0:
+        if not self.post_transforms:
+            return tensors, affine
+        if len(self.post_transforms.transform.transforms) == 0:
             return tensors, affine
         # Transforms apply on TorchIO subjects and TorchIO images require
         # 4D tensors
