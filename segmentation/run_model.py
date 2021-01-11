@@ -843,7 +843,13 @@ class RunModel:
             name = name[batch_idx]
             name = name[0] if isinstance(name,list) else name
         if apply_activation:
-            volume = self.activation(volume)
+            if self.criteria[0]['criterion'].mixt_activation: #softmax apply only on segmentation not regression
+                skip_vol = self.criteria[0]['criterion'].mixt_activation
+                vv= self.activation(volume[0,:-skip_vol,...].unsqueeze(0))
+                volume[0,:-skip_vol,...] = vv[0]
+            else:
+                volume = self.activation(volume)
+
         resdir = f'{self.eval_results_dir}/{name}/'
         if not os.path.isdir(resdir):
             os.makedirs(resdir)
