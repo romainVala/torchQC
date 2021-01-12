@@ -9,7 +9,7 @@ import glob
 import json
 
 sns.set()
-pd.set_option('display.max_rows', None, 'display.max_columns', None, 'display.max_colwidth', -1, 'display.width', 400)
+pd.set_option('display.max_rows', None, 'display.max_columns', None, 'display.max_colwidth', None, 'display.width', 400)
 
 COLORS = ['#ffb380', '#6666ff', '#94b8b8', '#bf80ff', '#ffff80', '#d9b38c']
 
