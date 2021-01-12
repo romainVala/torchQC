@@ -128,7 +128,6 @@ class GZReader:
                     plt.savefig(output_path)
                     plt.close()
                     self.written_files.append(output_path)
-                res = tr(res)
             res = trsfms(sub)
             return res
 
