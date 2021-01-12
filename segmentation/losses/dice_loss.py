@@ -21,8 +21,13 @@ class MultiTaskLossSegAndReg(nn.Module): #segmentation with dice and Regression 
         super(MultiTaskLossSegAndReg, self).__init__()
         self.task_num = task_num
         #self.log_vars = nn.Parameter(torch.zeros((task_num), device='cuda'))
-        self.log_vars = nn.Parameter(torch.ones((task_num), device='cuda')*
-                                     torch.tensor(init_weights, device='cuda'))
+        # todo should be a parameter ... ?
+        try:
+            self.log_vars = nn.Parameter(torch.ones((task_num), device='cuda')*
+                                         torch.tensor(init_weights, device='cuda'))
+        except :
+            self.log_vars = nn.Parameter(torch.ones((task_num), device='cpu') *
+                                         torch.tensor(init_weights, device='cpu'))
 
     def forward(self, prediction, target):
         Diceloss = Dice()
