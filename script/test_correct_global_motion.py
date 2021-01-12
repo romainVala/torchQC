@@ -181,13 +181,13 @@ do_plot=False; all_disp=[]; all_disp_d=[]; disp_sigma=[]; sigma=6
 sigmas= np.hstack((np.arange(1,10,1),np.arange(10,20,1), [35, 50, 100]))
 for sigma in sigmas:
     all_disp = [];    all_disp_d = [];
-    fp = corrupt_data(256, sigma=sigma, center='zero', resolution=resolution, amplitude=10)
-    for i in range(0,5):
+    fp = corrupt_data(256, sigma=sigma, center='zero', resolution=resolution, amplitude=40)
+    for i in range(0,20):
         so = get_random_2step(rampe=20)
         som = simu_motion(fp,so)
-        #if do_plot: plot_obj(fp, so, som)
+        #if do_plot:         plot_obj(fp, so, som)
         #plt.figure();plt.plot(fp.T)
-        shifts = np.arange(-30,30,1)
+        shifts = np.arange(-40,40,1)
         disp = l1_shfit(som,so,shifts, do_plot=do_plot,fp=fp)
         all_disp.append(disp)
 
@@ -231,7 +231,7 @@ a[0].plot(np.angle(fp_kspace)); a[1].plot(np.imag(fp_kspace))
 print_fft(fm)
 np.sum(fp*fi) / np.sum(fi) # ok for cst
 np.sum(fp* np.abs(fi)) / np.sum(np.abs(fi)) # ok for cst
-np.sum(fp * np.imag(fi)) / np.sum(np.image(fi))   # not ok for cst
+np.sum(fp * np.imag(fi)) / np.sum(np.imag(fi))   # not ok for cst
 np.sum(fp * np.angle(fi)) / np.sum(np.angle(fi))  # not ok for cst
 np.sum(fp * np.abs(np.angle(fi))) / np.sum(np.abs(np.angle(fi))) # ok for cst
 
