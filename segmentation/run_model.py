@@ -1048,10 +1048,14 @@ class RunModel:
         relevant_history = history[idx] if is_batch else history
         info["history"] = relevant_history
 
-        relevant_metrics = transforms_metrics[idx] if is_batch else history
+        relevant_metrics = transforms_metrics[idx] if is_batch else transforms_metrics
+
+        if len(relevant_metrics) == 1 and isinstance(relevant_metrics[0], list):
+            relevant_metrics = relevant_metrics[0]
         info["transforms_metrics"] = relevant_metrics
         if len(relevant_history)==1 and isinstance(relevant_history[0], list):
             relevant_history = relevant_history[0] #because ListOf transfo to batch make list of list ...
+
         for hist in relevant_history:
             if isinstance(hist, dict) :
                 histo_name = hist['name']
