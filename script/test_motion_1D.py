@@ -292,7 +292,12 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         fp[xx,:] = y
     return y
 
-def get_metric(s1,s2):
+def get_metric(s1,s2, mask=None, prefix=''):
+    if mask is None:
+        mask = np.ones_like(s1)
+    s1 = s1[mask>0]
+    s2 = s2[mask>0]
+
     l1loss = torch.nn.L1Loss()
     l2loss = torch.nn.MSELoss()
     l1 = l1loss(torch.tensor(s1).unsqueeze(0), torch.tensor(s2).unsqueeze(0)).numpy() * 100
@@ -300,23 +305,46 @@ def get_metric(s1,s2):
     thp = float(th_pearsonr(torch.tensor(s1), torch.tensor(s2)).numpy())
     ncc = float(normalize_cc(torch.tensor(s1), torch.tensor(s2)).numpy())
     ssim = functional_ssim(torch.tensor(so).unsqueeze(0).unsqueeze(0), torch.tensor(som).unsqueeze(0).unsqueeze(0))
-    ssim = {k: float(v.numpy()) for k,v in ssim.items()}
-    mdict = {"L1": l1, "L2" : l2, "th_p": thp, "ncc": ncc}
+    ssim = {prefix + k: float(v.numpy()) for k,v in ssim.items()}
+    mdict = {prefix + "L1": l1, prefix + "L2" : l2, prefix + "th_p": thp, prefix + "ncc": ncc}
+
     return dict(mdict, **ssim)
 
-def get_metrics(s1, s2):
+def get_metric_fp(fp, tf_s1, prefix=''):
+    meanDisp    = np.mean(np.abs(fp))
+    rmseDisp    = np.sqrt(np.mean(fp ** 2))
+    meanDispTFA = np.sum(np.abs(fp) * np.abs(tf_s1)) / np.sum(np.abs(tf_s1))
+    rmseDispTF  = np.sqrt(np.sum(np.abs(tf_s1) * fp ** 2) / np.sum(np.abs(tf_s1)))
+    rmseDispTF2 =  np.sqrt(np.sum(np.abs(tf_s1 ** 2) * fp ** 2) / np.sum(np.abs(tf_s1 ** 2)))
+
+    dict_disp = {
+        prefix + "meanDisp": meanDisp,
+        prefix + "rmseDisp": rmseDisp,
+        prefix + "meanDispTFA": meanDispTFA,
+        # "meanDispTFA2": np.sum(np.abs(fp) * np.abs(tf_s1 ** 2)) / np.sum(np.abs(tf_s1 ** 2)),
+        # "meanDispTFP" : np.sum(np.abs(fp) * np.angle(tf_s1)) / np.sum(np.angle(tf_s1)),  #poid negatif
+        # "meanDispTFC" : np.abs( np.sum(np.abs(fp) * tf_s1) / np.sum(tf_s1) ),
+        prefix + "rmseDispTF": rmseDispTF,
+        prefix + "rmseDispTF2": rmseDispTF2
+    }
+    return dict_disp
+
+def get_metrics(s1, s2, fp=None):
     mdict = get_metric(s1, s2)
+    mdict_brain = get_metric(s1, s2, mask=s1, prefix='brain_')
+    mdict = dict(mdict, ** mdict_brain)
+
     tf_s1 = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(s1)).astype(np.complex))
     tf_s2 = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(s2)).astype(np.complex))
 
-    tf_metricA = get_metric(np.abs(tf_s1), np.abs(tf_s2))
-    dict_allA = { 'tf_abs_'+k : v for k,v in tf_metricA.items()}
-
-    tf_metricP = get_metric(np.angle(tf_s1), np.angle(tf_s2))
-    dict_allP = { 'tf_pha_'+k : v for k,v in tf_metricP.items()}
+    dict_allA = get_metric(np.abs(tf_s1), np.abs(tf_s2), prefix='tf_abs_')
+    dict_allP = get_metric(np.angle(tf_s1), np.angle(tf_s2), prefix='tf_pha_')
 
     dict_all = dict(dict_allA, ** dict_allP)
 
+    if fp is not None:
+        dict_disp = get_metric_fp(fp, tf_s1)
+        dict_all = dict(dict_all, ** dict_disp)
     return dict(mdict, **dict_all)
 
 
@@ -328,7 +356,7 @@ df = pd.DataFrame()
 for a in [2,5,10,20]:
     for s in [2,4,10, 20, 40, 80, 120, 160, 200]: #np.linspace(2,200,10):
         for x0 in np.hstack([np.linspace(10,120,10), np.linspace(130,256,30)]):
-            #so = get_random_2step(rampe=2, sym=True)
+            so = get_random_2step(rampe=2, sym=True)
             s=int(s); x0 = int(x0)
             print(f'sigma {s} X0 {x0}')
             fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zero', resolution=resolution)
@@ -339,13 +367,10 @@ for a in [2,5,10,20]:
                 fp = fp + disp
                 som = simu_motion(fp, so)
                 #disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=False, fp=fp, loss='L2')
-                #fp = fp + disp2
-                #som = simu_motion(fp, so)
-                #disp+=disp2
-
+                #fp = fp + disp2;  som = simu_motion(fp, so);  disp+=disp2
             #plot_obj(fp, so, som)
             mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp}
-            mydict = dict(get_metrics(so,som) , **mydict)
+            mydict = dict(get_metrics(so,som,fp=fp) , **mydict)
             df = df.append(mydict, ignore_index=True)
 
 plot_obj(fp, so, som)
@@ -382,7 +407,15 @@ plt.figure();sns.scatterplot(data=df, x="ssim", y="structure", size="x0", hue="s
 sel_key=['tf_abs_L1', 'tf_abs_L2', 'tf_abs_ncc', 'tf_abs_ssim']
 sel_key=['tf_pha_L1', 'tf_pha_L2', 'tf_pha_ncc', 'tf_pha_ssim']
 sel_key=['L1', 'L2', 'ncc', 'ssim'] #, 'structure', 'contrast','luminance']
+sel_key=['brain_L1', 'brain_L2', 'brain_ncc', 'brain_ssim'] #, 'structure', 'contrast','luminance']
+sel_key += ['meanDispTFA', 'rmseDispTF'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
 sns.pairplot(df[sel_key], kind="scatter", corner=True)
+
+sel_key=[]
+for k in df.keys():
+    if "Disp" in k :
+        print(k); sel_key.append(k)
+
 
 
 t=tio.transforms.RandomMotionFromTimeCourse(displacement_shift_strategy="center_zero", maxRot=(2,10), maxDisp=(2,10),
