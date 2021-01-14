@@ -12,6 +12,7 @@ pd.set_option('display.max_rows', None, 'display.max_columns', None, 'display.ma
 from torchio.metrics.normalized_cross_correlation import th_pearsonr, normalize_cc
 from torchio.metrics.ssim import functional_ssim
 from scipy.interpolate import pchip_interpolate
+from kymatio.numpy import Scattering1D
 
 def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], center='zero', resolution=200 ):
     fp = np.zeros((6, resolution))
@@ -59,7 +60,7 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         fp[xx,:] = y
     return y
 
-def get_random_2step(rampe=0, sym=False):
+def get_random_2step(rampe=0, sym=False, resolution=512):
     sigma = [rampe, np.random.randint(10,100), np.random.randint(10,200)]
     ampli = [np.random.rand(1,1), np.random.rand(1,1)]
     x0 = np.random.randint(rampe,200)
@@ -292,7 +293,7 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         fp[xx,:] = y
     return y
 
-def get_metric(s1,s2, mask=None, prefix=''):
+def get_metric(s1,s2, mask=None, prefix='', scattering=None):
     if mask is None:
         mask = np.ones_like(s1)
     s1 = s1[mask>0]
@@ -306,7 +307,22 @@ def get_metric(s1,s2, mask=None, prefix=''):
     ncc = float(normalize_cc(torch.tensor(s1), torch.tensor(s2)).numpy())
     ssim = functional_ssim(torch.tensor(so).unsqueeze(0).unsqueeze(0), torch.tensor(som).unsqueeze(0).unsqueeze(0))
     ssim = {prefix + k: float(v.numpy()) for k,v in ssim.items()}
-    mdict = {prefix + "L1": l1, prefix + "L2" : l2, prefix + "th_p": thp, prefix + "ncc": ncc}
+
+    mdict = {prefix + "L1": l1, prefix + "L2" : l2, prefix + "th_p": thp, prefix + "ncc": ncc }
+    if scattering is not None:
+        meta = scattering.meta()
+        order1 = np.where(meta['order'] == 1)
+        order2 = np.where(meta['order'] == 2)
+
+        sx1 = scattering(s1)
+        sx2 = scattering(s2)
+
+        sxa1 = np.sum(sx1, axis=1)
+        sxa2 = np.sum(sx2, axis=1)
+        scat1 = np.sum(np.abs(sxa1[order1] - sxa2[order1]))
+        scat2 = np.sum(np.abs(sxa1[order2] - sxa2[order2]))
+        mdict['scat1'] = scat1
+        mdict['scat2'] = scat2
 
     return dict(mdict, **ssim)
 
@@ -314,6 +330,7 @@ def get_metric_fp(fp, tf_s1, prefix=''):
     meanDisp    = np.mean(np.abs(fp))
     rmseDisp    = np.sqrt(np.mean(fp ** 2))
     meanDispTFA = np.sum(np.abs(fp) * np.abs(tf_s1)) / np.sum(np.abs(tf_s1))
+    meanDispTFA2 = np.sum(np.abs(fp) * np.abs(tf_s1 ** 2)) / np.sum(np.abs(tf_s1 ** 2)),
     rmseDispTF  = np.sqrt(np.sum(np.abs(tf_s1) * fp ** 2) / np.sum(np.abs(tf_s1)))
     rmseDispTF2 =  np.sqrt(np.sum(np.abs(tf_s1 ** 2) * fp ** 2) / np.sum(np.abs(tf_s1 ** 2)))
 
@@ -329,8 +346,8 @@ def get_metric_fp(fp, tf_s1, prefix=''):
     }
     return dict_disp
 
-def get_metrics(s1, s2, fp=None):
-    mdict = get_metric(s1, s2)
+def get_metrics(s1, s2, fp=None, scatt=None):
+    mdict = get_metric(s1, s2, scattering=scatt)
     mdict_brain = get_metric(s1, s2, mask=s1, prefix='brain_')
     mdict = dict(mdict, ** mdict_brain)
 
@@ -351,12 +368,18 @@ def get_metrics(s1, s2, fp=None):
 resolution=512
 shifts = np.arange(-30,30,1); shifts_small = np.arange(-1,1,0.01)
 
+T = resolution
+J = 5  # The averaging scale is specified as a power of two, 2**J. Here, we set J = 5 to get an averaging, or maximum,
+# scattering scale of 2**5 = 32 samples.
+Q = 8  # we set the number of wavelets per octave, Q, to 8. This lets us resolve frequencies at a resolution of 1/8 octaves.
+scattering = Scattering1D(J, T, Q)
+
 so = get_random_2step(rampe=2, sym=True)
 df = pd.DataFrame()
 for a in [2,5,10,20]:
     for s in [2,4,10, 20, 40, 80, 120, 160, 200]: #np.linspace(2,200,10):
         for x0 in np.hstack([np.linspace(10,120,10), np.linspace(130,256,30)]):
-            so = get_random_2step(rampe=2, sym=True)
+            #so = get_random_2step(rampe=2, sym=True)
             s=int(s); x0 = int(x0)
             print(f'sigma {s} X0 {x0}')
             fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zero', resolution=resolution)
@@ -370,7 +393,7 @@ for a in [2,5,10,20]:
                 #fp = fp + disp2;  som = simu_motion(fp, so);  disp+=disp2
             #plot_obj(fp, so, som)
             mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp}
-            mydict = dict(get_metrics(so,som,fp=fp) , **mydict)
+            mydict = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
             df = df.append(mydict, ignore_index=True)
 
 plot_obj(fp, so, som)
@@ -383,6 +406,9 @@ fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center
 som = simu_motion(fp, so)
 disp = l1_shfit(som, so, shifts, do_plot=True, fp=fp)
 fp = fp + disp
+som = simu_motion(fp, so)
+disp = l1_shfit(som, so, shifts, do_plot=True, fp=fp)
+
 shifts_small = np.arange(-1,1,0.01)
 disp = l1_shfit_fft(som, so, shifts_small, do_plot=True, fp=fp, loss='L1')
 
@@ -406,9 +432,10 @@ plt.figure();sns.scatterplot(data=df, x="ssim", y="structure", size="x0", hue="s
 
 sel_key=['tf_abs_L1', 'tf_abs_L2', 'tf_abs_ncc', 'tf_abs_ssim']
 sel_key=['tf_pha_L1', 'tf_pha_L2', 'tf_pha_ncc', 'tf_pha_ssim']
-sel_key=['L1', 'L2', 'ncc', 'ssim'] #, 'structure', 'contrast','luminance']
+sel_key=['L1', 'L2', 'ncc', 'ssim', 'scat1', 'scat2'] #, 'structure', 'contrast','luminance']
 sel_key=['brain_L1', 'brain_L2', 'brain_ncc', 'brain_ssim'] #, 'structure', 'contrast','luminance']
 sel_key += ['meanDispTFA', 'rmseDispTF'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
+#sel_key += ['meanDisp', 'rmseDisp']
 sns.pairplot(df[sel_key], kind="scatter", corner=True)
 
 sel_key=[]
@@ -463,3 +490,46 @@ for i in range(0,10):
 # decomposition wawelet, pour characterise l'effet du motion (base versus haute frequence perturbation)
 # parametre geometri et contrast de l'object ...
 # corection global displacement dans le plan de fourier, (subvoxel)
+
+
+from kymatio.numpy import Scattering1D
+
+T = 512
+so = get_random_2step(rampe=2, sym=True)
+J = 5 #The averaging scale is specified as a power of two, 2**J. Here, we set J = 5 to get an averaging, or maximum,
+# scattering scale of 2**5 = 32 samples.
+Q = 8 # we set the number of wavelets per octave, Q, to 8. This lets us resolve frequencies at a resolution of 1/8 octaves.
+sot = np.hstack([so[-50:], so[0:-50]])
+scattering = Scattering1D(J, T, Q)
+
+Sx = scattering(sot)
+sx  = scattering(so)
+sxt = scattering(sot)
+sxm = scattering(som)
+
+sxa = np.sum(sx,axis=1)
+sxat = np.sum(sxt,axis=1)
+sxam = np.sum(sxm,axis=1)
+
+meta = scattering.meta()
+order0 = np.where(meta['order'] == 0)
+order1 = np.where(meta['order'] == 1)
+order2 = np.where(meta['order'] == 2)
+plt.figure(figsize=(8, 2))
+plt.plot(so)
+plt.title('Original signal')
+
+plt.figure(figsize=(8, 8))
+plt.subplot(3, 1, 1)
+plt.plot(Sx[order0][0])
+plt.title('Zeroth-order scattering')
+
+plt.subplot(3, 1, 2)
+plt.imshow(Sx[order1], aspect='auto')
+plt.title('First-order scattering')
+
+plt.subplot(3, 1, 3)
+plt.imshow(Sx[order2], aspect='auto')
+plt.title('Second-order scattering')
+
+
