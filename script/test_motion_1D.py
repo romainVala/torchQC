@@ -321,8 +321,15 @@ def get_metric(s1,s2, mask=None, prefix='', scattering=None):
         sxa2 = np.sum(sx2, axis=1)
         scat1 = np.sum(np.abs(sxa1[order1] - sxa2[order1]))
         scat2 = np.sum(np.abs(sxa1[order2] - sxa2[order2]))
-        mdict['scat1'] = scat1
-        mdict['scat2'] = scat2
+        scat1L2 = np.sqrt(np.sum((sxa1[order1] - sxa2[order1])**2))
+        scat2L2 = np.sqrt(np.sum((sxa1[order2] - sxa2[order2])**2))
+        scat11 = np.sum(np.abs(sxa1[order1[:10]] - sxa2[order1[:10]]))
+        scat12 = np.sum(np.abs(sxa1[order1[10:20]] - sxa2[order1[10:20]]))
+        scat13 = np.sum(np.abs(sxa1[order1[20:]] - sxa2[order1[20:]]))
+
+        mdict['scat1L2'], mdict['scat2L2'] = scat1L2, scat2L2
+        mdict['scat1'], mdict['scat2'] = scat1, scat2
+        mdict['scat11'], mdict['scat12'], mdict['scat13']   = scat11, scat12, scat13
 
     return dict(mdict, **ssim)
 
@@ -374,7 +381,7 @@ J = 5  # The averaging scale is specified as a power of two, 2**J. Here, we set 
 Q = 8  # we set the number of wavelets per octave, Q, to 8. This lets us resolve frequencies at a resolution of 1/8 octaves.
 scattering = Scattering1D(J, T, Q)
 
-so = get_random_2step(rampe=2, sym=True)
+so = get_random_2step(rampe=10, sym=True)
 df = pd.DataFrame()
 for a in [2,5,10,20]:
     for s in [2,4,10, 20, 40, 80, 120, 160, 200]: #np.linspace(2,200,10):
@@ -430,13 +437,18 @@ plt.figure();sns.scatterplot(data=df, x="L2", y="ssim", size="x0", hue="sigma", 
 plt.figure();sns.scatterplot(data=df, x="ssim", y="contrast", size="x0", hue="sigma", legend='full')
 plt.figure();sns.scatterplot(data=df, x="ssim", y="structure", size="x0", hue="sigma", legend='full')
 
+i1 = df.L2 > 15
+
+
 sel_key=['tf_abs_L1', 'tf_abs_L2', 'tf_abs_ncc', 'tf_abs_ssim']
 sel_key=['tf_pha_L1', 'tf_pha_L2', 'tf_pha_ncc', 'tf_pha_ssim']
 sel_key=['L1', 'L2', 'ncc', 'ssim', 'scat1', 'scat2'] #, 'structure', 'contrast','luminance']
+sel_key=['L1', 'L2', 'ncc', 'ssim', 'scat1L2', 'scat2L2'] #, 'structure', 'contrast','luminance']
 sel_key=['brain_L1', 'brain_L2', 'brain_ncc', 'brain_ssim'] #, 'structure', 'contrast','luminance']
 sel_key += ['meanDispTFA', 'rmseDispTF'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
 #sel_key += ['meanDisp', 'rmseDisp']
 sns.pairplot(df[sel_key], kind="scatter", corner=True)
+sns.pairplot(df[sel_key + ['sel']], kind="scatter", corner=True, hue='sel')
 
 sel_key=[]
 for k in df.keys():
@@ -503,7 +515,7 @@ sot = np.hstack([so[-50:], so[0:-50]])
 scattering = Scattering1D(J, T, Q)
 
 Sx = scattering(sot)
-sx  = scattering(so)
+Sx  = scattering(so)
 sxt = scattering(sot)
 sxm = scattering(som)
 
@@ -518,7 +530,7 @@ order2 = np.where(meta['order'] == 2)
 plt.figure(figsize=(8, 2))
 plt.plot(so)
 plt.title('Original signal')
-
+plt
 plt.figure(figsize=(8, 8))
 plt.subplot(3, 1, 1)
 plt.plot(Sx[order0][0])
