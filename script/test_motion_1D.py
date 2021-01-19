@@ -532,4 +532,23 @@ plt.subplot(3, 1, 3)
 plt.imshow(Sx[order2], aspect='auto')
 plt.title('Second-order scattering')
 
+###################################### WAVELET Transform
+import pywt
 
+def signal_wnrmse(s1, s2, wavelet, level=None, eps=10e-8):
+    s1_detail_coeffs = pywt.wavedec(s1, wavelet, level=level)[1:]
+    s2_detail_coeffs = pywt.wavedec(s2, wavelet, level=level)[1:]
+    #Flatten coeffs
+    s1_detail_coeffs = np.concatenate(s1_detail_coeffs)[..., np.newaxis]
+    s2_detail_coeffs = np.concatenate(s2_detail_coeffs)[..., np.newaxis]
+    numerator = np.linalg.norm(s1_detail_coeffs - s2_detail_coeffs, axis=1) ** 2
+    denominator = np.linalg.norm(s1_detail_coeffs, axis=1)**2 + np.linalg.norm(s2_detail_coeffs, axis=1)**2 + eps
+    wnrmse = (numerator/denominator)**2
+    return wnrmse.sum()
+
+def compute_wavelets_wnrmse(s1, s2, wavelet_lists=None):
+    if not wavelet_lists:
+        wavelet_lists = ["db1", "db2", "db3", "db4", "db5", "db6", "db7", "db8", "db9", "db10", "sym2",
+                         "sym3", "sym4", "sym5", "sym6", "sym7", "sym8", "coif1", "coif2", "coif3", "coif4", "coif5",
+                         "dmey"]
+    return {wavelet_name: signal_wnrmse(s1, s2, wavelet=wavelet_name) for wavelet_name in wavelet_lists}
