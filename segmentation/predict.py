@@ -25,9 +25,24 @@ if __name__ == '__main__':
                         default='prediction.nii.gz',
                         help='Filename used to save the prediction,'
                              'default is "prediction.nii.gz"')
+    parser.add_argument('-e','--exlcude_to_softmax', type=int, default=0,
+                        help='nb volume to exclude (from the end) from the softmax activation')
+    parser.add_argument('-c','--CropOrPad', type=str, default='None',
+                        help='tuple of target dim')
+
     args = parser.parse_args()
+    nb_vol_exclude = int(args.exlcude_to_softmax)
+    vol_crop_pad = eval(args.CropOrPad)
 
     volume = torchio.ScalarImage(path=args.volume)
+    tscale = torchio.RescaleIntensity(percentiles=(0,99))
+    volume = tscale(volume)
+
+    if vol_crop_pad:
+        tpad = torchio.CropOrPad(target_shape=vol_crop_pad)
+        volume = tpad(volume)
+
+
     model_struct = {
         'module': args.model_module,
         'name': args.model_name,
@@ -41,9 +56,13 @@ if __name__ == '__main__':
     model.eval()
 
     with torch.no_grad():
-        prediction = model(volume.data.unsqueeze(0).to(device))
+        prediction = model(volume.data.unsqueeze(0).float().to(device))
 
-    prediction = F.softmax(prediction, dim=1)
+    if nb_vol_exclude>0:
+        pp = F.softmax(prediction[0,:-nb_vol_exclude,...].unsqueeze(0), dim=1)
+        prediction[0,:-nb_vol_exclude,...] = pp[0]
+    else:
+        prediction = F.softmax(prediction, dim=1)
 
     image = nib.Nifti1Image(
         to_numpy(prediction[0].permute(1, 2, 3, 0)),
