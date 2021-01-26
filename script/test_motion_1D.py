@@ -1,3 +1,7 @@
+# calcul metrique dans le plan de fourier
+# decomposition wawelet, pour characterise l'effet du motion (base versus haute frequence perturbation)
+# parametre geometri et contrast de l'object ...
+# corection global displacement dans le plan de fourier, (subvoxel)
 import torch
 import matplotlib.pyplot as plt, seaborn as sns, pandas as pd
 import matplotlib.ticker as plticker
@@ -48,6 +52,7 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
     elif method == 'Ustep':
         y = np.zeros(resolution)
         y[x0-(sigma//2):x0+(sigma//2)] = 1
+        y = y * amplitude
     elif method == 'sin':
         #fp = np.zeros((6, 182*218))
         #x = np.arange(0,182*218)
@@ -60,16 +65,35 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         fp[xx,:] = y
     return y
 
-def get_random_2step(rampe=0, sym=False, resolution=512):
-    sigma = [rampe, np.random.randint(10,100), np.random.randint(10,200)]
-    ampli = [np.random.rand(1,1), np.random.rand(1,1)]
-    x0 = np.random.randint(rampe,200)
+def get_random_2step(rampe=0, sym=False, resolution=512, shape=None, intensity=None, norm=None):
+    if shape is not None:
+        x0 = shape[0]
+        sigma = shape[1:]
+    else:
+        sigma = [rampe, np.random.randint(10,resolution//4 -1), np.random.randint(10,200)]
+        x0 = np.random.randint(rampe,resolution//4 -1 )
+    if intensity is not None:
+        ampli = intensity
+    else:
+        ampli = [np.random.uniform(0.1,1,1)[0], np.random.uniform(0.1,1,1)[0]]
 
-    so = corrupt_data(x0, sigma=sigma, amplitude=ampli, method='2step', center='None', resolution=resolution)
     if sym:
+        #let force the second sigma to be more than the half (ie no noise in the middle)
+        last_start = x0 + sigma[0] + sigma[1]
+        sigma[2] = resolution//2 + 2 - last_start
+        if sigma[2]<=0:
+            x0 -= sigma[2] -5
+            sigma[2]=10
+        print(f'x0={x0}; sigma={sigma}; ampli={ampli}')
+        so = corrupt_data(x0, sigma=sigma, amplitude=ampli, method='2step', center='None', resolution=resolution)
         center = so.shape[0]//2
         so = np.hstack([so[0:center], np.flip(so[0:center])])
-    return so
+    else:
+        so = corrupt_data(x0, sigma=sigma, amplitude=ampli, method='2step', center='None', resolution=resolution)
+    if norm is not None:
+        so = so / np.sum(so) * norm
+
+    return so, rampe, sigma, ampli
 
 def _translate_freq_domain( freq_domain, translations, inv_transfo=False):
     translations = -translations if inv_transfo else translations
@@ -94,7 +118,7 @@ def print_fft(Fi):
     s2 = np.sum(Fi[101:])
     print('COMP ks1 {} ks2 {} ks1+ks2 {} sum {}'.format(s1,s2,s1+s2,np.sum(Fi)))
 
-def l1_shfit(y1,y2,shifts, do_plot=True, fp=None):
+def l1_shfit(y1,y2,shifts, do_plot=True, fp=None, plot_diff=False):
     l1 = []
     #shifts = np.arange(-30, 30, 1)
     for shift in shifts:
@@ -106,7 +130,7 @@ def l1_shfit(y1,y2,shifts, do_plot=True, fp=None):
     disp = shifts[np.argmin(l1)]
     if do_plot:
         if fp is not None:
-            fig,axs = plot_obj(fp,so, som, nb_subplot=3)
+            fig,axs = plot_obj(fp,y2, y1, nb_subplot=3, plot_diff=plot_diff)
             ax = axs[2]
         else:
             f,ax=plt.subplots(1)
@@ -136,7 +160,7 @@ def l1_shfit_fft(y1,y2,shifts, do_plot=True, fp=None, loss='L1'):
     disp = shifts[np.argmin(l1)]
     if do_plot:
         if fp is not None:
-            fig,axs = plot_obj(fp,so, som, nb_subplot=3)
+            fig,axs = plot_obj(fp,y2, y1, nb_subplot=3)
             ax = axs[2]
         else:
             f,ax=plt.subplots(1)
@@ -146,13 +170,30 @@ def l1_shfit_fft(y1,y2,shifts, do_plot=True, fp=None, loss='L1'):
         ax.set_title('max from L1 is {}'.format(disp))
     return disp
 
-def plot_obj(fp, so, som, nb_subplot=2):
-    fig, axs = plt.subplots(nb_subplot);
-    axs[0].plot(fp); axs[0].legend(['motion'])
-    axs[0].set_ylabel('trans Y')
+def plot_obj(fp, so, som, nb_subplot=2, plot_diff=False, axs=None, fig=None):
+
+    if axs is None:
+        fig, axs = plt.subplots(nb_subplot);
+
+    fi = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex))
+    axs[0].plot(abs(fi) * 10 / max(abs(fi)));
+    #axs[0].plot(abs(fi) );
+
+    #axs[0].set_xlim([220, 280]);
+    #axs[0].set_ylim([0, 1]);
+    axs[0].set_ylabel('trans Y');     axs[0].plot(fp); axs[0].legend(['motion','fft'])
+
     axs[1].plot(so);
-    axs[1].plot(abs(som));
+    axs[1].plot(som); #axs[1].plot(abs(som));
     axs[1].legend(['orig object', 'artefacted object'])
+
+    if plot_diff:
+        dso = np.diff(so, prepend=so[0])
+        dsom = np.diff(som, prepend=som[0])
+        _ = plot_obj(fp,dso, dsom, axs=axs)
+        #dso = np.diff(dso, prepend=dso[0])
+        #dsom = np.diff(dsom, prepend=dsom[0])
+        #_ = plot_obj(fp,dso, dsom, axs=axs)
 
     return fig,axs
 
@@ -214,11 +255,26 @@ def rand_uniform( min=0.0, max=1.0, shape=1):
         return rand.item()
     return rand.numpy()
 
-def get_perlin(resolution, freq=16):
-    b = perlinNoise1D(freq, [5, 20])
-    x = np.linspace(0,1,b.shape[0])
-    xt = np.linspace(0,1,resolution)
-    bi = np.interp(xt,x,b)
+def get_perlin(resolution, freq=16, amplitude=10, center='zerro', sigma=0, x0=0):
+    #b = perlinNoise1D(freq, [5, 20])
+    #x = np.linspace(0,1,b.shape[0])
+    #xt = np.linspace(0,1,resolution)
+    #bi = np.interp(xt,x,b)
+
+    #bi = perlinNoise1D(resolution, [1, 3, 9, 3 ** 3, 3**4, 3**5, 3**6]) #even smoother
+    bi = perlinNoise1D(resolution, [1, 3, 9, 3 ** 3])
+    bi = bi * amplitude #because [-0.5 0.5]
+    if center=='zero':
+        #print(y.shape)
+        bi = bi -bi[resolution//2]
+
+    if sigma:
+        ind_min = np.max( [int(x0 - sigma/2), 0])
+        ind_max = int(x0 + sigma/2)
+        bi_band = np.zeros_like(bi)
+        bi_band[ind_min:ind_max] = bi[ind_min:ind_max]
+        bi = bi_band
+
     return bi
 
 def perlinNoise1D(npts, weights):
@@ -244,54 +300,6 @@ def perlinNoise1D(npts, weights):
     total = total - np.min(total)
     total = total / np.max(total)
     return total.reshape(-1) - 0.5 #add -0.5 from torchio version
-
-def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], center='zero', resolution=200 ):
-    fp = np.zeros((6, resolution))
-    x = np.arange(0, resolution)
-    if method=='gauss':
-        y = np.exp(-(x - x0) ** 2 / float(2 * sigma ** 2))*amplitude
-    elif method == '2step':
-        y = np.hstack((np.zeros((1, (x0 - sigma[0]))),
-                       np.linspace(0, amplitude[0], 2 * sigma[0] + 1).reshape(1, -1),
-                       np.ones((1, sigma[1]-1)) * amplitude[0],
-                       np.linspace(amplitude[0], amplitude[1], 2 * sigma[0] + 1).reshape(1, -1),
-                       np.ones((1, sigma[2]-1)) * amplitude[1],
-                       np.linspace(amplitude[1], 0 , 2 * sigma[0] + 1).reshape(1, -1)) )
-        remain = resolution - y.shape[1]
-        if remain<0:
-            y = y[:,:remain]
-            print(y.shape)
-            print("warning seconf step is too big taking cutting {}".format(remain))
-        else:
-            y = np.hstack([y, np.zeros((1,remain))])
-        y=y[0]
-
-    elif method == 'step':
-        if x0 < 100:
-            y = np.hstack((np.zeros((1, (x0 - sigma))),
-                           np.linspace(0, amplitude, 2 * sigma + 1).reshape(1, -1),
-                           np.ones((1, ((resolution - x0) - sigma - 1))) * amplitude))
-        else:
-            y = np.hstack((np.zeros((1, (x0 - sigma))),
-                           np.linspace(0, -amplitude, 2 * sigma + 1).reshape(1, -1),
-                           np.ones((1, ((resolution - x0) - sigma - 1))) * -amplitude))
-        y = y[0]
-    elif method == 'Ustep':
-        y = np.zeros(resolution)
-        left = np.max([0, x0-(sigma//2)])
-        y[left:x0+(sigma//2)] = 1
-        y = y * amplitude
-    elif method == 'sin':
-        #fp = np.zeros((6, 182*218))
-        #x = np.arange(0,182*218)
-        y = np.sin(x/x0 * 2 * np.pi)
-        #plt.plot(x,y)
-    if center=='zero':
-        #print(y.shape)
-        y = y -y[resolution//2]
-    for xx in mvt_axes:
-        fp[xx,:] = y
-    return y
 
 def get_metric(s1,s2, mask=None, prefix='', scattering=None):
     if mask is None:
@@ -323,25 +331,37 @@ def get_metric(s1,s2, mask=None, prefix='', scattering=None):
         scat2 = np.sum(np.abs(sxa1[order2] - sxa2[order2]))
         scat1L2 = np.sqrt(np.sum((sxa1[order1] - sxa2[order1])**2))
         scat2L2 = np.sqrt(np.sum((sxa1[order2] - sxa2[order2])**2))
-        scat11 = np.sum(np.abs(sxa1[order1[:10]] - sxa2[order1[:10]]))
-        scat12 = np.sum(np.abs(sxa1[order1[10:20]] - sxa2[order1[10:20]]))
-        scat13 = np.sum(np.abs(sxa1[order1[20:]] - sxa2[order1[20:]]))
+        scat1L2n = scat1L2 / np.sqrt( np.sum( (sxa1[order1])**2 + sxa2[order1])**2   )
+        #scat11 = np.sum(np.abs(sxa1[order1[:10]] - sxa2[order1[:10]]))
+        #scat12 = np.sum(np.abs(sxa1[order1[10:20]] - sxa2[order1[10:20]]))
+        #scat13 = np.sum(np.abs(sxa1[order1[20:]] - sxa2[order1[20:]]))
 
-        mdict['scat1L2'], mdict['scat2L2'] = scat1L2, scat2L2
+        mdict['scat1L2'], mdict['scat2L2'], mdict['scat1L2n'] = scat1L2, scat2L2, scat1L2n
         mdict['scat1'], mdict['scat2'] = scat1, scat2
-        mdict['scat11'], mdict['scat12'], mdict['scat13']   = scat11, scat12, scat13
+        #mdict['scat11'], mdict['scat12'], mdict['scat13']   = scat11, scat12, scat13
 
     return dict(mdict, **ssim)
 
-def get_metric_fp(fp, tf_s1, prefix=''):
+def get_metric_fp(fp, tf_s1, diff_tf=None, prefix='', shift=0):
+    meanD = np.mean(fp)  - shift
+    meanDTFA =  np.sum( fp*np.abs(tf_s1) ) / np.sum(np.abs(tf_s1))  - shift
+    meanDTFA2 =  np.sum( fp*np.abs(tf_s1)**2 ) / np.sum(np.abs(tf_s1)**2)  - shift
     meanDisp    = np.mean(np.abs(fp))
     rmseDisp    = np.sqrt(np.mean(fp ** 2))
     meanDispTFA = np.sum(np.abs(fp) * np.abs(tf_s1)) / np.sum(np.abs(tf_s1))
     meanDispTFA2 = np.sum(np.abs(fp) * np.abs(tf_s1 ** 2)) / np.sum(np.abs(tf_s1 ** 2)),
     rmseDispTF  = np.sqrt(np.sum(np.abs(tf_s1) * fp ** 2) / np.sum(np.abs(tf_s1)))
     rmseDispTF2 =  np.sqrt(np.sum(np.abs(tf_s1 ** 2) * fp ** 2) / np.sum(np.abs(tf_s1 ** 2)))
+    #tf_s1[tf_s1.shape[0]//2] = 0
+    #meanDTFzA =  np.sum( fp*np.abs(tf_s1) ) / np.sum(np.abs(tf_s1))
+    #meanDTFzA2 =  np.sum( fp*np.abs(tf_s1)**2 ) / np.sum(np.abs(tf_s1)**2)
 
     dict_disp = {
+        prefix + "meanD": meanD,
+        prefix + "meanDTFA": meanDTFA,
+        prefix + "meanDTFA2": meanDTFA2,
+        #prefix + "meanDTFzA": meanDTFzA,
+        #prefix + "meanDTFzA2": meanDTFzA2,
         prefix + "meanDisp": meanDisp,
         prefix + "rmseDisp": rmseDisp,
         prefix + "meanDispTFA": meanDispTFA,
@@ -351,9 +371,20 @@ def get_metric_fp(fp, tf_s1, prefix=''):
         prefix + "rmseDispTF": rmseDispTF,
         prefix + "rmseDispTF2": rmseDispTF2
     }
+    if diff_tf is not None:
+        dict_disp[prefix + 'meanDTFdifA'] = np.sum(fp * np.abs(diff_tf)) / np.sum(np.abs(diff_tf)) - shift
+        dict_disp[prefix + 'meanDTFdifA2'] = np.sum(fp * np.abs(diff_tf) ** 2) / np.sum(np.abs(diff_tf) ** 2) - shift
+        dict_disp[prefix +'meanDispTFdiffA'] = np.sum(np.abs(fp) * np.abs(diff_tf)) / np.sum(np.abs(diff_tf))
+        dict_disp[prefix +'meanDispTFdiffA2'] = np.sum(np.abs(fp) * np.abs(diff_tf ** 2)) / np.sum(np.abs(diff_tf ** 2))
+        dict_disp[prefix +'rmseDispTFdiff' ] = np.sqrt(np.sum(np.abs(diff_tf) * fp ** 2) / np.sum(np.abs(diff_tf)))
+        dict_disp[prefix +'rmseDispTFdiff2'] =  np.sqrt(np.sum(np.abs(diff_tf ** 2) * fp ** 2) / np.sum(np.abs(diff_tf ** 2)))
+        weigths = np.abs(tf_s1)* np.abs(diff_tf)
+        dict_disp[prefix + 'rrr'] = np.sum(fp * weigths) / np.sum(weigths) - shift
+        dict_disp[prefix + 'rrr2'] = np.sum(fp * weigths**2) / np.sum(weigths**2) - shift
+
     return dict_disp
 
-def get_metrics(s1, s2, fp=None, scatt=None):
+def get_metrics(s1, s2, fp=None, scatt=None, shift=0):
     mdict = get_metric(s1, s2, scattering=scatt)
     mdict_brain = get_metric(s1, s2, mask=s1, prefix='brain_')
     mdict = dict(mdict, ** mdict_brain)
@@ -367,8 +398,15 @@ def get_metrics(s1, s2, fp=None, scatt=None):
     dict_all = dict(dict_allA, ** dict_allP)
 
     if fp is not None:
-        dict_disp = get_metric_fp(fp, tf_s1)
+        s1dif = np.diff(s1, prepend=s1[0])
+        s2dif = np.diff(s2, prepend=s2[0])
+        tf_diff = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(s1dif)).astype(np.complex))
+        dict_disp = get_metric_fp(fp, tf_s1, diff_tf=tf_diff, shift=shift)
         dict_all = dict(dict_all, ** dict_disp)
+
+        dict_disp_diff = get_metric(s1dif, s2dif , prefix='tf_abs_')
+        dict_all = dict(dict_all, **dict_disp_diff)
+
     return dict(mdict, **dict_all)
 
 
@@ -381,61 +419,71 @@ J = 5  # The averaging scale is specified as a power of two, 2**J. Here, we set 
 Q = 8  # we set the number of wavelets per octave, Q, to 8. This lets us resolve frequencies at a resolution of 1/8 octaves.
 scattering = Scattering1D(J, T, Q)
 
-so = get_random_2step(rampe=10, sym=True)
-df = pd.DataFrame()
-for a in [2,5,10,20]:
-    for s in [2,4,10, 20, 40, 80, 120, 160, 200]: #np.linspace(2,200,10):
-        for x0 in np.hstack([np.linspace(10,120,10), np.linspace(130,256,30)]):
-            #so = get_random_2step(rampe=2, sym=True)
+so,_,_,_ = get_random_2step(rampe=10, sym=True); soTF = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex))
+df, dfmot = pd.DataFrame(), pd.DataFrame()
+amplitudes, sigmas, x0s = [2,5,10,20], [2, 4, 10, 20, 40, 80, 120, 160, 200]  , np.hstack([np.linspace(10, 120, 10), np.linspace(130, 256, 30)])
+amplitudes, sigmas, x0s = [10, 10, 10, 10], [5, 10, 20, 40, 80, 120, 160, 200]  , np.hstack([np.linspace(10, 120, 10), np.linspace(130, 256, 30)])
+#amplitudes, sigmas, x0s = [2,5,10,20], [50, 100, 150, 200]  ,np.linspace(10, 256, 20);amplitudes = np.tile(amplitudes,[10])
+for a in amplitudes:
+    rampe = np.random.randint(2, 30, 1)[0]
+    so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
+    for s in sigmas:  # np.linspace(2,200,10):
+        for x0 in x0s:
+            #so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
             s=int(s); x0 = int(x0)
-            print(f'sigma {s} X0 {x0}')
-            fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zero', resolution=resolution)
-            #fp = get_perlin(resolution=resolution, freq=16) * a
+            print(f'Amplitude {a} sigma {s} X0 {x0}')
+            #fp = get_perlin(resolution, x0=x0, sigma=s, amplitude=a, center='zero')
+            fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zerro', resolution=resolution)
             som = simu_motion(fp, so)
             disp = l1_shfit(som,so,shifts, do_plot=False,fp=fp)
+            # dd = get_metric_fp(fp,soTF) #not usefule because meanDTFA(_before) =  meanDTFA(_after) - shift
+            # mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp, "meanDTFA0": dd['meanDTFA']}
+            mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp}
+            mydict_mot = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
+            dfmot = dfmot.append(mydict_mot, ignore_index=True)
             if np.abs(disp)>0:
                 fp = fp + disp
                 som = simu_motion(fp, so)
-                #disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=False, fp=fp, loss='L2')
-                #fp = fp + disp2;  som = simu_motion(fp, so);  disp+=disp2
-            #plot_obj(fp, so, som)
+                disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=False, fp=fp, loss='L2')
+                fp = fp + disp2;  som = simu_motion(fp, so);  disp+=disp2
             mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp}
-            mydict = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
-            df = df.append(mydict, ignore_index=True)
+            mydict_cor = dict(get_metrics(so,som,fp=fp, scatt=scattering, shift=disp) , **mydict)
+            df = df.append(mydict_cor, ignore_index=True)
+            if disp < 1 and  mydict_cor['meanDTFdifA2']>3:
+                pass
 
 plot_obj(fp, so, som)
 
 resolution=512
 shifts = np.arange(-30,30,1)
-a=10;s=80; x0=220
-so = get_random_2step(rampe=2, sym=True)
-fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zero', resolution=resolution)
-som = simu_motion(fp, so)
-disp = l1_shfit(som, so, shifts, do_plot=True, fp=fp)
-fp = fp + disp
-som = simu_motion(fp, so)
-disp = l1_shfit(som, so, shifts, do_plot=True, fp=fp)
+a=10;s=80; x0=256
+a=10;s=10; x0=resolution//2
+for rampe in [2, 20]:
+    so,_,_,_ = get_random_2step(rampe=3, sym=True, norm=256, resolution=resolution)
+    for s in [10, 80]:
+        fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zerfo', resolution=resolution)
+        som = simu_motion(fp, so)
+        disp = l1_shfit(som, so, shifts, do_plot=False, fp=fp)
+        fpp = fp + disp
+        somm = simu_motion(fpp, so)
+        disp2 = l1_shfit_fft(somm, so, shifts_small, do_plot=False, fp=fpp, loss='L2')
 
-shifts_small = np.arange(-1,1,0.01)
-disp = l1_shfit_fft(som, so, shifts_small, do_plot=True, fp=fp, loss='L1')
-
-som = simu_motion(fp, so)
-s = get_metric(so,som)
-plot_obj(fp, so, som)
-
+        md = get_metrics(so,som,fp=fp, scatt=None)
+        print(f' shift {disp+disp2}\nmeanDTFdifA2 {md["meanDTFdifA2"]} \nmeanDTFA2 {md["meanDTFA2"]}  \nrrr {md["rrr"]}  \nrrr2 {md["rrr2"]} ')
+        plot_obj(fp,so,som, plot_diff=True)
 
 
 cmap = sns.color_palette("coolwarm", len(df.sigma.unique()))
 plt.figure();sns.lineplot(data=df, x="x0", y="L1", hue="sigma", legend='full', palette=cmap, style="amplitude")
-sns.relplot(data=df, x="x0", y="L2", hue="sigma", legend='full', palette=cmap, col="amplitude",
-                         kind="line", col_wrap=2)
+sns.relplot(data=df, x="x0", y="L2", hue="sigma", legend='full', palette=cmap, col="amplitude", kind="line", col_wrap=2)
 plt.figure();sns.lineplot(data=df, x="x0", y="L2", hue="sigma", legend='full', palette=cmap)
 plt.figure();sns.lineplot(data=df, x="x0", y="shift", hue="sigma",  legend='full', palette=cmap)
 plt.figure();sns.scatterplot(data=df, x="L2", y="L1", size="x0", hue="sigma", legend='full')
 plt.figure();sns.scatterplot(data=df, x="L2", y="ncc", size="x0", hue="sigma", legend='full')
 plt.figure();sns.scatterplot(data=df, x="L2", y="ssim", size="x0", hue="sigma", legend='full')
-plt.figure();sns.scatterplot(data=df, x="ssim", y="contrast", size="x0", hue="sigma", legend='full')
-plt.figure();sns.scatterplot(data=df, x="ssim", y="structure", size="x0", hue="sigma", legend='full')
+plt.figure();sns.scatterplot(data=df, x="shift", y="meanDTFA", hue="sigma", legend='full');
+plt.figure();sns.scatterplot(data=df, x="shift", y="shift_wTF_disp", hue="sigma", legend='full');
+plt.figure();sns.scatterplot(data=df, x="meanDispTFA", y="structure", size="x0", hue="sigma", legend='full')
 
 i1 = df.L2 > 15
 
@@ -443,9 +491,10 @@ i1 = df.L2 > 15
 sel_key=['tf_abs_L1', 'tf_abs_L2', 'tf_abs_ncc', 'tf_abs_ssim']
 sel_key=['tf_pha_L1', 'tf_pha_L2', 'tf_pha_ncc', 'tf_pha_ssim']
 sel_key=['L1', 'L2', 'ncc', 'ssim', 'scat1', 'scat2'] #, 'structure', 'contrast','luminance']
-sel_key=['L1', 'L2', 'ncc', 'ssim', 'scat1L2', 'scat2L2'] #, 'structure', 'contrast','luminance']
+sel_key=['L1', 'L2', 'ncc', 'ssim',  'scat1L2n'] #, 'structure', 'contrast','luminance'] 'scat1L2',
 sel_key=['brain_L1', 'brain_L2', 'brain_ncc', 'brain_ssim'] #, 'structure', 'contrast','luminance']
 sel_key += ['meanDispTFA', 'rmseDispTF'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
+sel_key += ['meanDispTFA', 'meanDispTFdiffA', 'meanDispTFdiffA2'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
 #sel_key += ['meanDisp', 'rmseDisp']
 sns.pairplot(df[sel_key], kind="scatter", corner=True)
 sns.pairplot(df[sel_key + ['sel']], kind="scatter", corner=True, hue='sel')
@@ -455,59 +504,93 @@ for k in df.keys():
     if "Disp" in k :
         print(k); sel_key.append(k)
 
+df, dfmot = pd.DataFrame(), pd.DataFrame()
+amplitudes, sigmas, x0s = [10], [ 80, ] , np.linspace(200, 230, 31) #np.linspace(170, 256, 87)
+amplitudes, sigmas, x0s = [10], [ 10, ] , np.linspace(246, 256, 11) #np.linspace(170, 256, 87)
+amplitudes, sigmas, x0s = [10], [ 10, 80 ] , [200, 254] #np.linspace(246, 256, 11) #np.linspace(170, 256, 87)
+amplitudes, sigmas, x0s = [10], [ 10, 80 ] , [240, 256] #np.linspace(246, 256, 11) #np.linspace(170, 256, 87)
+#for _ in range(1,60):
+for rampe in [2, 20]: #np.tile([5, 10 , 20],20): #  _ in range(1, 2): #
+    #rampe = np.random.randint(2,30,1)[0]
+    so, rampe, sso, ampli = get_random_2step(rampe, sym=True, norm=256)
 
+    #so, rampe, sso, ampli = get_random_2step(rampe, sym=True, resolution=512,  shape=[100, 5, 50, 300], norm=256)
+    #so, rampe, sso, ampli = get_random_2step(rampe, sym=True, resolution=512,  intensity=[0.5, 1], norm=256)
+    for a in amplitudes:
+        for s in sigmas:  # np.linspace(2,200,10):
+            for x0 in x0s:
+                #so = get_random_2step(rampe=2, sym=True)
+                s=int(s); x0 = int(x0)
+                print(f'Amplitude {a} sigma {s} X0 {x0}')
+                #fp = get_perlin(resolution, x0=x0, sigma=s, amplitude=a, center='zero')
+                fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zerro', resolution=resolution)
+                som = simu_motion(fp, so)
 
-t=tio.transforms.RandomMotionFromTimeCourse(displacement_shift_strategy="center_zero", maxRot=(2,10), maxDisp=(2,10),
-                                            suddenMagnitude=(2,10), swallowMagnitude=(2,10))
-t.nT = resolution
+                mydict = {"sigma": s, "x0": x0, "amplitude": a, "shift": disp}
+                mydict_mot = dict(get_metrics(so, som, fp=fp, scatt=scattering), **mydict)
+                dfmot = dfmot.append(mydict_mot, ignore_index=True)
 
-fp = fitpar[1]
+                disp = l1_shfit(som,so,shifts, do_plot=False,fp=fp)
+                if np.abs(disp)>0:
+                    fp = fp + disp
+                    som = simu_motion(fp, so)
+                    disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=False, fp=fp, loss='L2')
+                    fp = fp + disp2;  som = simu_motion(fp, so);  disp+=disp2
+                    if  0==3: #np.abs(disp)<=1 or  np.abs(disp)>7 :
+                        somt = simu_motion(fp-disp, so)
+                        _ = l1_shfit(somt, so, shifts, do_plot=True, plot_diff=True, fp=(fp-disp))
+
+                mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp,
+                          "so_x0": sso[0], "sig_so1": sso[1], "sig_so2":sso[2], "rso":rampe,
+                          "a1so":ampli[0], "a2so":ampli[1] }
+                mydict_cor = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
+                df = df.append(mydict_cor, ignore_index=True)
+                if abs(disp) > 9 and  abs(mydict_cor['meanDTFdifA2'])>3:
+                    pass
+
 plt.figure()
-for i in range(0,10):
-    so = get_random_2step(rampe=2, sym=True)
-    plt.plot(so)
+plt.scatter(-df['shift'], df['meanDTFA']) #df['meanDTFA']-df['shift']
+plt.scatter(-df['shift'], df['meanDTFA2']) #df['meanDTFA']-df['shift']
+#plt.scatter(-df['shift'], df['rrr'])
+#plt.scatter(-df['shift'], df['meanDTFzA']-df['shift']); plt.scatter(-df['shift'], df['meanDTFzA2']-df['shift'])
+#plt.scatter(-df['shift'], df['meanDTFdifA']-df['shift'])
+plt.scatter(-df['shift'], df['rrr'])
+plt.scatter(-df['shift'], df['meanDTFdifA2'])
+#plt.legend(['meanDTFA','meanDTFA2', 'meanDTFdiffA', 'meanDTFdiffA2'])
+plt.legend(['DTFA','DTFA2', 'rrr', 'DTFdiffA2'])
+plt.plot([0,10],[0,10]);plt.xlabel('L1 shift');plt.ylabel('weighted mean dispalcement')
 
-for i in range(0,20):
-    t._simulate_random_trajectory()
-    fitpar = t.fitpars
-    fp = fitpar[2] - fitpar[2,resolution//2]
-
-    som = simu_motion(fp, so)
-    plot_obj(fp, so, som)
-
-
-resolution=64
-for a2 in [0.1, 1, 10, 100]: #[1, 5, 10, 50]:
-    plt.figure()
-    leg=[]
-    for a1 in [0.1, 1, 10, 100]:
-        b = perlinNoise1D(32, [a1, a2])
-        leg.append(f'a1 {a1}, a2 {a2}')
-        x = np.linspace(0, 1, b.shape[0])
-        xt = np.linspace(0, 1, resolution)
-        bi = np.interp(xt, x, b)
-        plt.plot(bi)
-    plt.legend(leg)
-
-plt.figure()
-for i in range(0,10):
-    b = perlinNoise1D(32, [5, 20])
-    x = np.linspace(0,1,b.shape[0])
-    xt = np.linspace(0,1,resolution)
-    bi = np.interp(xt,x,b)
-    plt.plot(b)
+cmap = sns.color_palette("coolwarm", len(df.sigma.unique()))
+sns.relplot(data=df, x="x0", y="L2", hue="sigma", legend='full', palette=cmap, kind="line")
+sns.relplot(data=df, x="x0", y="scat1L2n", hue="sigma", legend='full', palette=cmap, kind="line")
+sns.relplot(data=df, x="x0", y="shift", hue="sigma", legend='full', palette=cmap, kind="line")
+sns.relplot(data=df, x="rso", y="shift", hue="sigma", legend='full', palette=cmap, kind="line")
 
 
-# calcul metrique dans le plan de fourier
-# decomposition wawelet, pour characterise l'effet du motion (base versus haute frequence perturbation)
-# parametre geometri et contrast de l'object ...
-# corection global displacement dans le plan de fourier, (subvoxel)
+# shape and contrast
+fig,axs = plt.subplots(2)
+for k in range(0,15):
+    so,_,_,_ = get_random_2step(5, sym=True, resolution=512, intensity=[0.5, 1],  norm=256)
+    axs[0].plot(so)
+    fi = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex))
+    axs[1].plot(abs(fi))
+
+fig,axs = plt.subplots(2)
+for k in range(0,15):
+    so,_,_,_ = get_random_2step(5, sym=True, resolution=512, shape=[100, 5, 50, 300], norm=256)
+    axs[0].plot(so)
+    fi = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex))
+    axs[1].plot(abs(fi))
 
 
+
+
+
+############# scattering
 from kymatio.numpy import Scattering1D
 
 T = 512
-so = get_random_2step(rampe=2, sym=True)
+so,_,_,_ = get_random_2step(rampe=2, sym=True)
 J = 5 #The averaging scale is specified as a power of two, 2**J. Here, we set J = 5 to get an averaging, or maximum,
 # scattering scale of 2**5 = 32 samples.
 Q = 8 # we set the number of wavelets per octave, Q, to 8. This lets us resolve frequencies at a resolution of 1/8 octaves.
@@ -553,9 +636,24 @@ def signal_wnrmse(s1, s2, wavelet, level=None, eps=10e-8):
     #Flatten coeffs
     s1_detail_coeffs = np.concatenate(s1_detail_coeffs)[..., np.newaxis]
     s2_detail_coeffs = np.concatenate(s2_detail_coeffs)[..., np.newaxis]
-    numerator = np.linalg.norm(s1_detail_coeffs - s2_detail_coeffs, axis=1) ** 2
-    denominator = np.linalg.norm(s1_detail_coeffs, axis=1)**2 + np.linalg.norm(s2_detail_coeffs, axis=1)**2 + eps
-    wnrmse = (numerator/denominator)**2
+    numerator = np.linalg.norm(s1_detail_coeffs - s2_detail_coeffs, axis=1)
+    denominator = np.sqrt( np.linalg.norm(s1_detail_coeffs, axis=1)**2 + np.linalg.norm(s2_detail_coeffs, axis=1)**2 + eps )
+    wnrmse = numerator/denominator
+    return wnrmse.sum()
+
+def signal_wnrmse_cwt(s1, s2, waveletname='cmor1.5-1.0', level=None, eps=10e-8):
+    scales = np.arange(1, 64)
+    dt = 1,
+    [s1_coeffs, frequencies] = pywt.cwt(s1, scales, waveletname, dt)
+    [s2_coeffs, frequencies] = pywt.cwt(s2, scales, waveletname, dt)
+
+    #sum over time
+    s1_coeffs = np.sum( (abs(s1_coeffs)) , axis=1)
+    s2_coeffs = np.sum( (abs(s2_coeffs)) , axis=1)
+
+    numerator = np.linalg.norm(s1_coeffs - s2_coeffs)
+    denominator = np.sqrt( np.linalg.norm(s1_coeffs)**2 + np.linalg.norm(s2_coeffs)**2 + eps )
+    wnrmse = numerator/denominator
     return wnrmse.sum()
 
 def compute_wavelets_wnrmse(s1, s2, wavelet_lists=None):
@@ -564,3 +662,44 @@ def compute_wavelets_wnrmse(s1, s2, wavelet_lists=None):
                          "sym3", "sym4", "sym5", "sym6", "sym7", "sym8", "coif1", "coif2", "coif3", "coif4", "coif5",
                          "dmey"]
     return {wavelet_name: signal_wnrmse(s1, s2, wavelet=wavelet_name) for wavelet_name in wavelet_lists}
+
+cw = compute_wavelets_wnrmse(so,som)
+
+
+def plot_wavelet(time, signal, scales,
+                 waveletname = 'cmor',
+                 cmap = plt.cm.seismic,
+                 title = 'Wavelet Power',
+                 ylabel = 'Period ',
+                 xlabel = 'Time'):
+
+    dt = time[1] - time[0]
+    [coefficients, frequencies] = pywt.cwt(signal, scales, waveletname, dt)
+    power = (abs(coefficients)) ** 2
+    period = 1. / frequencies
+    levels = [0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8]
+    contourlevels = np.log2(levels)
+
+    fig, ax = plt.subplots(figsize=(15, 10))
+    im = ax.contourf(time, np.log2(period), np.log2(power), contourlevels, extend='both',cmap=cmap)
+
+    ax.set_title(title, fontsize=10)
+    ax.set_ylabel(ylabel, fontsize=8)
+    ax.set_xlabel(xlabel, fontsize=8)
+
+    yticks = 2**np.arange(np.ceil(np.log2(period.min())), np.ceil(np.log2(period.max())))
+    ax.set_yticks(np.log2(yticks))
+    ax.set_yticklabels(yticks)
+    ax.invert_yaxis()
+    ylim = ax.get_ylim()
+    ax.set_ylim(ylim[0], -1)
+
+    cbar_ax = fig.add_axes([0.95, 0.5, 0.03, 0.25])
+    fig.colorbar(im, cax=cbar_ax, orientation="vertical")
+    plt.show()
+
+time = np.arange(0,512)
+scales = np.arange(1,128)
+plot_wavelet(time, sot, scales )
+plot_wavelet(time, som, scales )
+sot =
