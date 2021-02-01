@@ -18,7 +18,7 @@ from torchio.metrics.ssim import functional_ssim
 from scipy.interpolate import pchip_interpolate
 from kymatio.numpy import Scattering1D
 
-def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], center='zero', resolution=200 ):
+def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], center='zero', resolution=200, sym=False ):
     fp = np.zeros((6, resolution))
     x = np.arange(0, resolution)
     if method=='gauss':
@@ -63,6 +63,10 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         y = y -y[resolution//2]
     for xx in mvt_axes:
         fp[xx,:] = y
+    if sym:
+        center = y.shape[0]//2
+        y = np.hstack([y[0:center], np.flip(y[0:center])])
+
     return y
 
 def get_random_2step(rampe=0, sym=False, resolution=512, shape=None, intensity=None, norm=None):
@@ -92,7 +96,7 @@ def get_random_2step(rampe=0, sym=False, resolution=512, shape=None, intensity=N
         so = corrupt_data(x0, sigma=sigma, amplitude=ampli, method='2step', center='None', resolution=resolution)
     if norm is not None:
         so = so / np.sum(so) * norm
-
+    print(f'objet x {sigma[0]} freq2 {1/sigma[1]} {1/sigma[1]/(1/resolution)} freq2 {1/(sigma[2]-2)/2} {1/(sigma[2]-2)/2/(1/resolution)} ')
     return so, rampe, sigma, ampli
 
 def _translate_freq_domain( freq_domain, translations, inv_transfo=False):
@@ -108,14 +112,15 @@ def _translate_freq_domain( freq_domain, translations, inv_transfo=False):
 
     return freq_domain_translated.reshape(freq_domain.shape)
 def print_fft(Fi):
-    s1 = np.sum(np.imag(Fi[0:100]))
-    s2 = np.sum(np.imag(Fi[101:]))
+    center=Fi.shape[0]
+    s1 = np.sum(np.imag(Fi[0:center]))
+    s2 = np.sum(np.imag(Fi[center+1:]))
     print('IMAG ks1 {} ks2 {} ks1+ks2 {} sum {}'.format(s1,s2,s1+s2,np.sum(np.imag(Fi))))
-    s1 = np.sum(np.angle(Fi[0:100]))
-    s2 = np.sum(np.angle(Fi[101:]))
+    s1 = np.sum(np.angle(Fi[0:center]))
+    s2 = np.sum(np.angle(Fi[center+1:]))
     print('ANGLE ks1 {} ks2 {} ks1+ks2 {} sum {}'.format(s1,s2,s1+s2,np.sum(np.angle(Fi))))
-    s1 = np.sum(Fi[0:100])
-    s2 = np.sum(Fi[101:])
+    s1 = np.sum(Fi[0:center])
+    s2 = np.sum(Fi[center+1:])
     print('COMP ks1 {} ks2 {} ks1+ks2 {} sum {}'.format(s1,s2,s1+s2,np.sum(Fi)))
 
 def l1_shfit(y1,y2,shifts, do_plot=True, fp=None, plot_diff=False):
@@ -315,8 +320,10 @@ def get_metric(s1,s2, mask=None, prefix='', scattering=None):
     ncc = float(normalize_cc(torch.tensor(s1), torch.tensor(s2)).numpy())
     ssim = functional_ssim(torch.tensor(so).unsqueeze(0).unsqueeze(0), torch.tensor(som).unsqueeze(0).unsqueeze(0))
     ssim = {prefix + k: float(v.numpy()) for k,v in ssim.items()}
-
-    mdict = {prefix + "L1": l1, prefix + "L2" : l2, prefix + "th_p": thp, prefix + "ncc": ncc }
+    grad1, grad2 = np.convolve(s1,[1,-1]), np.convolve(s2,[1,-1])
+    dgrad = (np.sum(grad1**2)/np.sum(np.abs(grad1))**2) / (np.sum(grad2**2)/np.sum(np.abs(grad2))**2)
+    mdict = {prefix + "L1": l1, prefix + "L2" : l2, prefix + "th_p": thp, prefix + "ncc": ncc ,
+             prefix + "dgrad": dgrad}
     if scattering is not None:
         meta = scattering.meta()
         order1 = np.where(meta['order'] == 1)
@@ -378,9 +385,24 @@ def get_metric_fp(fp, tf_s1, diff_tf=None, prefix='', shift=0):
         dict_disp[prefix +'meanDispTFdiffA2'] = np.sum(np.abs(fp) * np.abs(diff_tf ** 2)) / np.sum(np.abs(diff_tf ** 2))
         dict_disp[prefix +'rmseDispTFdiff' ] = np.sqrt(np.sum(np.abs(diff_tf) * fp ** 2) / np.sum(np.abs(diff_tf)))
         dict_disp[prefix +'rmseDispTFdiff2'] =  np.sqrt(np.sum(np.abs(diff_tf ** 2) * fp ** 2) / np.sum(np.abs(diff_tf ** 2)))
-        weigths = np.abs(tf_s1)* np.abs(diff_tf)
-        dict_disp[prefix + 'rrr'] = np.sum(fp * weigths) / np.sum(weigths) - shift
-        dict_disp[prefix + 'rrr2'] = np.sum(fp * weigths**2) / np.sum(weigths**2) - shift
+        weigths = np.abs(diff_tf.copy()) #* np.abs(diff_tf)
+        low_freq = resolution//2//8; center = resolution//2
+        weigths[:center-low_freq] = 0 ;weigths[center+low_freq:] = 0
+        dict_disp[prefix + 'r32'] = np.sum(fp * weigths**2) / np.sum(weigths**2) - shift
+        low_freq = resolution//2//8//2; center = resolution//2
+        weigths = np.abs(diff_tf.copy()); weigths[:center-low_freq] = 0 ;weigths[center+low_freq:] = 0
+        dict_disp[prefix + 'r16'] = np.sum(fp * weigths**2) / np.sum(weigths**2) - shift
+        tf_s1[resolution//2] = 0
+        #dict_disp[prefix +'TFzA'] = np.sum( fp*np.abs(tf_s1) ) / np.sum(np.abs(tf_s1))  - shift
+        #dict_disp[prefix +'TFzA2'] = np.sum( fp*np.abs(tf_s1)**2 ) / np.sum(np.abs(tf_s1)**2)  - shift
+        from scipy.signal import savgol_filter #g numpy.convolve().?
+        yd = savgol_filter(abs(tf_s1), 51, 5)
+        yd=np.flip(yd[:resolution//2]) #begin by the center, (and take one half)
+        ind_first_min = np.argwhere(np.r_[True, yd[1:] < yd[:-1]] & np.r_[yd[:-1] < yd[1:], True])[0][0]
+        print(f'cuting at {ind_first_min} ')
+        low_freq = ind_first_min; center = resolution//2
+        weigths = np.abs(diff_tf.copy()); weigths[:center-low_freq] = 0 ;weigths[center+low_freq:] = 0
+        dict_disp[prefix + 'diff_center'] = np.sum(fp * weigths**2) / np.sum(weigths**2) - shift
 
     return dict_disp
 
@@ -411,7 +433,7 @@ def get_metrics(s1, s2, fp=None, scatt=None, shift=0):
 
 
 resolution=512
-shifts = np.arange(-30,30,1); shifts_small = np.arange(-1,1,0.01)
+shifts = np.arange(-30,30,1); shifts_small = np.arange(-2,2,0.01)
 
 T = resolution
 J = 5  # The averaging scale is specified as a power of two, 2**J. Here, we set J = 5 to get an averaging, or maximum,
@@ -420,45 +442,62 @@ Q = 8  # we set the number of wavelets per octave, Q, to 8. This lets us resolve
 scattering = Scattering1D(J, T, Q)
 
 so,_,_,_ = get_random_2step(rampe=10, sym=True); soTF = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex))
-df, dfmot = pd.DataFrame(), pd.DataFrame()
 amplitudes, sigmas, x0s = [2,5,10,20], [2, 4, 10, 20, 40, 80, 120, 160, 200]  , np.hstack([np.linspace(10, 120, 10), np.linspace(130, 256, 30)])
 amplitudes, sigmas, x0s = [10, 10, 10, 10], [5, 10, 20, 40, 80, 120, 160, 200]  , np.hstack([np.linspace(10, 120, 10), np.linspace(130, 256, 30)])
-#amplitudes, sigmas, x0s = [2,5,10,20], [50, 100, 150, 200]  ,np.linspace(10, 256, 20);amplitudes = np.tile(amplitudes,[10])
-for a in amplitudes:
-    rampe = np.random.randint(2, 30, 1)[0]
+amplitudes, sigmas, x0s = [2,5,10,20], [50, 100, 150, 200]  ,np.linspace(10, 256, 20);amplitudes = np.tile(amplitudes,[10])
+amplitudes, sigmas, x0s, rampes = [10,10, 10], [2,4,8,16,32,64], np.hstack([np.linspace(10,120,10), np.linspace(130,256,30)]), [2,5,10,20]
+df, dfmot = pd.DataFrame(), pd.DataFrame()
+for ind,a in enumerate(amplitudes):
+    rampe = rampes[ind] #np.random.randint(2, 30, 1)[0]
     so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
+    # if rampe==2:
+    #     shape = [100,5, 25, 60]; amp = [0.5, 1]
+    # if rampe==5:
+    #     shape = [100,5, 50, 120]; amp = [0.5, 1]
+    # so, _, _, _ = get_random_2step(rampe=rampe, sym=True, norm=256, shape=shape, intensity=amp)
+    plot_obj(fp,so,so,plot_diff=True)
     for s in sigmas:  # np.linspace(2,200,10):
+        xcenter = resolution//2 - s//2;
+        x0s = np.floor(np.linspace(xcenter-30, xcenter,31))
         for x0 in x0s:
             #so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
-            s=int(s); x0 = int(x0)
+            s=int(s); x0 = int(x0); xend = x0+s//2
             print(f'Amplitude {a} sigma {s} X0 {x0}')
             #fp = get_perlin(resolution, x0=x0, sigma=s, amplitude=a, center='zero')
-            fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zerro', resolution=resolution)
+            fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='none', resolution=resolution, sym=True)
             som = simu_motion(fp, so)
-            disp = l1_shfit(som,so,shifts, do_plot=False,fp=fp)
-            # dd = get_metric_fp(fp,soTF) #not usefule because meanDTFA(_before) =  meanDTFA(_after) - shift
-            # mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp, "meanDTFA0": dd['meanDTFA']}
-            mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp}
-            mydict_mot = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
-            dfmot = dfmot.append(mydict_mot, ignore_index=True)
-            if np.abs(disp)>0:
+            disp = l1_shfit(som,so,shifts, do_plot=False,fp=fp); Dzero = fp[resolution//2]
+            #mydict = {"sigma":s, "x0":x0, "amplitude": a, "rampe": rampe, "shift": -disp, "Dzero": Dzero }
+            #mydict_mot = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
+            #dfmot = dfmot.append(mydict_mot, ignore_index=True)
+            if np.abs(disp)>=0:
                 fp = fp + disp
                 som = simu_motion(fp, so)
                 disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=False, fp=fp, loss='L2')
                 fp = fp + disp2;  som = simu_motion(fp, so);  disp+=disp2
-            mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp}
+            mydict = {"sigma":s, "x0":x0, "xend":xend, "amplitude": a, "shift": -disp, "rampe": rampe, "Dzero": Dzero}
             mydict_cor = dict(get_metrics(so,som,fp=fp, scatt=scattering, shift=disp) , **mydict)
             df = df.append(mydict_cor, ignore_index=True)
             if disp < 1 and  mydict_cor['meanDTFdifA2']>3:
                 pass
 
+plt.figure();plt.plot(df['xend'],df['shift']);plt.plot(df['xend'],df['meanDTFA']);plt.plot(df['xend'],df['meanDTFdifA2']);
+plt.plot(df['xend'],df['r16']) ; plt.plot(df['xend'],df['TFzA']) ;plt.legend(['shif','tfa','difTFA2','r16','tfzA'])
+sns.relplot(data=df, x="xend", y="shift", hue="sigma", legend='full', palette=cmap, col="rampe", kind="line", col_wrap=2)
+
+fig = sns.relplot(data=df, x='shift', y='meanDTFdifA2', col='sigma', kind='scatter', col_wrap=3, hue='rampe')
+fig = sns.relplot(data=df, x='shift', y='r16', col='sigma', kind='scatter', col_wrap=3, hue='rampe')
+fig = sns.relplot(data=df, x='shift', y='diff_center', col='sigma', kind='scatter', col_wrap=3, hue='rampe')
+for aa in fig.axes:
+    aa.plot([0,10], [0,10])
 plot_obj(fp, so, som)
 
+freq_res = 1/512
 resolution=512
 shifts = np.arange(-30,30,1)
-a=10;s=80; x0=256
-a=10;s=10; x0=resolution//2
-for rampe in [2, 20]:
+a=10;s=80; x0=180
+#a=10;s=10; x0=resolution//2
+for rampe in [5]:
     so,_,_,_ = get_random_2step(rampe=3, sym=True, norm=256, resolution=resolution)
     for s in [10, 80]:
         fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zerfo', resolution=resolution)
@@ -469,29 +508,25 @@ for rampe in [2, 20]:
         disp2 = l1_shfit_fft(somm, so, shifts_small, do_plot=False, fp=fpp, loss='L2')
 
         md = get_metrics(so,som,fp=fp, scatt=None)
-        print(f' shift {disp+disp2}\nmeanDTFdifA2 {md["meanDTFdifA2"]} \nmeanDTFA2 {md["meanDTFA2"]}  \nrrr {md["rrr"]}  \nrrr2 {md["rrr2"]} ')
+        print(f'Amplitude {a} sigma {s} X0 {x0} rampe {rampe}')
+        print(f' L1/L2 shift {-disp-disp2}\nmeanDTFdifA2 {md["meanDTFdifA2"]} \nmeanDTFA2 {md["meanDTFA2"]}  \nrrr {md["r32"]}  \nrrr2 {md["r32"]} ')
         plot_obj(fp,so,som, plot_diff=True)
 
 
 cmap = sns.color_palette("coolwarm", len(df.sigma.unique()))
-plt.figure();sns.lineplot(data=df, x="x0", y="L1", hue="sigma", legend='full', palette=cmap, style="amplitude")
-sns.relplot(data=df, x="x0", y="L2", hue="sigma", legend='full', palette=cmap, col="amplitude", kind="line", col_wrap=2)
-plt.figure();sns.lineplot(data=df, x="x0", y="L2", hue="sigma", legend='full', palette=cmap)
+sns.relplot(data=df, x="xend", y="shift", hue="sigma", legend='full', palette=cmap, col="rampe", kind="line", col_wrap=2)
+plt.figure();sns.lineplot(data=df, x="xend", y="L2", hue="sigma", legend='full', palette=cmap, style="amplitude")
 plt.figure();sns.lineplot(data=df, x="x0", y="shift", hue="sigma",  legend='full', palette=cmap)
 plt.figure();sns.scatterplot(data=df, x="L2", y="L1", size="x0", hue="sigma", legend='full')
-plt.figure();sns.scatterplot(data=df, x="L2", y="ncc", size="x0", hue="sigma", legend='full')
-plt.figure();sns.scatterplot(data=df, x="L2", y="ssim", size="x0", hue="sigma", legend='full')
-plt.figure();sns.scatterplot(data=df, x="shift", y="meanDTFA", hue="sigma", legend='full');
-plt.figure();sns.scatterplot(data=df, x="shift", y="shift_wTF_disp", hue="sigma", legend='full');
 plt.figure();sns.scatterplot(data=df, x="meanDispTFA", y="structure", size="x0", hue="sigma", legend='full')
 
-i1 = df.L2 > 15
+#i1 = df.L2 > 15
 
 
 sel_key=['tf_abs_L1', 'tf_abs_L2', 'tf_abs_ncc', 'tf_abs_ssim']
 sel_key=['tf_pha_L1', 'tf_pha_L2', 'tf_pha_ncc', 'tf_pha_ssim']
 sel_key=['L1', 'L2', 'ncc', 'ssim', 'scat1', 'scat2'] #, 'structure', 'contrast','luminance']
-sel_key=['L1', 'L2', 'ncc', 'ssim',  'scat1L2n'] #, 'structure', 'contrast','luminance'] 'scat1L2',
+sel_key=['L1', 'L2', 'ncc', 'ssim',  'scat1L2n','dgrad'] #, 'structure', 'contrast','luminance'] 'scat1L2',
 sel_key=['brain_L1', 'brain_L2', 'brain_ncc', 'brain_ssim'] #, 'structure', 'contrast','luminance']
 sel_key += ['meanDispTFA', 'rmseDispTF'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
 sel_key += ['meanDispTFA', 'meanDispTFdiffA', 'meanDispTFdiffA2'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
@@ -540,7 +575,7 @@ for rampe in [2, 20]: #np.tile([5, 10 , 20],20): #  _ in range(1, 2): #
                         somt = simu_motion(fp-disp, so)
                         _ = l1_shfit(somt, so, shifts, do_plot=True, plot_diff=True, fp=(fp-disp))
 
-                mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": disp,
+                mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": -disp,
                           "so_x0": sso[0], "sig_so1": sso[1], "sig_so2":sso[2], "rso":rampe,
                           "a1so":ampli[0], "a2so":ampli[1] }
                 mydict_cor = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
@@ -549,18 +584,22 @@ for rampe in [2, 20]: #np.tile([5, 10 , 20],20): #  _ in range(1, 2): #
                     pass
 
 plt.figure()
-plt.scatter(-df['shift'], df['meanDTFA']) #df['meanDTFA']-df['shift']
-plt.scatter(-df['shift'], df['meanDTFA2']) #df['meanDTFA']-df['shift']
-#plt.scatter(-df['shift'], df['rrr'])
-#plt.scatter(-df['shift'], df['meanDTFzA']-df['shift']); plt.scatter(-df['shift'], df['meanDTFzA2']-df['shift'])
-#plt.scatter(-df['shift'], df['meanDTFdifA']-df['shift'])
-plt.scatter(-df['shift'], df['rrr'])
-plt.scatter(-df['shift'], df['meanDTFdifA2'])
+plt.scatter(df['shift'], df['meanDTFA']) #df['meanDTFA']-df['shift']
+#plt.scatter(df['shift'], df['r16']) #df['meanDTFA']-df['shift']
+plt.scatter(df['shift'], df['diff_center'])
+#plt.scatter(df['shift'], df['meanDTFdifA2'])
 #plt.legend(['meanDTFA','meanDTFA2', 'meanDTFdiffA', 'meanDTFdiffA2'])
-plt.legend(['DTFA','DTFA2', 'rrr', 'DTFdiffA2'])
+plt.legend(['DTFA','r16', 'r32', 'DTFdiffA2'])
 plt.plot([0,10],[0,10]);plt.xlabel('L1 shift');plt.ylabel('weighted mean dispalcement')
 
+sns.scatterplot(data=df, x='shift', y='meanDTFdifA2', hue='sigma')
+sns.scatterplot(data=df, x='meanD', y='meanDTFdifA2', hue='sigma')
+fig = sns.relplot(data=df, x='shift', y='meanDTFdifA2', col='sigma', kind='scatter', col_wrap=3, hue='rampe')
+fig = sns.relplot(data=df, x='shift', y='r16', col='sigma', kind='scatter', col_wrap=3, hue='rampe')
+for aa in fig.axes:
+    aa.plot([0,10], [0,10])
 cmap = sns.color_palette("coolwarm", len(df.sigma.unique()))
+plt.figure();sns.lineplot(data=df, x="x0", y="meanDTFdifA2", hue="sigma",  legend='full', palette=cmap)
 sns.relplot(data=df, x="x0", y="L2", hue="sigma", legend='full', palette=cmap, kind="line")
 sns.relplot(data=df, x="x0", y="scat1L2n", hue="sigma", legend='full', palette=cmap, kind="line")
 sns.relplot(data=df, x="x0", y="shift", hue="sigma", legend='full', palette=cmap, kind="line")
@@ -591,13 +630,14 @@ from kymatio.numpy import Scattering1D
 
 T = 512
 so,_,_,_ = get_random_2step(rampe=2, sym=True)
+plot_obj(fp,so,so)
 J = 5 #The averaging scale is specified as a power of two, 2**J. Here, we set J = 5 to get an averaging, or maximum,
 # scattering scale of 2**5 = 32 samples.
 Q = 8 # we set the number of wavelets per octave, Q, to 8. This lets us resolve frequencies at a resolution of 1/8 octaves.
 sot = np.hstack([so[-50:], so[0:-50]])
 scattering = Scattering1D(J, T, Q)
 
-Sx = scattering(sot)
+sx = scattering(sot)
 Sx  = scattering(so)
 sxt = scattering(sot)
 sxm = scattering(som)
@@ -613,7 +653,7 @@ order2 = np.where(meta['order'] == 2)
 plt.figure(figsize=(8, 2))
 plt.plot(so)
 plt.title('Original signal')
-plt
+
 plt.figure(figsize=(8, 8))
 plt.subplot(3, 1, 1)
 plt.plot(Sx[order0][0])
