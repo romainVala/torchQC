@@ -85,7 +85,12 @@ class Config:
         self.model_structure = None
         self.run_structure = None
         self.viz_structure = None
-
+    """
+    suject_seed used only if subject_shufflie is not null
+    batch_seed used if not None, (torch manual seed) used in init
+    batch_shuffle, only used for torch dataloader, when using the queue
+    seed keywork (defin in train.json) is the one set before training (or eval ... test ?)
+    """
     def init(self):
         if os.path.dirname(self.main_file) == self.results_dir:
             self.save_files = False
@@ -222,6 +227,8 @@ class Config:
     def log(self, info):
         if self.logger is not None:
             self.logger.log(logging.INFO, info)
+        else:
+            print(info)
 
     def debug(self, info):
         if self.debug_logger is not None:
@@ -885,7 +892,9 @@ class Config:
         test_subjects = dict2subjects(test_subjects, data_struct['images'])
 
         if data_struct['subject_shuffle']:
-            np.random.seed(data_struct['subject_seed'])
+            seed_to_set = data_struct['subject_seed']
+            self.log(f'SETING numpy seed (for subject shuffle) to {seed_to_set}')
+            np.random.seed(seed_to_set)
             np.random.shuffle(subjects)
             np.random.shuffle(train_subjects)
         n_subjects = len(subjects)
@@ -925,7 +934,9 @@ class Config:
             struct['num_workers'] = multiprocessing.cpu_count()
 
         if struct['batch_seed'] is not None:
-            torch.manual_seed(struct['batch_seed'])
+            seed_to_set = struct['batch_seed']
+            self.log(f'SETING torch seed (from batch seed) to {seed_to_set}')
+            torch.manual_seed(seed_to_set)
 
         if struct['queue'] is None:
             if len(self.train_set) > 0:
