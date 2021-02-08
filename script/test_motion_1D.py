@@ -441,24 +441,25 @@ J = 5  # The averaging scale is specified as a power of two, 2**J. Here, we set 
 Q = 8  # we set the number of wavelets per octave, Q, to 8. This lets us resolve frequencies at a resolution of 1/8 octaves.
 scattering = Scattering1D(J, T, Q)
 
-so,_,_,_ = get_random_2step(rampe=10, sym=True); soTF = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex))
+so,_,_,_ = get_random_2step(rampe=4, sym=True); soTF = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex))
 amplitudes, sigmas, x0s = [2,5,10,20], [2, 4, 10, 20, 40, 80, 120, 160, 200]  , np.hstack([np.linspace(10, 120, 10), np.linspace(130, 256, 30)])
 amplitudes, sigmas, x0s = [10, 10, 10, 10], [5, 10, 20, 40, 80, 120, 160, 200]  , np.hstack([np.linspace(10, 120, 10), np.linspace(130, 256, 30)])
 amplitudes, sigmas, x0s = [2,5,10,20], [50, 100, 150, 200]  ,np.linspace(10, 256, 20);amplitudes = np.tile(amplitudes,[10])
-amplitudes, sigmas, x0s, rampes = [10,10, 10], [2,4,8,16,32,64], np.hstack([np.linspace(10,120,10), np.linspace(130,256,30)]), [2,5,10,20]
+amplitudes, sigmas, rampes, nb_x0s, x0_min = [1,2,4,8], [2,4,8,16,32,64], [2,5,10,20], 1, 0
+sigmas = np.linspace(2,90, 45)
 df, dfmot = pd.DataFrame(), pd.DataFrame()
 for ind,a in enumerate(amplitudes):
-    rampe = rampes[ind] #np.random.randint(2, 30, 1)[0]
-    so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
+    #rampe = rampes[ind] #np.random.randint(2, 30, 1)[0]
+    #so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
     # if rampe==2:
     #     shape = [100,5, 25, 60]; amp = [0.5, 1]
     # if rampe==5:
     #     shape = [100,5, 50, 120]; amp = [0.5, 1]
     # so, _, _, _ = get_random_2step(rampe=rampe, sym=True, norm=256, shape=shape, intensity=amp)
-    plot_obj(fp,so,so,plot_diff=True)
+    #plot_obj(fp,so,so,plot_diff=True)
     for s in sigmas:  # np.linspace(2,200,10):
         xcenter = resolution//2 - s//2;
-        x0s = np.floor(np.linspace(xcenter-30, xcenter,31))
+        x0s = np.floor(np.linspace(xcenter - x0_min, xcenter, nb_x0s))
         for x0 in x0s:
             #so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
             s=int(s); x0 = int(x0); xend = x0+s//2
@@ -742,4 +743,3 @@ time = np.arange(0,512)
 scales = np.arange(1,128)
 plot_wavelet(time, sot, scales )
 plot_wavelet(time, som, scales )
-sot =
