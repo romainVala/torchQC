@@ -1,8 +1,284 @@
 import torch.nn.functional as F
-import torch, math
+import torch, math, time, os
 import numpy as np
+import pandas as pd
+from segmentation.config import Config
+from read_csv_results import ModelCSVResults
+from itertools import product
+from types import SimpleNamespace
 
 pi = torch.tensor(3.14159265358979323846)
+
+def product_dict(**kwargs):
+    keys = kwargs.keys()
+    vals = kwargs.values()
+    #for instance in itertools.product(*vals):
+    #    yield dict(zip(keys, instance))
+    #return (dict(zip(keys, values)) for values in product(*vals))  #this yield a generator, but easier with a list -> known size
+    return list(dict(zip(keys, values)) for values in product(*vals))
+
+def apply_motion(sin, tmot, fp, df, res_fitpar, res, extra_info, config_runner,
+                 displacement_shift_strategy='None', shifts=range(-15, 15, 1),
+                 correct_disp=True):
+    start = time.time()
+    tmot.nT = fp.shape[1]
+    tmot.simulate_displacement = False
+    tmot.fitpars = fp
+    tmot.displacement_shift_strategy = displacement_shift_strategy
+    sout = tmot(sin)
+
+    l1_loss = torch.nn.L1Loss()
+
+    # compute and record L1 shift
+    if correct_disp:
+        data_ref = sin.t1.data
+        data = sout.t1.data
+        dimy = data.shape[2]
+        l1dist = [];
+        res_extra_info = extra_info.copy()
+        for shift in shifts:
+            if shift < 0:
+                d1 = data[:, :, dimy + shift:, :]
+                d2 = torch.cat([d1, data[:, :, :dimy + shift, :]], dim=2)
+            else:
+                d1 = data[:, :, 0:shift, :]
+                d2 = torch.cat([data[:, :, shift:, :], d1], dim=2)
+            l1dist.append(float(l1_loss(data_ref, d2).numpy()))
+            res_extra_info['L1'], res_extra_info['vox_disp'] = l1dist[-1], shift
+            res = res.append(res_extra_info, ignore_index=True, sort=False)
+
+        disp = shifts[np.argmin(l1dist)]
+        extra_info['shift'] = disp
+
+        if disp > 0:
+            print(f' redoo motion disp is {disp}')
+            fp[1, :] = fp[1, :] - disp
+            tmot.fitpars = fp
+            sout = tmot(sin)
+
+    batch_time = time.time() - start
+    df, report_time = config_runner.record_regression_batch(df, sout, torch.zeros(1).unsqueeze(0), torch.zeros(1).unsqueeze(0),
+                                                 batch_time, save=False, extra_info=extra_info)
+    # record extra_info in df
+    #last_line = df.shape[0] - 1
+    #for k, v in extra_info.items():
+    #    if k not in df:
+    #        df[k] = v
+    #    else:
+    #        df.loc[last_line, k] = v
+
+    # record fitpar
+    res_extra_info = extra_info.copy()
+    fit_pars = tmot.fitpars  # - np.tile(tmot.to_substract[..., np.newaxis],(1,200))
+    dff = pd.DataFrame(fit_pars.T);
+    dff.columns = ['x', 'trans_y', 'z', 'r1', 'r2', 'r3'];
+    dff['nbt'] = range(0, tmot.nT)
+    for k, v in res_extra_info.items():
+        dff[k] = v
+    res_fitpar = res_fitpar.append(dff, sort=False)
+
+    return sout, df, res_fitpar, res
+
+def select_data(json_file, param=None):
+    result_dir= os.path.dirname(json_file) +'/rrr' #/data/romain/PVsynth/motion_on_synth_data/test1/rrr/'
+    config = Config(json_file, result_dir, mode='eval', save_files=False) #since cluster read (and write) the same files, one need save_file false to avoid colusion
+    config.init()
+    mr = config.get_runner()
+
+    if param is not None:
+        suj_ind = param['suj_index']
+        if 'suj_seed' in param:
+            suj_seed = param['suj_seed']
+            np.random.seed(suj_seed)
+            torch.manual_seed(suj_seed)
+        else:
+            suj_seed=-1
+        contrast = param['suj_contrast']
+        suj_deform = param['suj_deform']
+    else:
+        suj_ind, contrast, suj_deform = 0, 1, False
+
+    s1 = config.train_subjects[suj_ind]
+    print(f'loading suj {s1.name} with contrast {contrast} deform is {suj_deform} sujseed {suj_seed}')
+
+    transfo_list = config.train_transfo_list
+
+    #same label, random motion
+    tsynth = transfo_list[0]
+
+    if contrast==1:
+        tsynth.mean = [(0.6, 0.6), (0.1, 0.1), (1, 1), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6),
+         (0.9, 0.9), (0.6, 0.6), (1, 1), (0.2, 0.2), (0.4, 0.4), (0, 0)]
+    elif contrast ==2:
+        tsynth.mean = [(0.5, 0.6), (0.1, 0.2), (0.9, 1), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6),
+         (0.8, 0.9), (0.5, 0.6), (0.9, 1), (0.2, 0.3), (0.3, 0.4), (0, 0)]
+    elif contrast ==3:
+        tsynth.mean = [(0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9),
+         (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0, 0)]
+    else:
+        raise(f'error contrast not define {contrast}')
+
+    ssynth = tsynth(s1)
+    tmot = transfo_list[1]
+    if suj_deform:
+        taff_ela = transfo_list[2]
+        ssynth = taff_ela(ssynth)
+
+    return ssynth, tmot, mr
+
+def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, resolution=512):
+
+    mvt_axe_str_list = ['transX', 'transY', 'transZ', 'rotX', 'rotY', 'rotZ']
+
+    nb_x0s = params[0]['nb_x0s']
+    nb_sim = len(params) * nb_x0s
+    print(f'performing loop of {nb_sim} iter 10s per iter is {nb_sim * 10 / 60 / 60} Hours {nb_sim * 10 / 60} mn ')
+    if out_name is not None:
+        print(f'save will be made in {out_path} with name {out_name}')
+
+    df, res, res_fitpar, extra_info, i = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), dict(), 0
+    for param in params:
+        pp = SimpleNamespace(**param)
+        #[amplitude, sigma, sym, mvt_type, mvt_axe, cor_disp, disp_str, nb_x0s, x0_min] = param
+        amplitude, sigma, sym, mvt_type, mvt_axe, cor_disp, disp_str, nb_x0s, x0_min =  pp.amplitude, pp.sigma, pp.sym, pp.mvt_type, pp.mvt_axe, pp.cor_disp, pp.disp_str, pp.nb_x0s, pp.x0_min
+
+        ssynth, tmot, mr = select_data(json_file, param)
+
+        mvt_axe_str = ''
+        for ii in mvt_axe: mvt_axe_str +=  mvt_axe_str_list[ii]
+
+        if sym:
+            xcenter = resolution // 2 - sigma // 2;
+            x0s = np.floor(np.linspace(xcenter - x0_min, xcenter, nb_x0s))
+        else:
+            xcenter = resolution // 2;
+            x0s = np.floor(np.linspace(x0_min, xcenter, nb_x0s))
+            x0s = x0s[x0s>=sigma//2] #remove first point to not reduce sigma
+
+        for x0 in x0s:
+            start = time.time()
+            sigma, x0, xend = int(sigma), int(x0), x0 + sigma // 2
+            # print(f'{amplitude} {sigma} {type(sigma)}')
+
+            fp = corrupt_data(x0, sigma=sigma, method=mvt_type, amplitude=amplitude, mvt_axes=mvt_axe,
+                              center='none', return_all6=True, sym=sym, resolution=resolution)
+            # plt.figure();plt.plot(fp.T)
+            extra_info = param
+            extra_info['xend'], extra_info['x0'] =  xend, x0
+            extra_info['mvt_type'] = mvt_type + '_sym' if sym else mvt_type
+            extra_info['mvt_axe'] = mvt_axe_str  #change list of int, to str, easier for csv ...
+            extra_info['sujname'] = ssynth.name
+
+            smot, df, res_fitpar, res = apply_motion(ssynth, tmot, fp, df, res_fitpar, res, extra_info, config_runner=mr,
+                                                     correct_disp=cor_disp)
+            # ov(smot.t1.data[0])
+            # ssynth.t1.save(out_path+'/vol_orig.nii')
+            # smot.t1.save(out_path+'/vol_mot_x0_256_sigma128.nii')
+            i += 1
+            total_time = time.time() - start
+            print(f'{i} / {nb_sim} in {total_time} ')
+
+    mres = ModelCSVResults(df_data=df, out_tmp="/tmp/rrr")
+    keys_unpack = ['transforms_metrics', 'm_t1'];
+    suffix = ['m', 'm_t1']
+    df1 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix);
+    # if 'shift' in df1: #not sure good idea to correct here ... (other mean Disp should also be shifted ...
+    #    df1['m_wTF_Disp_1'] = df1['m_wTF_Disp_1'] + df1['shift']  # if compute after shifting the fp
+
+    if out_name is not None:
+        if not os.path.isdir(out_path): os.mkdir(out_path)
+        if res.shape[0] > 0:  # only if correct_disp is True
+            res.to_csv(out_path + f'/res_shift{out_name}.csv')
+        res_fitpar.to_csv(out_path + f'/res_fitpars{out_name}.csv')
+        df1.to_csv(out_path + f'/res_metrics{out_name}.csv')
+
+    return df1, res, res_fitpar
+
+def create_motion_job(params, split_length, file, out_path, res_name):
+
+    nb_param = len(params)
+    nb_job = int(np.ceil(nb_param / split_length))
+
+    from script.create_jobs import create_jobs
+
+    cmd_init = '\n'.join(['python -c "', "from util_affine import perform_motion_step_loop "])
+    jobs = []
+    for nj in range(nb_job):
+        ind_start = nj * split_length;
+        ind_end = np.min([(nj + 1) * split_length, nb_param])
+        print(f'{nj} {ind_start} {ind_end} ')
+        print(f'param = {params[ind_start:ind_end]}')
+
+        cmd = '\n'.join([cmd_init, f'params = {params[ind_start:ind_end]}',
+                         f'out_path = \'{out_path}\'',
+                         f'out_name = \'{res_name}_split{nj}\'',
+                         f'json_file = \'{file}\'',
+                         '_ = perform_motion_step_loop(json_file,params, out_path=out_path, out_name=out_name) "'])
+        jobs.append(cmd)
+
+    job_params = dict()
+    job_params[
+        'output_directory'] = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/' + f'{res_name}_job'
+    job_params['jobs'] = jobs
+    job_params['job_name'] = 'motion'
+    job_params['cluster_queue'] = 'bigmem,normal'
+    job_params['cpus_per_task'] = 4
+    job_params['mem'] = 8000
+    job_params['walltime'] = '12:00:00'
+    job_params['job_pack'] = 1
+
+    create_jobs(job_params)
+
+
+def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], center='zero', resolution=200, sym=False,
+                  return_all6=False):
+    fp = np.zeros((6, resolution))
+    x = np.arange(0, resolution)
+    if method=='gauss':
+        y = np.exp(-(x - x0) ** 2 / float(2 * sigma ** 2))*amplitude
+    elif method == '2step':
+        y = np.hstack((np.zeros((1, (x0 - sigma[0]))),
+                       np.linspace(0, amplitude[0], 2 * sigma[0] + 1).reshape(1, -1),
+                       np.ones((1, sigma[1]-1)) * amplitude[0],
+                       np.linspace(amplitude[0], amplitude[1], 2 * sigma[0] + 1).reshape(1, -1),
+                       np.ones((1, sigma[2]-1)) * amplitude[1],
+                       np.linspace(amplitude[1], 0 , 2 * sigma[0] + 1).reshape(1, -1)) )
+        remain = resolution - y.shape[1]
+        if remain<0:
+            y = y[:,:remain]
+            print(y.shape)
+            print("warning seconf step is too big taking cutting {}".format(remain))
+        else:
+            y = np.hstack([y, np.zeros((1,remain))])
+            y=y[0]
+
+    elif method == 'step':
+        y = np.hstack((np.zeros((1, (x0 - sigma))),
+                       np.linspace(0, amplitude, 2 * sigma + 1).reshape(1, -1),
+                       np.ones((1, ((resolution - x0) - sigma - 1))) * amplitude))
+        y = y[0]
+
+    elif method == 'Ustep':
+        y = np.zeros(resolution)
+        y[x0-(sigma//2):x0+(sigma//2)] = 1
+        y = y * amplitude
+    elif method == 'sin':
+        #fp = np.zeros((6, 182*218))
+        #x = np.arange(0,182*218)
+        y = np.sin(x/x0 * 2 * np.pi)
+        #plt.plot(x,y)
+    if center=='zero':
+        y = y -y[resolution//2]
+    if sym:
+        center = y.shape[0]//2
+        y = np.hstack([y[0:center], np.flip(y[0:center])])
+
+    if return_all6:
+        for xx in mvt_axes:
+            fp[xx, :] = y
+        y=fp
+
+    return y
 
 def torch_deg2rad(tensor: torch.Tensor) -> torch.Tensor:
     r"""Function that converts angles from degrees to radians.
