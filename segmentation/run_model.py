@@ -940,7 +940,7 @@ class RunModel:
 
         return inputs, labels
 
-    def record_regression_batch(self, df, sample, predictions, targets, batch_time, save=False):
+    def record_regression_batch(self, df, sample, predictions, targets, batch_time, save=False, extra_info=None):
         """
         Record information about the the model was trained or evaluated on during the regression task.
         At evaluation time, additional reporting metrics are recorded.
@@ -1029,6 +1029,9 @@ class RunModel:
             time_sum += reporting_time
             info['reporting_time'] = reporting_time
             start = time.time()
+
+            if extra_info is not None:
+                info = dict(info, ** extra_info)
 
             df = df.append(info, ignore_index=True)
 
