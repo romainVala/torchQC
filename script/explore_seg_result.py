@@ -104,6 +104,8 @@ file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augmen
 res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_tissue_eval_augment/dataS*mod3*/*/*csv'
 file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augment_mod3_01.csv'
 file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/res1mm_tissue_eval_augment_mod3_02.csv'
+res = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_all_tissue/dataS*/*/*csv'
+file = '/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_1mm_all_tissue/all.csv'
 
 aggregate_csv_files(res, file, fragment_position=-3)
 
@@ -271,3 +273,20 @@ df1.Tnoi_std = df1.Tnoi_std.apply(lambda  x: xxx(x))
 sns.scatterplot(data=df1,x ='pred_ssim_SSIM_brain',y = 'tar_ssim_SSIM_brain', hue='Tnoi_std', legend="full")
 df1.loc[['pred_ssim_SSIM_brain','tar_ssim_SSIM_brain','Tnoi_std']].describe()
 
+
+#test load history 01 2021
+from read_gz_results import GZReader
+fres = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/RES_1mm_all_tissue/dataS_GM6_T1_SNR_100_model_dp_mod3_Aug_ep106/704238/eval.gz'
+gz = GZReader(fres)
+
+df = gz.df_data
+vol = gz.get_volume_torchio(0)
+df = torch.load(fres)
+trfms = gz.get_transformations(0)
+sel_key=[]
+for k in df.keys():
+    if 'l1' in k:
+        print(k)
+        sel_key.append(k)
+sel_key.append("metric_far_isolated_GM_points_in_CSF"); sel_key.append("metric_far_isolated_GM_points_in_WM")
+sns.pairplot(df[sel_key], kind="scatter", corner=True)
