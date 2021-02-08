@@ -20,10 +20,10 @@ from nibabel.viewers import OrthoSlicer3D as ov
 
 
 def default_json_str_to_eval_python(x):
-    if pd.isna(x):
-        return None
     if not isinstance(x,str):
         return x
+    if pd.isna(x):
+        return None
 
     x = x.replace('true', 'True')
     x = x.replace('false', 'False')
@@ -243,6 +243,11 @@ class ModelCSVResults(object):
         if eval_func:
             dict_vals = self.df_data[col].apply(eval_func)
         #print(dict_vals[~pd.isna(dict_vals)])
+        if isinstance(dict_vals[0], list):
+            dict_vals = dict_vals.apply(lambda x: x[0]) #BAD what if more ...
+        if isinstance(dict_vals[0],tuple):  #tupe 0 is transfo name RamdomMotionFRomTimeCourse
+            dict_vals = dict_vals.apply(lambda x: x[1])  # BAD what if more ...
+
         val_names = dict_vals[~pd.isna(dict_vals)].iloc[0].keys()
         for name in val_names:
             added_key_name = f"{suffix}_{name}" if suffix else f"{name}"
