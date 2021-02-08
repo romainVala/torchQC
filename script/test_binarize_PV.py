@@ -111,8 +111,11 @@ df['res'] = df['resolution'].apply(lambda s: get_epoch(s))
 for k in df.keys():
     if '_vol' in k:
         print(k)
-        #df[k] = df[k].apply(lambda s: to_num(s))
+        df[k] = df[k].apply(lambda s: to_num(s))
         df[k] = df[k] * df['res']* df['res']* df['res']
+
+df1 = df[df['resolution']=='ROI_PVE_1mm']
+dd= df1.sort_values(by='GM_vol')
 
 sns.catplot(data=df, x='resolution', y='PV_in_GM_T2')
 
