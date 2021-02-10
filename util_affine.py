@@ -6,6 +6,7 @@ from segmentation.config import Config
 from read_csv_results import ModelCSVResults
 from itertools import product
 from types import SimpleNamespace
+import torchio as tio
 
 pi = torch.tensor(3.14159265358979323846)
 
@@ -95,8 +96,9 @@ def select_data(json_file, param=None):
             suj_seed=-1
         contrast = param['suj_contrast']
         suj_deform = param['suj_deform']
+        noise = param['suj_noise']
     else:
-        suj_ind, contrast, suj_deform = 0, 1, False
+        suj_ind, contrast, suj_deform, suj_noise = 0, 1, False, 0
 
     s1 = config.train_subjects[suj_ind]
     print(f'loading suj {s1.name} with contrast {contrast} deform is {suj_deform} sujseed {suj_seed}')
@@ -123,6 +125,9 @@ def select_data(json_file, param=None):
     if suj_deform:
         taff_ela = transfo_list[2]
         ssynth = taff_ela(ssynth)
+    if suj_noise:
+        tnoise = tio.RandomNoise(std = (suj_noise,suj_noise))
+        ssynth = tnoise(ssynth)
 
     return ssynth, tmot, mr
 
@@ -154,7 +159,7 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
             xcenter = resolution // 2;
             x0s = np.floor(np.linspace(x0_min, xcenter, nb_x0s))
             x0s = x0s[x0s>=sigma//2] #remove first point to not reduce sigma
-
+        #x0s=[242]
         for x0 in x0s:
             start = time.time()
             sigma, x0, xend = int(sigma), int(x0), x0 + sigma // 2
