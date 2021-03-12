@@ -80,7 +80,7 @@ def apply_motion(sin, tmot, fp, df, res_fitpar, res, extra_info, config_runner,
 
     return sout, df, res_fitpar, res
 
-def select_data(json_file, param=None):
+def select_data(json_file, param=None, to_canonical=False):
     result_dir= os.path.dirname(json_file) +'/rrr' #/data/romain/PVsynth/motion_on_synth_data/test1/rrr/'
     config = Config(json_file, result_dir, mode='eval', save_files=False) #since cluster read (and write) the same files, one need save_file false to avoid colusion
     config.init()
@@ -96,12 +96,12 @@ def select_data(json_file, param=None):
             suj_seed=-1
         contrast = param['suj_contrast']
         suj_deform = param['suj_deform']
-        noise = param['suj_noise']
+        suj_noise = param['suj_noise']
     else:
         suj_ind, contrast, suj_deform, suj_noise = 0, 1, False, 0
 
     s1 = config.train_subjects[suj_ind]
-    print(f'loading suj {s1.name} with contrast {contrast} deform is {suj_deform} sujseed {suj_seed}')
+    print(f'loading suj {s1.name} with contrast {contrast} deform is {suj_deform} sujseed {suj_seed} suj_noise {suj_noise}')
 
     transfo_list = config.train_transfo_list
 
@@ -121,12 +121,15 @@ def select_data(json_file, param=None):
         raise(f'error contrast not define {contrast}')
 
     ssynth = tsynth(s1)
+    if to_canonical:
+        tcano = tio.ToCanonical(p=1)
+        ssynth = tcano(ssynth)
     tmot = transfo_list[1]
     if suj_deform:
         taff_ela = transfo_list[2]
         ssynth = taff_ela(ssynth)
     if suj_noise:
-        tnoise = tio.RandomNoise(std = (suj_noise,suj_noise))
+        tnoise = tio.RandomNoise(std = (suj_noise,suj_noise), abs_after_noise=True)
         ssynth = tnoise(ssynth)
 
     return ssynth, tmot, mr
@@ -234,6 +237,213 @@ def create_motion_job(params, split_length, file, out_path, res_name):
 
     create_jobs(job_params)
 
+def perform_one_motion(fp_path, fjson, param=None, out_dir=None, coreg_nifti_reg=True):
+    def get_sujname_from_path(ff):
+        name = [];
+        dn = os.path.dirname(ff)
+        for k in range(3):
+            name.append(os.path.basename(dn))
+            dn = os.path.dirname(dn)
+        return '_'.join(reversed(name))
+
+    df = pd.DataFrame()
+    if param is None:
+        param = dict()
+
+    if 'suj_contrast' not in param: param['suj_contrast'] = 1
+    if 'suj_noise' not in param: param['suj_noise'] = 0.01
+    if 'suj_index' not in param: param['suj_index'] = 0
+    if 'suj_deform' not in param: param['suj_deform'] = 0
+    if 'displacement_shift_strategy' not in param: param['displacement_shift_strategy']=None
+
+    # get the data
+    sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
+    # load mvt fitpars
+    fp = np.loadtxt(fp_path)
+
+    suj_name = get_sujname_from_path(fp_path)
+
+    extra_info = dict(fp= fp_path, suj_name_fp=suj_name, flirt_coreg=0)
+    extra_info = dict(param, **extra_info)
+
+
+    # apply motion transform
+    start = time.time()
+    #tmot.metrics = None
+    tmot.nT = fp.shape[1]
+    tmot.simulate_displacement = False; #tmot.oversampling_pct = 1
+    tmot.fitpars = fp
+    tmot.displacement_shift_strategy = param['displacement_shift_strategy']
+    smot = tmot(sdata)
+    batch_time = time.time() - start;     start = time.time()
+    print(f'First motion in  {batch_time} ')
+
+    df, report_time = config_runner.record_regression_batch(df, smot, torch.zeros(1).unsqueeze(0), torch.zeros(1).unsqueeze(0),
+                                                 batch_time, save=False, extra_info=extra_info)
+
+    if coreg_nifti_reg:
+        import subprocess
+        import numpy.linalg as npl
+
+        #since (I guess motion do rotation relatif to volume center, shift the affine to have 0,0,0 at volume center)
+        notuse=False
+        if notuse: #not necessary for fsl affine, (since independant of nifti header)
+            aff = sdata.t1.affine
+            dim = sdata.t1.data[0].shape
+            aff[:,3] = [dim[0]//2,dim[1]//2,dim[2]//2, 1] #todo !! works becaus not rotation in nifti affinne
+            new_affine = npl.inv(aff)
+            sdata.t1.affine = new_affine
+            smot.t1.affine = new_affine
+            #arg when pure rotation I get the same fsl matrix even if I do not change the header origin
+
+        if out_dir is None: raise('error outut path (out_dir) must be se ')
+        orig_vol = out_dir + f'/vol_orig_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"]*100)}_D{param["suj_deform"]:d}.nii'
+        #save orig data in the upper dir
+        if not os.path.isfile(orig_vol):
+            sdata.t1.save(orig_vol)
+
+        out_dir = out_dir + '/' + suj_name
+        if not os.path.isdir(out_dir): os.mkdir(out_dir)
+        out_vol = out_dir + '/vol_motion.nii'
+        smot.t1.save(out_vol)
+        out_vol_nifti_reg = out_dir + '/r_vol_motion.nii'
+        out_affine = out_dir + '/coreg_affine.txt'
+
+        #cmd = f'reg_aladin -rigOnly -ref {orig_vol} -flo {out_vol} -res {out_vol_nifti_reg} -aff {out_affine}'
+        #cmd = f'flirt -dof 6 -ref {out_vol} -in {orig_vol}  -out {out_vol_nifti_reg} -omat {out_affine}'
+        cmd = f'flirt -dof 6 -ref {out_vol} -in {orig_vol}  -omat {out_affine}'
+        outvalue = subprocess.run(cmd.split(' '))
+        if not outvalue==0:
+            print(" ** Error  in "+ cmd + " satus is  "+str(outvalue))
+
+        #### reading and transforming FSL flirt Affine to retriev trans and rot set with spm_matrix(order=0) (as used torchio motion)
+        out_aff = np.loadtxt(out_affine)
+        affine = smot.t1.affine
+
+        #fsl flirt rotation center is first voxel (0,0,0) image corner
+        shape = sdata.t1.data[0].shape; pixdim = [1]  #
+        center = np.array(shape)//2
+        new_rotation_center = -center #I do not fully understand, it should be +center, but well ...
+        T = spm_matrix([new_rotation_center[0],new_rotation_center[1],new_rotation_center[2],0,0,0,1,1,1,0,0,0],order=4); Ti = npl.inv(T)
+        out_aff = np.matmul(T, np.matmul(out_aff,Ti))
+
+        #convert to trans so that we get the same affine but from convention R*T
+        rot = out_aff.copy(); rot[:,3]=[0,0,0,1]
+        trans2 =  out_aff.copy(); trans2[:3,:3] = np.eye(3)
+        trans1 = np.matmul( npl.inv(rot), np.matmul(trans2, rot))  #trans1 = np.matmul(rot, np.matmul(trans2,  npl.inv(rot)))
+        out_aff[:,3] = trans1[:,3]
+
+        if npl.det(affine)>0 : # ie canonical, then flip, (because flirt affine convention is with -x
+            shape = sdata.t1.data[0].shape; pixdim = [1] #
+            x = (shape[0] - 1) * pixdim[0]
+            flip = np.eye(4); flip[0,0] = -1; flip[0,3] = 0# x  not sure why not translation shift ... ?
+            out_aff = np.matmul(flip, out_aff)
+            #out_aff = np.matmul(out_aff,flip)
+        np.savetxt(out_dir+'/coreg_affine_MotConv.txt',out_aff)
+
+        trans_rot = spm_imatrix(out_aff)[:6]
+        for i in range(6):
+            fp[i,:] = fp[i,:] - trans_rot[i]
+        tmot.fitpars = fp
+
+        smot_shift = tmot(sdata)
+        out_vol = out_dir + '/vol_motion_no_shift.nii'
+        smot_shift.t1.save(out_vol)
+
+        batch_time = time.time() - start
+        print(f'coreg and second motion in  {batch_time} ')
+
+        extra_info['flirt_coreg'] = 1
+        extra_info["shift_T1"] = trans_rot[0]; extra_info["shift_T2"] = trans_rot[1]; extra_info["shift_T3"] = trans_rot[2]
+        extra_info["shift_R1"] = trans_rot[3]; extra_info["shift_R2"] = trans_rot[4]; extra_info["shift_R3"] = trans_rot[5]
+        df, report_time = config_runner.record_regression_batch(df, smot_shift, torch.zeros(1).unsqueeze(0),torch.zeros(1).unsqueeze(0),
+                                                                batch_time, save=False, extra_info=extra_info)
+        test_direct_problem=False
+        if test_direct_problem:
+            fp = np.ones_like(fp) * 6;
+            for iii, r in enumerate(fp):
+                fp[iii, :] = (6 - iii) * 3
+            # fp[:3,:]=0
+            out_dir = '/home/romain.valabregue/tmp/a'
+
+            #if nocanonical not necessary if flip matrix
+            # aff_direct = spm_matrix([fp[0, 0], fp[1, 0], fp[2, 0],fp[3, 0], -fp[4, 0], -fp[5, 0], 1, 1, 1, 0, 0, 0, ], order=0)
+            #if canonical
+            aff_direct = spm_matrix([fp[0, 0], fp[1, 0], fp[2, 0],fp[3, 0], fp[4, 0], fp[5, 0], 1, 1, 1, 0, 0, 0, ], order=0)
+            nii_img0 = nb.load('/home/romain.valabregue/tmp/a/vol_orig_I0_C1_N_1_D0.nii')
+            nii_img =  nb.load('/home/romain.valabregue/tmp/a/vol_orig_I0_C1_N_1_D0.nii')
+            out_p='/home/romain.valabregue/tmp/a/lille_005011AAA_BL0/nii_dir.nii'
+            nii_aff = nii_img.get_affine()
+
+            #change aff_direct to have rotation expres at nifi origin
+            shape = sdata.t1.data[0].shape; pixdim = [1]; center = np.array(shape)//2
+            origin_vox = np.matmul(npl.inv(nii_aff),np.array( [0,0,0,1]))[:3]
+            voxel_shift = -origin_vox + center
+            T = spm_matrix([voxel_shift[0],voxel_shift[1],voxel_shift[2],0,0,0,1,1,1,0,0,0],order=4); Ti = npl.inv(T)
+            aff_direct = np.matmul(T, np.matmul(aff_direct,Ti))
+
+            if npl.det(nii_aff) < 0:  # ie nocanonical, then flip, (inverse of fsl)
+                flip = np.eye(4);
+                flip[0, 0] = -1;               # #pixdim = [1]  # x = (shape[0] - 1) * pixdim[0] flip[0, 3] = 0  # x  not sure why not translation shift ... ?
+                aff_direct = np.matmul(flip, aff_direct)
+                nii_aff = np.matmul(flip, nii_aff)
+                #nii_img0.affine[:] =  np.matmul(flip, nii_img0.affine)[:]
+
+            # # convert to trans so that we get the same affine but from convention R*T   needed only if aff_direct is done with order>0
+            # rot = aff_direct.copy();            rot[:, 3] = [0, 0, 0, 1]
+            # trans2 = aff_direct.copy();         trans2[:3, :3] = np.eye(3)
+            # #trans1 = np.matmul(npl.inv(rot),np.matmul(trans2, rot))  # arg here it is the inverse compare to transformaing flirt matrix
+            # trans1 = np.matmul(rot, np.matmul(trans2,  npl.inv(rot)))
+            # aff_direct[:, 3] = trans1[:, 3]
+
+            nii_img.affine[:] = np.matmul(aff_direct, nii_aff)[:]
+            #nii_img.affine[:] = np.matmul(npl.inv(aff_direct), nii_aff)[:]     #nii_img.affine[:] = np.matmul( nii_aff, aff_direct)[:]
+            out_img = nbp.resample_from_to(nii_img, nii_img0, cval=0)
+            nb.save(out_img,out_p)
+
+            #image space motion
+            ta = tio.Compose([tio.ToCanonical(), tio.Affine(scales=1,degrees=[3,-6,-9],translation=0)])
+            ta = tio.Affine(scales=1,degrees=[-fp[3,0],-fp[4,0],-fp[5,0]],translation=0)
+            ta = tio.Affine(scales=1,degrees=[-fp[3,0],fp[4,0],fp[5,0]],translation=0)
+            smoti = ta(sdata)
+            smoti.t1.save(out_dir +'/tio_affma3.nii')
+
+            #rotation around point 50, 0, 0
+            rot = spm_matrix([0,0,0, 10, 11, 12, 1,1,1,0,0,0],order=4)
+            T = spm_matrix([10,-18,-76,0,0,0,1,1,1,0,0,0],order=4); Ti = npl.inv(T)
+            new_affine = np.matmul(T, np.matmul(rot,Ti))
+            #new_affine.dot([0, 80,0, 1]) is the same point, it is the rotation center
+            #taking into account that motion is doing R*T (and not T*R), to get the translation :
+            trans2 =  new_affine.copy(); trans2[:3,:3] = np.eye(3)
+            trans1 = np.matmul( npl.inv(rot), np.matmul(trans2, rot))
+            new_affine[:,3] = trans1[:,3]
+            fp = np.zeros_like(fp); fp[0,:] = trans1[0,3]; fp[1,:] = trans1[1,3];  fp[2,:] = trans1[2,3]; fp[3,:] = 10
+
+            #find fsl rotation center http://www.euclideanspace.com/maths/geometry/affine/aroundPoint/index.htm
+            from sympy import symbols, Eq, solve
+            rot = out_aff
+            x, y, z = symbols('x,y,z')
+            eq1 = Eq((x - rot[0,0]*x - rot[0,1]*y - rot[0,2]*z), rot[0,3])
+            eq2 = Eq((y - rot[1,0]*x - rot[1,1]*y - rot[1,2]*z), rot[1,3])
+            eq3 = Eq((z - rot[2,0]*x - rot[2,1]*y - rot[2,2]*z), rot[2,3])
+            print(solve((eq1, eq2, eq3), (x, y, z)))
+            #why is there several solutions .... (ie several fix point for the given affine)
+            #rotation axis
+            u = np.array([rot[2,1] - rot[1,2], rot[0,2] - rot[2,0], rot[1,0] - rot[0,1] ])
+
+    mres = ModelCSVResults(df_data=df, out_tmp="/tmp/rrr")
+    keys_unpack = ['transforms_metrics', 'm_t1'];
+    suffix = ['m', 'm_t1']
+    df1 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix);
+    # if 'shift' in df1: #not sure good idea to correct here ... (other mean Disp should also be shifted ...
+    #    df1['m_wTF_Disp_1'] = df1['m_wTF_Disp_1'] + df1['shift']  # if compute after shifting the fp
+
+    if out_dir is not None:
+        if not os.path.isdir(out_dir): os.mkdir(out_dir)
+        df1.to_csv(out_dir + f'/metrics_fp_{suj_name}.csv')
+
+    return df1
+
 
 def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], center='zero', resolution=200, sym=False,
                   return_all6=False):
@@ -272,6 +482,9 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         #x = np.arange(0,182*218)
         y = np.sin(x/x0 * 2 * np.pi)
         #plt.plot(x,y)
+    elif method == 'Const':
+        y = np.ones(resolution) * amplitude
+
     if center=='zero':
         y = y -y[resolution//2]
     if sym:
@@ -301,7 +514,7 @@ def torch_deg2rad(tensor: torch.Tensor) -> torch.Tensor:
 
     return tensor * pi.to(tensor.device).type(tensor.dtype) / 180.
 
-def spm_imatrix(M):
+def spm_imatrixOLD(M):
     import nibabel as ni
     import numpy.linalg as npl
 
@@ -329,6 +542,47 @@ def spm_imatrix(M):
     P = np.array([tx,ty,tz,-rx,-ry,-rz,scalx, scaly, scalz,shearx, sheary, shearz])
     return P
 
+def spm_imatrix(M):
+    def rang(x):
+        return np.min([np.max([x,-1]), 1])
+
+    import nibabel as ni
+    import numpy.linalg as npl
+
+    #translation euler angle  scaling shears % copy from from spm_imatrix
+    [rot,[tx,ty,tz]] = ni.affines.to_matvec(M)
+
+    C = npl.cholesky(np.transpose(rot).dot(rot)).T
+    #C = np.transpose(npl.cholesky(rot.dot(np.transpose(rot))))
+    [scalx, scaly, scalz] = np.diag(C)
+    if npl.det(rot)<0:  # Fix for -ve determinants
+        scalx=-scalx
+
+    C = np.matmul(npl.inv(np.diag(np.diag(C))),C)
+    [shearx, sheary, shearz] = [C[0,1], C[0,2], C[1,2]]
+
+    P=np.array([0,0,0,0,0,0,scalx, scaly, scalz,shearx, sheary, shearz])
+    R0=spm_matrix(P,order=4)
+    R0=R0[:3,:3]
+    #rrr    R1 = rot.dot(npl.inv(R0))
+    R1 = np.matmul(rot, npl.inv(R0)) #(npl.inv(R0)).dot(rot)
+
+    ry = np.arcsin(R1[0,2])
+    if (abs(ry) - np.pi / 2) ** 2 < 1e-9:
+        rx = 0;
+        rz = np.arctan2(-rang(R1[1, 0]), rang(-R1[2, 0] / R1[0, 2]));
+    else:
+        c = np.cos(ry);
+        rx = np.arctan2(rang(R1[1, 2] / c), rang(R1[2, 2] / c));
+        rz = np.arctan2(rang(R1[0, 1] / c), rang(R1[0, 0] / c));
+
+    #[rz, ry, rx]  = ni.eulerangles.mat2euler(R1)
+    [rz, ry, rx] = [rz*180/np.pi, ry*180/np.pi, rx*180/np.pi] #rad to degree
+    #rrr I do not know why I have to add - to make it coherent
+    #P = np.array([tx,ty,tz,-rx,-ry,-rz,scalx, scaly, scalz,shearx, sheary, shearz])
+    P = np.array([tx, ty, tz, rx, ry, rz, scalx, scaly, scalz, shearx, sheary, shearz])
+    return P
+
 def spm_matrix(P,order=0):
     """
     FORMAT [A] = spm_matrix(P )
@@ -352,16 +606,17 @@ def spm_matrix(P,order=0):
         P = P.numpy()
         convert_to_torch=True
 
-    [P[3], P[4], P[5]] = [P[3]*180/np.pi, P[4]*180/np.pi, P[5]*180/np.pi] #degre to radian
+    #[P[3], P[4], P[5]] = [P[3] * 180 / np.pi, P[4] * 180 / np.pi, P[5] * 180 / np.pi]  # degre to radian
+    P[3], P[4], P[5] = P[3]*np.pi/180, P[4]*np.pi/180, P[5]*np.pi/180 #degre to radian
 
     T = np.array([[1,0,0,P[0]],[0,1,0,P[1]],[0,0,1,P[2]],[0,0,0,1]])
     R1 =  np.array([[1,0,0,0],
                     [0,np.cos(P[3]),np.sin(P[3]),0],#sing change compare to spm because neuro versus radio ?
                     [0,-np.sin(P[3]),np.cos(P[3]),0],
                     [0,0,0,1]])
-    R2 =  np.array([[np.cos(P[4]),0,-np.sin(P[4]),0],
+    R2 =  np.array([[np.cos(P[4]),0,np.sin(P[4]),0],
                     [0,1,0,0],
-                    [np.sin(P[4]),0,np.cos(P[4]),0],
+                    [-np.sin(P[4]),0,np.cos(P[4]),0],
                     [0,0,0,1]])
     R3 =  np.array([[np.cos(P[5]),np.sin(P[5]),0,0],  #sing change compare to spm because neuro versus radio ?
                     [-np.sin(P[5]),np.cos(P[5]),0,0],
