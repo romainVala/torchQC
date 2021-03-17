@@ -5,11 +5,12 @@ from segmentation.run_model import RunModel
 from nibabel.viewers import OrthoSlicer3D as ov
 import glob, os, numpy as np, pandas as pd, matplotlib.pyplot as plt
 pd.set_option('display.max_rows', None, 'display.max_columns', None, 'display.max_colwidth', -1, 'display.width', 400)
-from util_affine import perform_motion_step_loop, product_dict, create_motion_job
+from util_affine import perform_motion_step_loop, product_dict, create_motion_job, select_data, corrupt_data, apply_motion
 import nibabel as nib
 from read_csv_results import ModelCSVResults
 from types import SimpleNamespace
 from kymatio import HarmonicScattering3D
+from types import SimpleNamespace
 
 def show_df(df, keys):
     rout, rout_unique = dict(),dict()
@@ -97,23 +98,39 @@ disp_str = disp_str_list[0];
 mvt_axe_str_list = ['transX', 'transY','transZ', 'rotX', 'rotY', 'rotZ']
 
 all_params = dict(
-    amplitude=[1,2,4,8],
-    sigma =  [2, 4,  8,  16,  32, 64, 128], #[2, 4,  8,  16,  32, 44, 64, 88, 128], #np.linspace(4,128,60),
-    nb_x0s = [65],
+    amplitude=[0.5, 1,2,4],
+    sigma =  [0], #if not 0 it will have no x0s ..(with
+    nb_x0s = [1],
     x0_min = [0],
     sym = [False, ],
-    mvt_type= ['Ustep'],
-    mvt_axe = [[1]] ,
-    cor_disp = [True,],
+    mvt_type= ['Const'],
+    mvt_axe = [[1],[4]] ,
+    cor_disp = [False,],
     disp_str =  ['no_shift'],
-    suj_index = [ 475,  478, 492, 497, 499, 500], #[474, 475, 477, 478, 485, 492, 497, 499, 500, 510],
+    suj_index = [ 0, 475,  478, 492, 497, 499, 500], #[474, 475, 477, 478, 485, 492, 497, 499, 500, 510],
     suj_seed = [0,2,4,7,9], #[0,1,2,4,5,6,7,8,9],
     suj_contrast = [1, 2,3],
     suj_deform = [False, True,],
-    suj_nois = [0.01, 0.1]
-
+    suj_noise = [0, 0.01, 0.05, 0.1]
 )
-all_params['suj_index'] = [0]
+
+all_params = dict(
+    amplitude=[0.5, 1,2,4,8],
+    sigma = np.linspace(2,256,64).astype(int), # [2, 4,  8,  16,  32, 64, 128], #[2, 4,  8,  16,  32, 44, 64, 88, 128], ,
+    nb_x0s = [1], #[65],
+    x0_min = [256], # [0],
+    sym = [False, ],
+    mvt_type= ['Ustep'],
+    mvt_axe = [[4]] ,
+    cor_disp = [True,],
+    disp_str = ['no_shift'],
+    suj_index = [475, 500], #[ 475,  478, 492, 497, 499, 500], #[474, 475, 477, 478, 485, 492, 497, 499, 500, 510],
+    suj_seed = [0,2,4,7,9], #[0,1,2,4,5,6,7,8,9],
+    suj_contrast = [1, 3],
+    suj_deform = [True,],
+    suj_noise = [0, 0.01, 0.05 ]
+)
+#all_params['suj_index'] = [0]
 
 # all_params['sigmas'] = [4,  8,  16,  32, 64, 128]
 #amplitudes, sigmas, nb_x0s, x0_min = [1,2,4,8], [4,  8,  16, 24, 32, 40, 48, 64, 72, 80, 88, 128] ,21, 120;
@@ -132,9 +149,16 @@ file = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/
 res_name = 'transX_ustep_sym_nosym';res_name = 'transX_ustep_sym_10suj'
 res_name = 'transX_ustep_65X0_5suj_10seed_3contrast_2deform'
 res_name = 'noise_transX_ustep_65X0_1suj_5seed_3contrast_2deform'
+res_name = 'noise_abs_transX_ustep_65X0_1suj_5seed_3contrast_2deform'
+res_name = 'constant_motion_noise_7suj_5seed_3contrast_2deform_3noise'
+res_name = 'constant_motion_noise_abs_7suj_5seed_3contrast_2deform_3noise'
+res_name = 'new_noise_abs_transX_ustep_65X0_1suj_5seed_3contrast_2deform'
+res_name = 'x0_256_2noise_abs_transX_ustep_5suj_5seed_3contrast_2deform'
+res_name = 'sigma_2-256_x0_256_4noise_abs_transX_ustep_2suj_5seed_2contrast_deform'
+res_name = 'rot4_sigma_2-256_x0_256_4noise_abs_transX_ustep_2suj_5seed_2contrast_deform'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/' + res_name
 
-create_motion_job(params,1,file,out_path,res_name)
+create_motion_job(params,50,file,out_path,res_name)
 
 mres = ModelCSVResults(df_data=df1, out_tmp="/tmp/rrr")
 keys_unpack = ['T_LabelsToImage'];
@@ -146,6 +170,9 @@ df = [pd.read_csv(ff) for ff in csv_file]
 df1 = pd.concat(df, ignore_index=True); dfall = df1
 show_df(df1,all_params)
 
+df1 = df1.rename({'m_t1_L1_map':'L1', 'm_t1_NCC':'NCC', 'm_t1_grad_nMI2':'MI', 'm_t1_PSNR':'PSNR','m_t1_nRMSE':'nL2',
+                 'm_t1_ssim_SSIM':'SSIM', 'm_t1_grad_ratio':'grad_ratio','m_t1_grad_cor_diff_ratio':'auto_cor_ratio'}, axis='columns')
+
 df1['m_wTF_Disp_1']=df1['m_wTF_Disp_1'] + df1['shift']
 df1['m_wTF2_Disp_1']=df1['m_wTF2_Disp_1'] + df1['shift']
 
@@ -154,30 +181,78 @@ df1 = df1[df1['xend']==256]
 
 dfsub = df1[df1.mvt_axe=='transY'] ; # df1[df1.mvt_axe=='transX'] ;
 dfsub = dfsub[dfsub.mvt_type=='Ustep'] #dfsub[dfsub.mvt_type=='Ustep_sym']
-dfsub = df1[df1.suj_contrast==3]; dfsub = dfsub[dfsub.suj_deform==1];
+dfsub = df1[df1.suj_contrast==1]; dfsub = dfsub[dfsub.suj_noise==0.01];
 dfsub = df1[ (df1.amplitude==4) & (df1.suj_contrast==1)];
 ds1 = dfsub[(dfsub.sigma==64) & (dfsub.x0==256) & (dfsub.suj_deform==1)]; ds1.shape
 dfsub_dict = split_df_unique_vals(df1,['amplitude'])
-dfsub = split_df_unique_vals(df1,['suj_seed'])
+dfsub_dict = split_df_unique_vals(df1,['suj_noise', 'suj_deform', 'suj_contrast'])
+dfsub = split_df_unique_vals(df1,['suj_noise', 'suj_contrast'])
 
-ykeys=['m_t1_L1_map', 'm_t1_NCC', 'm_t1_ssim_SSIM', 'm_t1_PSNR','m_t1_grad_ratio','m_t1_lab_std0','m_t1_lab_mean0',
-         'm_t1_nRMSE', 'm_t1_grad_nMI2', 'm_t1_grad_Eratio','m_t1_grad_EGratio','m_t1_grad_ratio']
+ykeys = ['L1','nL2','NCC','MI','PSNR','SSIM', 'grad_ratio']#,'auto_cor_ratio']
+ykeys = ['L1','nL2','NCC','MI','PSNR','SSIM', 'grad_ratio','auto_cor_ratio',
+         'shift', 'm_t1_grad_EGratio','m_t1_grad_Eratio', 'm_t1_grad_scat', 'm_t1_grad_cor1_ratio',
+         'm_t1_lab_mean2','m_t1_lab_mean0','m_t1_lab_std2','m_t1_lab_std0',]
+ykeys = ['m_mean_DispP', 'shift', 'm_wTF_Disp_1', 'm_wTF2_Disp_1', 'm_mean_DispP', 'm_meanDispP_wTF', 'm_wTF_absDisp_t',
+'m_t1_grad_Eratio', 'm_t1_grad_ratio_bin', 'm_t1_grad_cor1_ratio', 'm_t1_grad_cor3_ratio']
+
+ykeys=['m_t1_L1_map', 'm_t1_NCC', 'm_t1_ssim_SSIM', 'm_t1_PSNR','m_t1_grad_ratio','m_t1_grad_ratio_bin','m_t1_lab_std0','m_t1_lab_mean0',
+         'm_t1_nRMSE', 'm_t1_grad_nMI2', 'm_t1_grad_EGratio','m_t1_grad_cor_diff_ratio','m_t1_grad_cor2_ratio'] #'m_t1_grad_Eratio' is null with noise !!!
 #ykeys = ['m_t1_PSNR', 'm_t1_grad_ratio']  # ,'m_t1_nRMSE'] #,'m_t1_L1_map'] m_t1_grad_grad_ration
-'mean_DispP', 'm_meanDispP_wTF', 'm_meanDispP_wTF2', 'm_wTF_Disp_1', 'm_wTF2_Disp_1',
+ykeys=['mean_DispP', 'm_meanDispP_wTF', 'm_meanDispP_wTF2', 'm_wTF_Disp_1', 'm_wTF2_Disp_1',]
+ykeys=[];
+for k in df1.keys():
+    if 'm_t1_lab_' in  k: ykeys.append(k)
+ykeys = ykeys[1:6]
 
-figres = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/figure/'
-prefix = 'contrast_'
+figres = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/figure/roty_center_sigma/'
+prefix = 'abs_noise' #'sigma_x256' #'abs_noise_colAmp' # 'contrast_'
 for k, dfsub in dfsub_dict.items():
-    cmap = sns.color_palette("coolwarm", len(dfsub.sigma.unique()))
+    #cmap = sns.color_palette("coolwarm", len(dfsub.sigma.unique()))
+    cmap = sns.color_palette("coolwarm", len(dfsub.suj_index.unique()))
     for ykey in ykeys:
-        #fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind="line",palette=cmap, col='amplitude',col_wrap=2)
-        fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind="line",palette=cmap, col='suj_contrast',col_wrap=2,style='suj_deform')
-        for aa in fig.axes: aa.grid()
-        plt.text(0.8,0.3,ykey,transform=plt.gcf().transFigure,bbox={'facecolor': 'grey', 'alpha': 0.5, 'pad': 10})
-        plt.text(0.8,0.2,k,transform=plt.gcf().transFigure,bbox={'facecolor': 'grey', 'alpha': 0.5, 'pad': 10})
-        figname = f'{prefix}_{ykey}_{k}.png'
-        fig.savefig(figres+figname)
-        plt.close()
+        if ykey in dfsub:
+            #fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind="line",palette=cmap, col='amplitude',col_wrap=2)
+            #fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind="line",palette=cmap, col='suj_contrast',col_wrap=2,style='suj_deform')
+            fig = sns.relplot(data=dfsub, x="sigma", y=ykey, hue="suj_index", legend='full', kind="line", palette=cmap, col='amplitude', col_wrap=2)
+
+            for aa in fig.axes: aa.grid()
+            plt.text(0.1,0.9,ykey,transform=plt.gcf().transFigure,bbox={'facecolor': 'grey', 'alpha': 0.5, 'pad': 10})
+            plt.text(0.1,0.8,k,transform=plt.gcf().transFigure,bbox={'facecolor': 'grey', 'alpha': 0.5, 'pad': 10})
+            figname = f'{prefix}_{ykey}_{k}.png'
+            fig.savefig(figres+figname)
+            plt.close()
+        else:
+            print(f'missing keys {ykey}')
+
+ykeys = ['L1','nL2','NCC','MI','PSNR','SSIM', 'grad_ratio', 'm_t1_grad_EGratio']#,'auto_cor_ratio']
+sns.pairplot(df1[ykeys], kind="scatter", corner=True)
+
+#center 256 many sigma
+cmap = sns.color_palette("coolwarm", len(dfsub.suj_index.unique()))
+fig = sns.relplot(data=dfsub, x="sigma", y=ykey, hue="suj_index", legend='full', kind="line",palette=cmap,
+                  col='amplitude',col_wrap=2)
+
+plt.figure();plt.scatter(df1.L1,df1.nL2); plt.xlabel('L1'); plt.ylabel('nL2')
+ind = (df1.nL2<0.155) & (df1.nL2>0.15); np.sum(ind)
+di = df1.loc[ind,:]
+il1min,il1max = di.L1.argmin(), di.L1.argmax()
+dmin, dmax = di.iloc[il1min,:],di.iloc[il1max,:]
+
+
+
+#show metric when constant translation
+dfsub = df1[ (df1.mvt_axe=='transY')];
+cmap = sns.color_palette("coolwarm", len(dfsub.suj_noise.unique()))
+prefix = 'constant_disp_transY' # 'contrast_'
+
+ykey=ykeys[0]
+for ykey in ykeys:
+    fig = sns.catplot(data=dfsub, x="amplitude", y=ykey, hue="suj_noise",  col='suj_contrast', height=4, aspect=.9)
+    for aa in fig.axes[0]: aa.grid()
+    figname = f'{prefix}_{ykey}.png'
+    fig.savefig(figres+figname)
+    plt.close()
+
 
 for suj in df1['sujname'].unique():
     dfsub = df1[ df1['sujname'] == suj ]
@@ -374,19 +449,29 @@ Y = tsne.fit_transform(data)
 
 
 ##############retrieve one suj
-from util_affine import select_data, corrupt_data, apply_motion
-from types import SimpleNamespace
 
 json_file='/data/romain/PVsynth/motion_on_synth_data/test1/main.json'
 df=pd.DataFrame()
 
-param = {'amplitude': 4, 'sigma': 64, 'nb_x0s': 65, 'x0_min': 0, 'sym': False, 'mvt_type': 'Ustep',
- 'mvt_axe': [1], 'cor_disp': True, 'disp_str': 'no_shift', 'suj_index': 0, 'suj_seed': 1, 'suj_contrast': 1,
- 'suj_deform': False}
+param = {'amplitude': 4, 'sigma': 64, 'nb_x0s': 1, 'x0_min': 206, 'sym': False, 'mvt_type': 'Ustep',
+ 'mvt_axe': [1], 'cor_disp': False, 'disp_str': 'no_shift', 'suj_index': 0, 'suj_seed': 1, 'suj_contrast': 1,
+ 'suj_deform': False, 'suj_noise' : 0.01}
+pp = SimpleNamespace(**param)
+dfone = dmin #dmax #dmin
+for k in param.keys():
+    if k in dfone:
+        print(f'{k} : {dfone[k]}')
+        param[k] = dfone[k]
+    else:
+        print(f'no {k} taking 0')
+        param[k] = 0;
+
+x0 = int(dfone['x0']); param['suj_seed'] = int(param['suj_seed']);param['suj_index'] = int(param['suj_index'])
+param['sigma'] = int(param['sigma']) ; param['mvt_axe'] = [1]
 pp = SimpleNamespace(**param)
 
 amplitude, sigma, sym, mvt_type, mvt_axe, cor_disp, disp_str, nb_x0s, x0_min =  pp.amplitude, pp.sigma, pp.sym, pp.mvt_type, pp.mvt_axe, pp.cor_disp, pp.disp_str, pp.nb_x0s, pp.x0_min
-resolution, sigma, x0 = 512, int(sigma), 212
+#resolution, sigma, x0 = 512, int(sigma), 256
 extra_info = param; extra_info['mvt_axe']=1
 
 ssynth, tmot, mr = select_data(json_file, param)
@@ -394,11 +479,15 @@ fp = corrupt_data(x0, sigma=sigma, method=mvt_type, amplitude=amplitude, mvt_axe
 smot, df, res_fitpar, res = apply_motion(ssynth, tmot, fp, df,pd.DataFrame(),pd.DataFrame(), extra_info, config_runner=mr,correct_disp=cor_disp)
 
 
-param['suj_seed'] = 7
+param['suj_noise'] = 0.01
 s7, tmot, mr = select_data(json_file, param)
-fp = corrupt_data(x0, sigma=sigma, method=mvt_type, amplitude=amplitude, mvt_axes=mvt_axe,center='none', return_all6=True, sym=sym, resolution=resolution)
+
 smot7, df, res_fitpar, res = apply_motion(s7, tmot, fp, df,pd.DataFrame(),pd.DataFrame(), extra_info, config_runner=mr,correct_disp=cor_disp)
 
+param['suj_noise'] = 0.1
+s8, tmot, mr = select_data(json_file, param)
+fp = corrupt_data(x0, sigma=sigma, method=mvt_type, amplitude=amplitude, mvt_axes=mvt_axe,center='none', return_all6=True, sym=sym, resolution=resolution)
+smot8, df, res_fitpar, res = apply_motion(s8, tmot, fp, df,pd.DataFrame(),pd.DataFrame(), extra_info, config_runner=mr,correct_disp=cor_disp)
 
 mres = ModelCSVResults(df_data=df, out_tmp="/tmp/rrr")
 keys_unpack = ['transforms_metrics', 'm_t1'];
@@ -445,3 +534,62 @@ c1/c1m, c2/c2m, c3/c3m, cdiffm/cdiff
 plt.figure(); plt.plot(x_dis, y_cor); plt.plot(x_dism, y_corm);
 x=unique_dist
 plt.plot(x, m*x + b)
+
+tnoise = tio.RandomNoise(std=(0.05, 0.05))
+ssynth = tnoise(ssynth)
+
+#motion and save ex
+resolution=512
+dout = '/data/romain/data_exemple/motion_step2/'
+for ii,x0 in enumerate( np.arange(356,150,-10) ):
+    fp = corrupt_data(x0, sigma=1, method='step', amplitude=4, mvt_axes=[1], center='none', return_all6=True, resolution=resolution)
+    fig = plt.figure(); plt.plot(fp.T);
+    fig.savefig(dout+f'step_{ii:03d}_x0_{x0}.png')
+    plt.close()
+
+    tmot.nT = fp.shape[1];    tmot.simulate_displacement = False
+    tmot.fitpars = fp;    tmot.displacement_shift_strategy = None
+    sout = tmot(ssynth)
+    sout.t1.save(dout + f'v_{ii:03d}_step_x0{x0:03d}.nii')
+
+
+dout = '/data/romain/data_exemple/motion_const/'
+fp = corrupt_data(x0, sigma=1, method='Const', amplitude=0.1, mvt_axes=[1], center='none', return_all6=True, resolution=resolution)
+tmot.nT = fp.shape[1];    tmot.simulate_displacement = False
+tmot.fitpars = fp;    tmot.displacement_shift_strategy = None;tmot.metrics['grad'].metric_kwargs=None
+df=pd.DataFrame()
+tnoise = tio.RandomNoise(std=(0.01, 0.01))
+ssynth = tnoise(ssynth)
+del(sout)
+for ii in range(10):
+    if 'sout' not in locals():
+        sout = tmot(ssynth)
+    else:
+        sout, df, res_fitpar, res = apply_motion(sout, tmot, fp, df,pd.DataFrame(),pd.DataFrame(), extra_info, config_runner=mr,correct_disp=cor_disp)
+    sout.t1.save(dout + f'n00v_y06rot_fft_{ii:03d}.nii')
+
+del(sout)
+tt = tio.Affine(scales=(1,1,1),degrees=(0,0.6,0), translation = (0,0,0))
+for ii in range(10):
+    if 'sout' not in locals():
+        sout = tt(ssynth)
+    else:
+        sout = tt(sout)
+    sout.t1.save(dout + f'n05v_y06rot_aff_{ii:02d}.nii')
+
+
+
+tmot = tio.RandomMotionFromTimeCourse(displacement_shift_strategy='center', correct_motion=True,
+                                      oversampling_pct = 0,  preserve_center_frequency_pct=0.1)
+tmot._simulate_random_trajectory(); tmot.simulate_displacement=False; tmot.fitpars[:3,:]=0;
+smot = tmot(ssynth)
+
+tmot.fitpars = - tmot.fitpars
+smotinv = tmot(smot)
+smot.t1.save('mot.nii'); smotinv.t1.save('motinv.nii');ssynth.t1.save('orig.nii');
+smotinv.t1['data'] = smot.t1['data_cor']; smotinv.t1.save('mot_complex_inv.nii')
+
+#read fmri fitparts
+csv_file = '/network/lustre/iss01/cenir/analyse/irm/users/ghiles.reguig/These/Dataset/cati_full/delivery_new/description_filter.csv'
+df = pd.read_csv(csv_file)
+fpars_paths = df["Fitpars_path"]
