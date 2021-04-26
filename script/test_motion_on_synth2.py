@@ -113,22 +113,23 @@ all_params = dict(
     suj_deform = [False, True,],
     suj_noise = [0, 0.01, 0.05, 0.1]
 )
-
+amp = [ 1,2,4,8]
+amp3 = list(np.sqrt(np.array(amp)**2/3))
 all_params = dict(
-    amplitude=[0.5, 1,2,4,8],
-    sigma = np.linspace(2,256,64).astype(int), # [2, 4,  8,  16,  32, 64, 128], #[2, 4,  8,  16,  32, 44, 64, 88, 128], ,
-    nb_x0s = [1], #[65],
-    x0_min = [256], # [0],
-    sym = [False, ],
+    amplitude=amp,
+    sigma = [2, 4,  8,  16,  32, 64, 128], #np.linspace(2,256,128).astype(int), # [2, 4,  8,  16,  32, 44, 64, 88, 128], ,
+    nb_x0s = [32], #[65],
+    x0_min = [0], # [0],
+    sym = [ False],
     mvt_type= ['Ustep'],
-    mvt_axe = [[4]] ,
+    mvt_axe = [[6],[7]],  #[[0,1,2]], # [[4],[1]] ,
     cor_disp = [True,],
     disp_str = ['no_shift'],
-    suj_index = [475, 500], #[ 475,  478, 492, 497, 499, 500], #[474, 475, 477, 478, 485, 492, 497, 499, 500, 510],
-    suj_seed = [0,2,4,7,9], #[0,1,2,4,5,6,7,8,9],
-    suj_contrast = [1, 3],
-    suj_deform = [True,],
-    suj_noise = [0, 0.01, 0.05 ]
+    suj_index = [0], #[475, 500], #[ 475,  478, 492, 497, 499, 500], #[474, 475, 477, 478, 485, 492, 497, 499, 500, 510],
+    suj_seed = [0], #[0,1,2,4,5,6,7,8,9],  [0,2,4,7,9]
+    suj_contrast = [1],
+    suj_deform = [False,],
+    suj_noise = [0.01 ]
 )
 #all_params['suj_index'] = [0]
 
@@ -141,7 +142,7 @@ params = product_dict(**all_params)
 nb_x0s = all_params['nb_x0s']; nb_sim = len(params) * nb_x0s[0]
 print(f'performing loop of {nb_sim} iter 10s per iter is {nb_sim*10/60/60} Hours {nb_sim*10/60} mn ')
 print(f'{nb_x0s[0]} nb x0 and {len(params)} params')
-resolution=512
+resolution=218; #512
 
 #df1, res, res_fitpar = perform_motion_step_loop(params)
 
@@ -156,9 +157,12 @@ res_name = 'new_noise_abs_transX_ustep_65X0_1suj_5seed_3contrast_2deform'
 res_name = 'x0_256_2noise_abs_transX_ustep_5suj_5seed_3contrast_2deform'
 res_name = 'sigma_2-256_x0_256_4noise_abs_transX_ustep_2suj_5seed_2contrast_deform'
 res_name = 'rot4_sigma_2-256_x0_256_4noise_abs_transX_ustep_2suj_5seed_2contrast_deform'
+res_name = 'fsl_coreg_rot_trans_sigma_2-256_x0_256_suj_0'
+res_name = 'fsl_coreg_along_x0_transXYZ_suj_0'
+res_name = 'fsl_coreg_along_x0_rot_origY_suj_0'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/' + res_name
 
-create_motion_job(params,50,file,out_path,res_name)
+create_motion_job(params,1,file,out_path,res_name)
 
 mres = ModelCSVResults(df_data=df1, out_tmp="/tmp/rrr")
 keys_unpack = ['T_LabelsToImage'];
