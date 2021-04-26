@@ -7,7 +7,7 @@ from read_csv_results import ModelCSVResults
 from itertools import product
 from types import SimpleNamespace
 import torchio as tio
-
+from dual_quaternions import DualQuaternion
 pi = torch.tensor(3.14159265358979323846)
 
 def product_dict(**kwargs):
@@ -19,7 +19,7 @@ def product_dict(**kwargs):
     return list(dict(zip(keys, values)) for values in product(*vals))
 
 def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_info=dict(), param=dict(),
-                 root_out_dir=None, suj_name='NotSet', fsl_coreg=True):
+                 root_out_dir=None, suj_name='NotSet', fsl_coreg=True, return_motion=False, save_fitpars=False):
 
     if 'displacement_shift_strategy' not in param: param['displacement_shift_strategy']=None
     # apply motion transform
@@ -151,103 +151,116 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         if out_dir is not None:
             if not os.path.isdir(out_dir): os.mkdir(out_dir)
             dfall.to_csv(out_dir + f'/metrics_fp_{suj_name}.csv')
+            if save_fitpars:
+                fp_orig = fp.copy()
+                for i in range(6):
+                    fp_orig[i, :] = fp_orig[i, :] + trans_rot[i]
+                np.savetxt(out_dir + '/fitpars_orig.txt',fp_orig)
 
-        return df1
-        
-        test_direct_problem = False
-        if test_direct_problem:
-            fp = np.ones_like(fp) * 6;
-            for iii, r in enumerate(fp):
-                fp[iii, :] = (6 - iii) * 3
-            # fp[:3,:]=0
-            out_dir = '/home/romain.valabregue/tmp/a'
+        if return_motion:
+            return df1, smot_shift
+        else:
+            return df1
 
-            # if nocanonical not necessary if flip matrix
-            # aff_direct = spm_matrix([fp[0, 0], fp[1, 0], fp[2, 0],fp[3, 0], -fp[4, 0], -fp[5, 0], 1, 1, 1, 0, 0, 0, ], order=0)
-            # if canonical
-            aff_direct = spm_matrix([fp[0, 0], fp[1, 0], fp[2, 0], fp[3, 0], fp[4, 0], fp[5, 0], 1, 1, 1, 0, 0, 0, ],
-                                    order=0)
-            nii_img0 = nb.load('/home/romain.valabregue/tmp/a/vol_orig_I0_C1_N_1_D0.nii')
-            nii_img = nb.load('/home/romain.valabregue/tmp/a/vol_orig_I0_C1_N_1_D0.nii')
-            out_p = '/home/romain.valabregue/tmp/a/lille_005011AAA_BL0/nii_dir.nii'
-            nii_aff = nii_img.get_affine()
+    if return_motion:
+        return df_before_coreg, smot
+    else:
+        return df_before_coreg
 
-            # change aff_direct to have rotation expres at nifi origin
-            shape = sdata.t1.data[0].shape;
-            pixdim = [1];
-            center = np.array(shape) // 2
-            origin_vox = np.matmul(npl.inv(nii_aff), np.array([0, 0, 0, 1]))[:3]
-            voxel_shift = -origin_vox + center
-            T = spm_matrix([voxel_shift[0], voxel_shift[1], voxel_shift[2], 0, 0, 0, 1, 1, 1, 0, 0, 0], order=4);
-            Ti = npl.inv(T)
-            aff_direct = np.matmul(T, np.matmul(aff_direct, Ti))
+    test_direct_problem = False
+    if test_direct_problem:
+        fp = np.ones_like(fp) * 6;
+        for iii, r in enumerate(fp):
+            fp[iii, :] = (6 - iii) * 3
+        # fp[:3,:]=0
+        out_dir = '/home/romain.valabregue/tmp/a'
 
-            if npl.det(nii_aff) < 0:  # ie nocanonical, then flip, (inverse of fsl)
-                flip = np.eye(4);
-                flip[
-                    0, 0] = -1;  # #pixdim = [1]  # x = (shape[0] - 1) * pixdim[0] flip[0, 3] = 0  # x  not sure why not translation shift ... ?
-                aff_direct = np.matmul(flip, aff_direct)
-                nii_aff = np.matmul(flip, nii_aff)
-                # nii_img0.affine[:] =  np.matmul(flip, nii_img0.affine)[:]
+        # if nocanonical not necessary if flip matrix
+        # aff_direct = spm_matrix([fp[0, 0], fp[1, 0], fp[2, 0],fp[3, 0], -fp[4, 0], -fp[5, 0], 1, 1, 1, 0, 0, 0, ], order=0)
+        # if canonical
+        aff_direct = spm_matrix([fp[0, 0], fp[1, 0], fp[2, 0], fp[3, 0], fp[4, 0], fp[5, 0], 1, 1, 1, 0, 0, 0, ],
+                                order=0)
+        nii_img0 = nb.load('/home/romain.valabregue/tmp/a/vol_orig_I0_C1_N_1_D0.nii')
+        nii_img = nb.load('/home/romain.valabregue/tmp/a/vol_orig_I0_C1_N_1_D0.nii')
+        out_p = '/home/romain.valabregue/tmp/a/lille_005011AAA_BL0/nii_dir.nii'
+        nii_aff = nii_img.get_affine()
 
-            # # convert to trans so that we get the same affine but from convention R*T   needed only if aff_direct is done with order>0
-            # rot = aff_direct.copy();            rot[:, 3] = [0, 0, 0, 1]
-            # trans2 = aff_direct.copy();         trans2[:3, :3] = np.eye(3)
-            # #trans1 = np.matmul(npl.inv(rot),np.matmul(trans2, rot))  # arg here it is the inverse compare to transformaing flirt matrix
-            # trans1 = np.matmul(rot, np.matmul(trans2,  npl.inv(rot)))
-            # aff_direct[:, 3] = trans1[:, 3]
+        # change aff_direct to have rotation expres at nifi origin
+        shape = sdata.t1.data[0].shape;
+        pixdim = [1];
+        center = np.array(shape) // 2
+        origin_vox = np.matmul(npl.inv(nii_aff), np.array([0, 0, 0, 1]))[:3]
+        voxel_shift = -origin_vox + center
+        T = spm_matrix([voxel_shift[0], voxel_shift[1], voxel_shift[2], 0, 0, 0, 1, 1, 1, 0, 0, 0], order=4);
+        Ti = npl.inv(T)
+        aff_direct = np.matmul(T, np.matmul(aff_direct, Ti))
 
-            nii_img.affine[:] = np.matmul(aff_direct, nii_aff)[:]
-            # nii_img.affine[:] = np.matmul(npl.inv(aff_direct), nii_aff)[:]     #nii_img.affine[:] = np.matmul( nii_aff, aff_direct)[:]
-            out_img = nbp.resample_from_to(nii_img, nii_img0, cval=0)
-            nb.save(out_img, out_p)
+        if npl.det(nii_aff) < 0:  # ie nocanonical, then flip, (inverse of fsl)
+            flip = np.eye(4);
+            flip[
+                0, 0] = -1;  # #pixdim = [1]  # x = (shape[0] - 1) * pixdim[0] flip[0, 3] = 0  # x  not sure why not translation shift ... ?
+            aff_direct = np.matmul(flip, aff_direct)
+            nii_aff = np.matmul(flip, nii_aff)
+            # nii_img0.affine[:] =  np.matmul(flip, nii_img0.affine)[:]
 
-            # fslpy
-            from fsl.transform.affine import decompose, compose
+        # # convert to trans so that we get the same affine but from convention R*T   needed only if aff_direct is done with order>0
+        # rot = aff_direct.copy();            rot[:, 3] = [0, 0, 0, 1]
+        # trans2 = aff_direct.copy();         trans2[:3, :3] = np.eye(3)
+        # #trans1 = np.matmul(npl.inv(rot),np.matmul(trans2, rot))  # arg here it is the inverse compare to transformaing flirt matrix
+        # trans1 = np.matmul(rot, np.matmul(trans2,  npl.inv(rot)))
+        # aff_direct[:, 3] = trans1[:, 3]
 
-            angle = np.deg2rad([fp[3, 0], fp[4, 0], fp[5, 0]])
-            aff_direct_fsl = compose((1, 1, 1), (fp[0, 0], fp[1, 0], fp[2, 0]), angle)
-            scale, trans, angles = decompose(aff_direct);
-            angles = np.rad2deg(angles)
-            spm_imatrix(aff_direct)[:6]
-            # argg other convention for angle ... I stop here
+        nii_img.affine[:] = np.matmul(aff_direct, nii_aff)[:]
+        # nii_img.affine[:] = np.matmul(npl.inv(aff_direct), nii_aff)[:]     #nii_img.affine[:] = np.matmul( nii_aff, aff_direct)[:]
+        out_img = nbp.resample_from_to(nii_img, nii_img0, cval=0)
+        nb.save(out_img, out_p)
 
-            # image space motion
-            ta = tio.Compose([tio.ToCanonical(), tio.Affine(scales=1, degrees=[3, -6, -9], translation=0)])
-            ta = tio.Affine(scales=1, degrees=[-fp[3, 0], -fp[4, 0], -fp[5, 0]], translation=0)
-            ta = tio.Affine(scales=1, degrees=[-fp[3, 0], fp[4, 0], fp[5, 0]], translation=0)
-            smoti = ta(sdata)
-            smoti.t1.save(out_dir + '/tio_affma3.nii')
+        # fslpy
+        from fsl.transform.affine import decompose, compose
 
-            # rotation around point 50, 0, 0
-            rot = spm_matrix([0, 0, 0, 10, 11, 12, 1, 1, 1, 0, 0, 0], order=4)
-            T = spm_matrix([10, -18, -76, 0, 0, 0, 1, 1, 1, 0, 0, 0], order=4);
-            Ti = npl.inv(T)
-            new_affine = np.matmul(T, np.matmul(rot, Ti))
-            # new_affine.dot([0, 80,0, 1]) is the same point, it is the rotation center
-            # taking into account that motion is doing R*T (and not T*R), to get the translation :
-            trans2 = new_affine.copy();
-            trans2[:3, :3] = np.eye(3)
-            trans1 = np.matmul(npl.inv(rot), np.matmul(trans2, rot))
-            new_affine[:, 3] = trans1[:, 3]
-            fp = np.zeros_like(fp);
-            fp[0, :] = trans1[0, 3];
-            fp[1, :] = trans1[1, 3];
-            fp[2, :] = trans1[2, 3];
-            fp[3, :] = 10
+        angle = np.deg2rad([fp[3, 0], fp[4, 0], fp[5, 0]])
+        aff_direct_fsl = compose((1, 1, 1), (fp[0, 0], fp[1, 0], fp[2, 0]), angle)
+        scale, trans, angles = decompose(aff_direct);
+        angles = np.rad2deg(angles)
+        spm_imatrix(aff_direct)[:6]
+        # argg other convention for angle ... I stop here
 
-            # find fsl rotation center http://www.euclideanspace.com/maths/geometry/affine/aroundPoint/index.htm
-            from sympy import symbols, Eq, solve
+        # image space motion
+        ta = tio.Compose([tio.ToCanonical(), tio.Affine(scales=1, degrees=[3, -6, -9], translation=0)])
+        ta = tio.Affine(scales=1, degrees=[-fp[3, 0], -fp[4, 0], -fp[5, 0]], translation=0)
+        ta = tio.Affine(scales=1, degrees=[-fp[3, 0], fp[4, 0], fp[5, 0]], translation=0)
+        smoti = ta(sdata)
+        smoti.t1.save(out_dir + '/tio_affma3.nii')
 
-            rot = out_aff
-            x, y, z = symbols('x,y,z')
-            eq1 = Eq((x - rot[0, 0] * x - rot[0, 1] * y - rot[0, 2] * z), rot[0, 3])
-            eq2 = Eq((y - rot[1, 0] * x - rot[1, 1] * y - rot[1, 2] * z), rot[1, 3])
-            eq3 = Eq((z - rot[2, 0] * x - rot[2, 1] * y - rot[2, 2] * z), rot[2, 3])
-            print(solve((eq1, eq2, eq3), (x, y, z)))
-            # why is there several solutions .... (ie several fix point for the given affine)
-            # rotation axis
-            u = np.array([rot[2, 1] - rot[1, 2], rot[0, 2] - rot[2, 0], rot[1, 0] - rot[0, 1]])
+        # rotation around point 50, 0, 0
+        rot = spm_matrix([0, 0, 0, 10, 11, 12, 1, 1, 1, 0, 0, 0], order=4)
+        T = spm_matrix([10, -18, -76, 0, 0, 0, 1, 1, 1, 0, 0, 0], order=4);
+        Ti = npl.inv(T)
+        new_affine = np.matmul(T, np.matmul(rot, Ti))
+        # new_affine.dot([0, 80,0, 1]) is the same point, it is the rotation center
+        # taking into account that motion is doing R*T (and not T*R), to get the translation :
+        trans2 = new_affine.copy();
+        trans2[:3, :3] = np.eye(3)
+        trans1 = np.matmul(npl.inv(rot), np.matmul(trans2, rot))
+        new_affine[:, 3] = trans1[:, 3]
+        fp = np.zeros_like(fp);
+        fp[0, :] = trans1[0, 3];
+        fp[1, :] = trans1[1, 3];
+        fp[2, :] = trans1[2, 3];
+        fp[3, :] = 10
+
+        # find fsl rotation center http://www.euclideanspace.com/maths/geometry/affine/aroundPoint/index.htm
+        from sympy import symbols, Eq, solve
+
+        rot = out_aff
+        x, y, z = symbols('x,y,z')
+        eq1 = Eq((x - rot[0, 0] * x - rot[0, 1] * y - rot[0, 2] * z), rot[0, 3])
+        eq2 = Eq((y - rot[1, 0] * x - rot[1, 1] * y - rot[1, 2] * z), rot[1, 3])
+        eq3 = Eq((z - rot[2, 0] * x - rot[2, 1] * y - rot[2, 2] * z), rot[2, 3])
+        print(solve((eq1, eq2, eq3), (x, y, z)))
+        # why is there several solutions .... (ie several fix point for the given affine)
+        # rotation axis
+        u = np.array([rot[2, 1] - rot[1, 2], rot[0, 2] - rot[2, 0], rot[1, 0] - rot[0, 1]])
 
 
 def apply_motion_old_with_shift(sin, tmot, fp, df, res_fitpar, res, extra_info, config_runner,
@@ -368,7 +381,7 @@ def select_data(json_file, param=None, to_canonical=False):
 
 def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, resolution=512):
 
-    mvt_axe_str_list = ['transX', 'transY', 'transZ', 'rotX', 'rotY', 'rotZ']
+    mvt_axe_str_list = ['transX', 'transY', 'transZ', 'rotX', 'rotY', 'rotZ','oy1','oy2']
 
     nb_x0s = params[0]['nb_x0s']
     nb_sim = len(params) * nb_x0s
@@ -376,20 +389,23 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
     if out_name is not None:
         print(f'save will be made in {out_path} with name {out_name}')
 
-    df, res, res_fitpar, extra_info, i = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), dict(), 0
+    df, extra_info, i = pd.DataFrame(), dict(), 0
     for param in params:
         pp = SimpleNamespace(**param)
         #[amplitude, sigma, sym, mvt_type, mvt_axe, cor_disp, disp_str, nb_x0s, x0_min] = param
         amplitude, sigma, sym, mvt_type, mvt_axe, cor_disp, disp_str, nb_x0s, x0_min =  pp.amplitude, pp.sigma, pp.sym, pp.mvt_type, pp.mvt_axe, pp.cor_disp, pp.disp_str, pp.nb_x0s, pp.x0_min
 
-        ssynth, tmot, mr = select_data(json_file, param)
+        ssynth, tmot, config_runner = select_data(json_file, param)
 
         mvt_axe_str = ''
         for ii in mvt_axe: mvt_axe_str +=  mvt_axe_str_list[ii]
 
         if sym:
-            xcenter = resolution // 2 - sigma // 2;
-            x0s = np.floor(np.linspace(xcenter - x0_min, xcenter, nb_x0s))
+            xcenter = resolution // 2 #- sigma // 2;  #to have the same
+            #x0s = np.floor(np.linspace(xcenter - x0_min, xcenter, nb_x0s))
+            x0s = np.floor(np.linspace(x0_min, xcenter, nb_x0s))
+            x0s = x0s[x0s>=sigma//2] #remove first point to not reduce sigma
+            x0s = x0s[x0s<=(xcenter-sigma//2)] #remove last points to not reduce sigma because of sym
         else:
             xcenter = resolution // 2;
             x0s = np.floor(np.linspace(x0_min, xcenter, nb_x0s))
@@ -409,30 +425,29 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
             extra_info['mvt_axe'] = mvt_axe_str  #change list of int, to str, easier for csv ...
             extra_info['sujname'] = ssynth.name
 
-            smot, df, res_fitpar, res = apply_motion(ssynth, tmot, fp, df, res_fitpar, res, extra_info, config_runner=mr,
-                                                     correct_disp=cor_disp)
-            # ov(smot.t1.data[0])
-            # ssynth.t1.save(out_path+'/vol_orig.nii')
-            # smot.t1.save(out_path+'/vol_mot_x0_256_sigma128.nii')
+            #get a unique sujname to write resultt
+            suj_name = f'Suj_{ssynth.name}_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}_S{param["suj_seed"]}'
+            fp_name  = f'fp_x{x0}_sig{sigma}_Amp{amplitude}_M{mvt_type}_A{mvt_axe_str}_sym{int(sym)}'
+            suj_name += fp_name
+            extra_info['out_dir'] = suj_name
+
+            #smot, df, res_fitpar, res = apply_motion(ssynth, tmot, fp, df, res_fitpar, res, extra_info, config_runner=mr, correct_disp=cor_disp)
+            one_df = apply_motion(ssynth, tmot, fp, config_runner, extra_info=extra_info, param=param,
+                 root_out_dir=out_path, suj_name=suj_name, fsl_coreg=True, save_fitpars=True)
+
             i += 1
             total_time = time.time() - start
             print(f'{i} / {nb_sim} in {total_time} ')
 
-    mres = ModelCSVResults(df_data=df, out_tmp="/tmp/rrr")
-    keys_unpack = ['transforms_metrics', 'm_t1'];
-    suffix = ['m', 'm_t1']
-    df1 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix);
-    # if 'shift' in df1: #not sure good idea to correct here ... (other mean Disp should also be shifted ...
-    #    df1['m_wTF_Disp_1'] = df1['m_wTF_Disp_1'] + df1['shift']  # if compute after shifting the fp
 
-    if out_name is not None:
-        if not os.path.isdir(out_path): os.mkdir(out_path)
-        if res.shape[0] > 0:  # only if correct_disp is True
-            res.to_csv(out_path + f'/res_shift{out_name}.csv')
-        res_fitpar.to_csv(out_path + f'/res_fitpars{out_name}.csv')
-        df1.to_csv(out_path + f'/res_metrics{out_name}.csv')
+    #if out_name is not None:
+    #    if not os.path.isdir(out_path): os.mkdir(out_path)
+    #    if res.shape[0] > 0:  # only if correct_disp is True
+    #        res.to_csv(out_path + f'/res_shift{out_name}.csv')
+    #    res_fitpar.to_csv(out_path + f'/res_fitpars{out_name}.csv')
+    #    df1.to_csv(out_path + f'/res_metrics{out_name}.csv')
 
-    return df1, res, res_fitpar
+    #return df1
 
 def create_motion_job(params, split_length, fjson, out_path, res_name, type='motion_loop',
                       mem=8000, cpus_per_task=4, walltime='12:00:00', job_pack=1,
@@ -453,9 +468,9 @@ def create_motion_job(params, split_length, fjson, out_path, res_name, type='mot
             print(f'param = {params[ind_start:ind_end]}')
 
             cmd = '\n'.join([cmd_init, f'params = {params[ind_start:ind_end]}',
-                             f'out_path = \'{out_path}\'',
                              f'out_name = \'{res_name}_split{nj}\'',
                              f'json_file = \'{fjson}\'',
+                             f'out_path = \'{out_path}\'',
                              '_ = perform_motion_step_loop(json_file,params, out_path=out_path, out_name=out_name) "'])
             jobs.append(cmd)
     elif type=='one_motion':
@@ -484,7 +499,7 @@ def create_motion_job(params, split_length, fjson, out_path, res_name, type='mot
 
     create_jobs(job_params)
 
-def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None, coreg_nifti_reg=True, just_motion=False):
+def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None, fsl_coreg=True, return_motion=False):
     def get_sujname_from_path(ff):
         name = [];
         dn = os.path.dirname(ff)
@@ -517,14 +532,22 @@ def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None, coreg_nif
         extra_info = dict(param, **extra_info)
 
         # apply motion transform
-        one_df = apply_motion(sdata, tmot, fp, config_runner, extra_info=extra_info, param=param,
-                 root_out_dir=root_out_dir, suj_name=suj_name, fsl_coreg=True)
+        if return_motion:
+            one_df, smot = apply_motion(sdata, tmot, fp, config_runner, extra_info=extra_info, param=param,
+                     root_out_dir=root_out_dir, suj_name=suj_name, fsl_coreg=fsl_coreg, return_motion=return_motion)
+        else:
+            one_df = apply_motion(sdata, tmot, fp, config_runner, extra_info=extra_info, param=param,
+                                  root_out_dir=root_out_dir, suj_name=suj_name, fsl_coreg=fsl_coreg)
+
         if len(df)==0:
             df = one_df
         else:
             df = pd.concat([df, one_df], axis=0, sort=False)
 
-    return df
+    if return_motion:
+        return df, smot
+    else:
+        return df
 
 
 def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], center='zero', resolution=200, sym=False,
@@ -574,8 +597,25 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         y = np.hstack([y[0:center], np.flip(y[0:center])])
 
     if return_all6:
-        for xx in mvt_axes:
-            fp[xx, :] = y
+        if mvt_axes[0] == 6:
+            orig_pos = [0, -80, 0]  # np.array([90, 28, 90]) - np.array([90,108, 90])
+            l = [0, 0, 1];            m = np.cross(orig_pos, l);
+            theta = np.deg2rad(amplitude);            disp = 0;
+            dq = DualQuaternion.from_screw(l, m, theta, disp)
+            fp = np.tile(spm_imatrix(dq.homogeneous_matrix(), order=0)[:6, np.newaxis], (1, resolution))
+            fp[:,y==0] = 0
+        elif mvt_axes[0] == 7:
+            orig_pos = [0, 80, 0]  # np.array([90, 28, 90]) - np.array([90,108, 90])
+            l = [0, 0, 1];
+            m = np.cross(orig_pos, l);
+            theta = np.deg2rad(amplitude);
+            disp = 0;
+            dq = DualQuaternion.from_screw(l, m, theta, disp)
+            fp = np.tile(spm_imatrix(dq.homogeneous_matrix(), order=0)[:6, np.newaxis], (1, resolution))
+            fp[:, y == 0] = 0
+        else:
+            for xx in mvt_axes:
+                fp[xx, :] = y
         y=fp
 
     return y
