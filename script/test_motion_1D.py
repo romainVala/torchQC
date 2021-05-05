@@ -666,50 +666,6 @@ for k in df.keys():
     if "Disp" in k :
         print(k); sel_key.append(k)
 
-df, dfmot = pd.DataFrame(), pd.DataFrame()
-amplitudes, sigmas, x0s = [10], [ 80, ] , np.linspace(200, 230, 31) #np.linspace(170, 256, 87)
-amplitudes, sigmas, x0s = [10], [ 10, ] , np.linspace(246, 256, 11) #np.linspace(170, 256, 87)
-amplitudes, sigmas, x0s = [10], [ 10, 80 ] , [200, 254] #np.linspace(246, 256, 11) #np.linspace(170, 256, 87)
-amplitudes, sigmas, x0s = [10], [ 10, 80 ] , [240, 256] #np.linspace(246, 256, 11) #np.linspace(170, 256, 87)
-#for _ in range(1,60):
-for rampe in [2, 20]: #np.tile([5, 10 , 20],20): #  _ in range(1, 2): #
-    #rampe = np.random.randint(2,30,1)[0]
-    so, rampe, sso, ampli = get_random_2step(rampe, sym=True, norm=256)
-
-    #so, rampe, sso, ampli = get_random_2step(rampe, sym=True, resolution=512,  shape=[100, 5, 50, 300], norm=256)
-    #so, rampe, sso, ampli = get_random_2step(rampe, sym=True, resolution=512,  intensity=[0.5, 1], norm=256)
-    for a in amplitudes:
-        for s in sigmas:  # np.linspace(2,200,10):
-            for x0 in x0s:
-                #so = get_random_2step(rampe=2, sym=True)
-                s=int(s); x0 = int(x0)
-                print(f'Amplitude {a} sigma {s} X0 {x0}')
-                #fp = get_perlin(resolution, x0=x0, sigma=s, amplitude=a, center='zero')
-                fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zerro', resolution=resolution)
-                som = simu_motion(fp, so)
-
-                mydict = {"sigma": s, "x0": x0, "amplitude": a, "shift": disp}
-                mydict_mot = dict(get_metrics(so, som, fp=fp, scatt=scattering), **mydict)
-                dfmot = dfmot.append(mydict_mot, ignore_index=True)
-
-                disp = l1_shfit(som,so,shifts, do_plot=False,fp=fp)
-                if np.abs(disp)>0:
-                    fp = fp + disp
-                    som = simu_motion(fp, so)
-                    disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=False, fp=fp, loss='L2')
-                    fp = fp + disp2;  som = simu_motion(fp, so);  disp+=disp2
-                    if  0==3: #np.abs(disp)<=1 or  np.abs(disp)>7 :
-                        somt = simu_motion(fp-disp, so)
-                        _ = l1_shfit(somt, so, shifts, do_plot=True, plot_diff=True, fp=(fp-disp))
-
-                mydict = {"sigma":s, "x0":x0, "amplitude": a, "shift": -disp,
-                          "so_x0": sso[0], "sig_so1": sso[1], "sig_so2":sso[2], "rso":rampe,
-                          "a1so":ampli[0], "a2so":ampli[1] }
-                mydict_cor = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
-                df = df.append(mydict_cor, ignore_index=True)
-                if abs(disp) > 9 and  abs(mydict_cor['meanDTFdifA2'])>3:
-                    pass
-
 dfall=df;
 df = dfall[dfall['rampe']<6]
 plt.figure()
