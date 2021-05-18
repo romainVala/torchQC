@@ -31,7 +31,7 @@ if __name__ == "__main__":
                         help='Path to results directory if it does not start '
                              'with the config file dir is prepend')
     parser.add_argument('-m', '--mode', type=str, default='train',
-                        help='Training, visualization or inference mode')
+                        help='possible mode :  train, val, infer, visualization ')
     parser.add_argument('-e', '--extra_file', type=str,
                         help='Extra configuration file')
     parser.add_argument('-d', '--debug', type=int, default=0,
