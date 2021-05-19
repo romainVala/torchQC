@@ -497,6 +497,7 @@ class PlotDataset:
         self.threshold = threshold
         self.preload = preload
 
+        self.shown_figures = [0]
         self.figure_objects = []
         self.fig = None
         self.axes = None
@@ -527,8 +528,9 @@ class PlotDataset:
                 raise ValueError('Invalid index sequence')
             return subject_idx
         elif isinstance(subject_idx, int):
-            return np.random.choice(range(data_len), min(data_len, subject_idx),
-                                    replace=False).astype(int)
+            # return np.random.choice(range(data_len), min(data_len, subject_idx),
+            #                         replace=False).astype(int)
+            return list(range(subject_idx))
         else:
             return list(range(data_len))
 
@@ -568,6 +570,7 @@ class PlotDataset:
         self.fig.canvas.mpl_connect('scroll_event', self.on_scroll)
         self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
         self.fig.canvas.mpl_connect('key_press_event', self.on_go_to)
+        self.fig.canvas.mpl_connect('key_press_event', self.on_key_navigate)
 
         if self.label_key_name is not None:
             self.slider.on_changed(self.on_slide)
@@ -639,6 +642,60 @@ class PlotDataset:
         self.fig.canvas.draw()
         self.figure_objects[0].set_is_drawn(True)
 
+    def update_plot(self, direction):
+        # Images to show next
+        to_show = self.current_figure + direction
+
+        # If new figure
+        if to_show not in self.shown_figures:
+            nb_subject_per_figure = np.product(self.subject_org)
+            nb_figures = math.ceil(len(self.subject_idx) / nb_subject_per_figure)
+
+            # Create figure objects
+            for i in range(nb_figures):
+                if isinstance(self.dataset, DataLoader):
+                    subject_idx = None
+                else:
+                    subject_idx = self.subject_idx[
+                                  i * nb_subject_per_figure: (i + 1) * nb_subject_per_figure
+                                  ]
+                self.figure_objects.append(
+                    Figure(self.dataset, subject_idx, self.views, self.view_org,
+                           self.image_key_name, self.subject_org,
+                           self.update_all_on_scroll, self.add_text,
+                           self.label_key_name, self.alpha, self.cmap,
+                           self.threshold, self.type2idx, self.patch_sampler,
+                           self.nb_patches)
+                )
+
+            self.figure_objects[to_show].load_subjects()
+            self.subject_org = self.figure_objects[to_show].subject_org
+
+            # Set figure and axes
+            for figure_object in self.figure_objects:
+                figure_object.set_attributes(
+                    self.fig, self.axes, self.slider, self.subject_org)
+
+            # Display figure object
+            self.figure_objects[to_show].display_figure()
+
+            # Draw canvas
+            self.fig.canvas.draw()
+            self.figure_objects[to_show].set_is_drawn(True)
+
+            self.shown_figures.append(to_show)
+            self.current_figure = to_show
+        else:
+            # Get already loaded figure and display it
+            self.figure_objects[to_show].display_figure()
+
+            # Draw canvas
+            self.fig.canvas.draw()
+            self.figure_objects[to_show].set_is_drawn(True)
+
+            self.shown_figures.append(to_show)
+            self.current_figure = to_show
+
     def on_scroll(self, event):
         if not self.updating_views:
             self.updating_views = True
@@ -651,6 +708,35 @@ class PlotDataset:
                 self.updating_views = True
                 self.figure_objects[self.current_figure].on_key_press(event)
                 self.updating_views = False
+
+    def on_key_navigate(self, event):
+        if event.key == '+' or event.key == '-':
+            print('Welcome to navigation. Please wait ...')
+            length = len(self.subject_idx)
+            data_length = len(self.dataset)
+            if event.key == '+':
+                to_load = length + self.subject_idx[-1]
+                if to_load <= data_length:
+                    self.subject_idx = list(range(self.subject_idx[-1] + 1, to_load + 1))
+                else:
+                    self.subject_idx = list(range(data_length - length, data_length))
+                self.check_views()
+                if self.current_figure < (data_length / length):
+                    self.update_plot(1)
+                else:
+                    self.update_plot(0)
+            if event.key == '-':
+                to_load = self.subject_idx[0] - length
+                if to_load >= 0:
+                    self.subject_idx = list(range(to_load, self.subject_idx[0]))
+                else:
+                    self.subject_idx = list(range(0, length))
+                self.check_views()
+                if self.current_figure > 0:
+                    self.update_plot(-1)
+                else:
+                    self.update_plot(0)
+            print(self.subject_idx)
 
     def on_go_to(self, event):
         if not self.updating_views:
