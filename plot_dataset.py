@@ -181,8 +181,9 @@ class Figure:
         self.slider = slider
         self.subject_org = subject_org
 
-    @lru_cache(maxsize=10)
-    def load_subjects(self):
+    @lru_cache(maxsize=20)
+    def load_subjects(self, _):
+        # Use of _ parameter for @lru_cache() only
         # DataLoader case
         if self.subject_idx is None:
             subjects = next(self.dataset)
@@ -345,7 +346,7 @@ class Figure:
 
     def display_figure(self):
         # Load subjects
-        images, affines, labels = self.load_subjects()
+        images, affines, labels = self.load_subjects(self.subject_idx[0])
 
         # Set views
         self.set_views()
@@ -497,7 +498,6 @@ class PlotDataset:
         self.threshold = threshold
         self.preload = preload
 
-        self.shown_figures = [0]
         self.figure_objects = []
         self.fig = None
         self.axes = None
@@ -622,9 +622,9 @@ class PlotDataset:
         # Preload subjects
         if self.preload:
             for figure_object in self.figure_objects:
-                figure_object.load_subjects()
+                figure_object.load_subjects(self.subject_idx[0])
         else:
-            self.figure_objects[0].load_subjects()
+            self.figure_objects[0].load_subjects(self.subject_idx[0])
         self.subject_org = self.figure_objects[0].subject_org
 
         # Create matplotlib figure and axes
@@ -642,60 +642,6 @@ class PlotDataset:
         self.fig.canvas.draw()
         self.figure_objects[0].set_is_drawn(True)
 
-    def update_plot(self, direction):
-        # Images to show next
-        to_show = self.current_figure + direction
-
-        # If new figure
-        if to_show not in self.shown_figures:
-            nb_subject_per_figure = np.product(self.subject_org)
-            nb_figures = math.ceil(len(self.subject_idx) / nb_subject_per_figure)
-
-            # Create figure objects
-            for i in range(nb_figures):
-                if isinstance(self.dataset, DataLoader):
-                    subject_idx = None
-                else:
-                    subject_idx = self.subject_idx[
-                                  i * nb_subject_per_figure: (i + 1) * nb_subject_per_figure
-                                  ]
-                self.figure_objects.append(
-                    Figure(self.dataset, subject_idx, self.views, self.view_org,
-                           self.image_key_name, self.subject_org,
-                           self.update_all_on_scroll, self.add_text,
-                           self.label_key_name, self.alpha, self.cmap,
-                           self.threshold, self.type2idx, self.patch_sampler,
-                           self.nb_patches)
-                )
-
-            self.figure_objects[to_show].load_subjects()
-            self.subject_org = self.figure_objects[to_show].subject_org
-
-            # Set figure and axes
-            for figure_object in self.figure_objects:
-                figure_object.set_attributes(
-                    self.fig, self.axes, self.slider, self.subject_org)
-
-            # Display figure object
-            self.figure_objects[to_show].display_figure()
-
-            # Draw canvas
-            self.fig.canvas.draw()
-            self.figure_objects[to_show].set_is_drawn(True)
-
-            self.shown_figures.append(to_show)
-            self.current_figure = to_show
-        else:
-            # Get already loaded figure and display it
-            self.figure_objects[to_show].display_figure()
-
-            # Draw canvas
-            self.fig.canvas.draw()
-            self.figure_objects[to_show].set_is_drawn(True)
-
-            self.shown_figures.append(to_show)
-            self.current_figure = to_show
-
     def on_scroll(self, event):
         if not self.updating_views:
             self.updating_views = True
@@ -709,34 +655,68 @@ class PlotDataset:
                 self.figure_objects[self.current_figure].on_key_press(event)
                 self.updating_views = False
 
+    @lru_cache(30)
+    def add_figure(self, _):
+        # We use _ parameter for @lru_cache() only
+
+        if isinstance(self.dataset, DataLoader):
+            subject_idx = None
+        else:
+            subject_idx = self.subject_idx
+        self.figure_objects.append(
+            Figure(self.dataset, subject_idx, self.views, self.view_org,
+                   self.image_key_name, self.subject_org,
+                   self.update_all_on_scroll, self.add_text,
+                   self.label_key_name, self.alpha, self.cmap,
+                   self.threshold, self.type2idx, self.patch_sampler,
+                   self.nb_patches)
+        )
+
     def on_key_navigate(self, event):
+        # Check pressed keys
         if event.key == '+' or event.key == '-':
-            print('Welcome to navigation. Please wait ...')
+            print('Please wait for next subjects loading ...')
             length = len(self.subject_idx)
             data_length = len(self.dataset)
             if event.key == '+':
+                # Greatest subject index to load next
                 to_load = length + self.subject_idx[-1]
+
+                # Check if we have enough subjects in the dataset
                 if to_load <= data_length:
                     self.subject_idx = list(range(self.subject_idx[-1] + 1, to_load + 1))
                 else:
                     self.subject_idx = list(range(data_length - length, data_length))
-                self.check_views()
+
+                # Update current figure number
                 if self.current_figure < (data_length / length):
-                    self.update_plot(1)
-                else:
-                    self.update_plot(0)
+                    self.current_figure += 1
             if event.key == '-':
                 to_load = self.subject_idx[0] - length
                 if to_load >= 0:
                     self.subject_idx = list(range(to_load, self.subject_idx[0]))
                 else:
                     self.subject_idx = list(range(0, length))
-                self.check_views()
                 if self.current_figure > 0:
-                    self.update_plot(-1)
-                else:
-                    self.update_plot(0)
-            print(self.subject_idx)
+                    self.current_figure -= 1
+
+            # Add figure object unless cached
+            self.add_figure(self.current_figure)
+
+            # Set/update attributes
+            self.subject_org = self.figure_objects[self.current_figure].subject_org
+            if not isinstance(self.dataset, DataLoader):
+                self.figure_objects[self.current_figure].subject_idx = self.subject_idx
+            self.figure_objects[self.current_figure].set_attributes(self.fig, self.axes, self.slider, self.subject_org)
+
+            # Display figure object
+            self.figure_objects[self.current_figure].display_figure()
+
+            # Draw canvas
+            self.figure_objects[self.current_figure].fig.canvas.draw()
+            self.figure_objects[self.current_figure].set_is_drawn(True)
+
+            print('Subject indexes : ', self.subject_idx)
 
     def on_go_to(self, event):
         if not self.updating_views:
