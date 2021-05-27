@@ -184,12 +184,16 @@ class Figure:
     @lru_cache(maxsize=10)
     def load_subjects(self):
         # DataLoader case
+        print(f' suj idx is {self.subject_idx}')
         if self.subject_idx is None:
-            subjects = next(self.dataset)
+            subjects = next(iter(self.dataset))
             images, affines, labels = self.get_values_from_batch(subjects)
+            print(f'data loader suj {subjects["name"]}')
         else:
             subjects = [self.dataset[int(idx)] for idx in self.subject_idx]
             images, affines, labels = self.get_values_from_samples(subjects)
+            for ss in subjects:
+                print(f' loaded subject {ss.name}')
 
         self.idx = tuple(range(len(images)))
         self.adapt_subject_org()
@@ -220,8 +224,7 @@ class Figure:
                 affines.append(b[self.image_key_name]['affine'][i])
 
                 if self.label_key_name is not None:
-                    labels.append(b[self.label_key_name]['data'][i][0].numpy())
-
+                    labels.append(b[self.label_key_name]['data'][i].numpy())
         return images, affines, labels
 
     def get_values_from_samples(self, samples):
@@ -520,6 +523,7 @@ class PlotDataset:
         data_len = len(self.dataset)
         if hasattr(self.dataset, 'batch_size'):
             data_len *= self.dataset.batch_size
+            print(f'data set length is {data_len} batch size is {self.dataset.batch_size}')
         if isinstance(subject_idx, Sequence):
             valid = reduce(lambda acc, val: acc and 0 <= val < data_len,
                            subject_idx, True)
@@ -527,8 +531,8 @@ class PlotDataset:
                 raise ValueError('Invalid index sequence')
             return subject_idx
         elif isinstance(subject_idx, int):
-            return np.random.choice(range(data_len), min(data_len, subject_idx),
-                                    replace=False).astype(int)
+            return range(min(data_len, subject_idx))
+            #return np.random.choice(range(data_len), min(data_len, subject_idx), replace=False).astype(int)
         else:
             return list(range(data_len))
 
