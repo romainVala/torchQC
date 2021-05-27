@@ -663,6 +663,19 @@ class PlotDataset:
 
                 num = (self.current_figure + delta) % len(self.figure_objects)
 
+                keys = list(self.figure_objects[self.current_figure].view_objects.keys())
+                positions = []
+                channels = []
+                for i, key in enumerate(keys):
+                    if i < len(self.views):
+                        positions.append(self.figure_objects[self.current_figure].view_objects[key].position)
+                        channels.append(self.figure_objects[self.current_figure].view_objects[key].channel)
+                next_keys = list(self.figure_objects[num].view_objects.keys())
+                for i, key in enumerate(next_keys):
+                    j = i % len(self.views)
+                    self.figure_objects[num].view_objects[key].position = positions[j]
+                    self.figure_objects[num].view_objects[key].channel = channels[j]
+
                 self.figure_objects[self.current_figure].clear_figure()
                 self.figure_objects[num].set_is_drawn(True)
                 self.figure_objects[num].display_figure()
