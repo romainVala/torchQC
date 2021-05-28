@@ -762,11 +762,13 @@ class Config:
                     image_attributes = ref_images[img_name]['attributes']
                     image_attributes.update(
                         {'components': [c for c in components]})
-                    img = torchio.Image(
-                        type=ref_images[img_name]['type'],
-                        path=[s[img_name][c] for c in components],
-                        **image_attributes
-                    )
+                    if ref_images[img_name]['type'] == 'label':
+                        img = torchio.LabelMap( path=[s[img_name][c] for c in components], **image_attributes)
+                    elif  ref_images[img_name]['type'] == 'intensity':
+                        img = torchio.ScalarImage( path=[s[img_name][c] for c in components], **image_attributes)
+                    else:
+                        raise (f'error image type {ref_images[img_name]["type"]} is not know either intensity or label')
+
                     s[img_name] = img
                 if 'name' not in s:
                     s['name'] = n
