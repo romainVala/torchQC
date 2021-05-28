@@ -665,24 +665,40 @@ class PlotDataset:
                 else:
                     delta = 1
 
+                # Find next figure index
                 num = (self.current_figure + delta) % len(self.figure_objects)
-
-                keys = list(self.figure_objects[self.current_figure].view_objects.keys())
-                positions = []
-                channels = []
-                for i, key in enumerate(keys):
-                    if i < len(self.views):
-                        positions.append(self.figure_objects[self.current_figure].view_objects[key].position)
-                        channels.append(self.figure_objects[self.current_figure].view_objects[key].channel)
-                next_keys = list(self.figure_objects[num].view_objects.keys())
-                for i, key in enumerate(next_keys):
-                    j = i % len(self.views)
-                    self.figure_objects[num].view_objects[key].position = positions[j]
-                    self.figure_objects[num].view_objects[key].channel = channels[j]
-
-                self.figure_objects[self.current_figure].clear_figure()
                 self.figure_objects[num].set_is_drawn(True)
-                self.figure_objects[num].display_figure()
+
+                # Add consistency with position/label when changing subject with update_all_on_scroll
+                if self.update_all_on_scroll:
+                    # Get current position/label for each image
+                    keys = list(self.figure_objects[self.current_figure].view_objects.keys())
+                    positions = []
+                    channels = []
+                    for i, key in enumerate(keys):
+                        if i < len(self.views):
+                            positions.append(self.figure_objects[self.current_figure].view_objects[key].position)
+                            channels.append(self.figure_objects[self.current_figure].view_objects[key].channel)
+
+                    # Load subjects and set views
+                    images, affines, labels = self.figure_objects[num].load_subjects()
+                    self.figure_objects[num].set_views()
+
+                    # Set position/label for next figure to show
+                    next_keys = list(self.figure_objects[num].view_objects.keys())
+                    for i, key in enumerate(next_keys):
+                        j = i % len(self.views)
+                        self.figure_objects[num].view_objects[key].position = positions[j]
+                        self.figure_objects[num].view_objects[key].channel = channels[j]
+
+                    self.figure_objects[num].render_views(images, affines, labels, True)
+
+                # If update_all_on_scroll is False, just load next subjects and display them
+                else:
+                    self.figure_objects[num].display_figure()
+
+                # Clear previous figure, update parameters
+                self.figure_objects[self.current_figure].clear_figure()
                 self.current_figure = num
                 self.fig.canvas.resize_event()
                 self.updating_views = False
@@ -728,7 +744,5 @@ class NewSlider(Slider):
             self.ax.figure.canvas.blit()
 
         self.val = val
-        if not self.eventson:
-            return
-        for cid, func in self.observers.items():
-            func(val)
+        if self.eventson:
+            self._observers.process('changed', val)
