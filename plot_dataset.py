@@ -698,9 +698,11 @@ class PlotDataset:
                     self.figure_objects[num].display_figure()
 
                 # Clear previous figure, update parameters
+                if len(self.figure_objects[self.current_figure].view_objects) != \
+                        len(self.figure_objects[num].view_objects):
+                    self.fig.canvas.resize_event()
                 self.figure_objects[self.current_figure].clear_figure()
                 self.current_figure = num
-                self.fig.canvas.resize_event()
                 self.updating_views = False
 
     def on_slide(self, val):
