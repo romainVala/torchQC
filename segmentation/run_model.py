@@ -338,6 +338,9 @@ class RunModel:
 
             # Compute loss
             loss = 0
+            if targets is None:
+                targets = predictions
+
             for criterion in self.criteria:
                 one_loss = criterion['criterion'](predictions, targets)
                 if isinstance(one_loss, tuple): #multiple task loss may return tuple to report each loss
@@ -746,11 +749,12 @@ class RunModel:
             if 'name' in sample:
                 info['name'] = sample['name'][idx]
 
-            if is_batch:
-                info['label_filename'] = sample[self.label_key_name][
-                    'path'][idx]
-            else:
-                info['label_filename'] = sample[self.label_key_name]['path']
+            if self.label_key_name is not None:
+                if is_batch:
+                    info['label_filename'] = sample[self.label_key_name][
+                        'path'][idx]
+                else:
+                    info['label_filename'] = sample[self.label_key_name]['path']
 
             if self.criteria[0]['criterion'].mixt_activation:
                 max_chanel = shape[1] - self.criteria[0]['criterion'].mixt_activation
