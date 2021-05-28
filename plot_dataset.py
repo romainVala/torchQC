@@ -744,7 +744,5 @@ class NewSlider(Slider):
             self.ax.figure.canvas.blit()
 
         self.val = val
-        if not self.eventson:
-            return
-        for cid, func in self.observers.items():
-            func(val)
+        if self.eventson:
+            self._observers.process('changed', val)
