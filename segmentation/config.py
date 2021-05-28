@@ -498,7 +498,7 @@ class Config:
         for transform in struct['val_transforms']:
             transform_list.append(parse_transform(transform))
         struct['val_transforms'] = torchio.transforms.Compose(transform_list)
-
+        self.val_transfo_list = transform_list
         transform_list = []
         for transform in struct['post_transforms']:
             transform_list.append(parse_transform(transform))
@@ -835,7 +835,15 @@ class Config:
                 for component_name, component in csv_file['components'].items():
                     component_path = res[component['column_name']][suj_idx]
                     image_name = component['image']
-                    update_subject(subject, data_struct['images'],
+                    dds =  data_struct['images']
+                    if "attributes" in component:
+                        ccname = component['attributes']['column_name']
+                        if "attributes" in dds[image_name]:
+                            dds[image_name]['attributes'].update({ccname : res[ccname][suj_idx]})
+                        else:
+                            dds[image_name]['attributes'] = {ccname: res[ccname][suj_idx]}
+
+                    update_subject(subject, dds,
                                    component_name, component_path, image_name)
                 relevant_dict[suj_idx] = subject
 
