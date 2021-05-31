@@ -764,6 +764,9 @@ class Config:
                         {'components': [c for c in components]})
                     if ref_images[img_name]['type'] == 'label':
                         img = torchio.LabelMap( path=[s[img_name][c] for c in components], **image_attributes)
+                    elif ref_images[img_name]['type'] == 'label4D':
+                        image_attributes.update({'channels_last':True})
+                        img = torchio.LabelMap(path=[s[img_name][c] for c in components], **image_attributes)
                     elif  ref_images[img_name]['type'] == 'intensity':
                         img = torchio.ScalarImage( path=[s[img_name][c] for c in components], **image_attributes)
                     else:
