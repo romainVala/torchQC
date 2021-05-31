@@ -1125,6 +1125,64 @@ def get_rotation_axis(q):
     qa = nq.as_float_array(q)
     return qa[1:] / np.sqrt(qa[1]**2+qa[2]**2+qa[3]**2)
 
+def interpolate_fitpars(fpars, tr_fpars=None, tr_to_interpolate=2.4, len_output=250):
+    fpars_length = fpars.shape[1]
+    if tr_fpars is None: #case where fitpart where give as it in random motion (the all timecourse is fitted to kspace
+        xp = np.linspace(0,1,fpars_length)
+        x  = np.linspace(0,1,len_output)
+    else:
+        xp = np.asarray(range(fpars_length))*tr_fpars
+        x = np.asarray(range(len_output))*tr_to_interpolate
+    interpolated_fpars = np.asarray([np.interp(x, xp, fp) for fp in fpars])
+    if xp[-1]<x[-1]:
+        diff = x[-1] - xp[-1]
+        npt_added = diff/tr_to_interpolate
+        print(f'adding {npt_added:.1f}')
+    return interpolated_fpars
+
+#Average fitpar
+def average_fitpar(fitpar, weights=None, average_exp_mat=True):
+    q_list = []  #can't
+    Aff_mean = np.zeros((4, 4))
+    Aff_Euc_mean = np.zeros((3, 3))
+    if weights is None:
+        weights = np.ones(fitpar.shape[1])
+    #normalize weigths
+    weights = weights / np.sum(weights)
+
+    dq_mean = DualQuaternion.identity()
+    lin_fitpar = np.sum(fitpar*weights, axis=1)
+    for nbt in range(fitpar.shape[1]):
+        P = np.hstack([fitpar[:,nbt],[1,1,1,0,0,0]])
+        affine = spm_matrix(P.copy(),order=0)  #order 0 to get the affine really applid in motion (change 1 to 0 01/04/21) it is is equivalent, since at the end we go back to euleur angle and trans...
+        # new_q = nq.from_rotation_matrix(affine)
+        # if 'previous_q' not in dir():
+        #     previous_q = new_q
+        # else:
+        #     _ = nq.unflip_rotors([previous_q, new_q], inplace=True)
+        #     previous_q = new_q
+        #q_list.append( new_q  )
+        Aff_Euc_mean = Aff_Euc_mean + weights[nbt] * affine[:3,:3]
+        Aff_mean = Aff_mean + weights[nbt] * scl.logm(affine)
+        dq = DualQuaternion.from_homogeneous_matrix(affine)
+        #dq_mean = DualQuaternion.sclerp(dq, dq_mean, 1-(weights[nbt])/(1+weights[nbt]))
+        dq_mean = DualQuaternion.sclerp(dq_mean, dq,(weights[nbt])/(1+weights[nbt]))
+
+    Aff_mean = scl.expm(Aff_mean)
+    wshift_exp = spm_imatrix(Aff_mean, order=0)[:6]
+
+    #q_mean = nq.mean_rotor_in_chordal_metric(q_list)
+    #Aff_q_rot = nq.as_rotation_matrix(q_mean)
+
+    #Aff_q_rot = scl.polar(Aff_Euc_mean)[0]
+    #Aff_q = np.eye(4)
+    #Aff_q[:3,:3] = Aff_q_rot
+    #wshift_quat = spm_imatrix(Aff_q, order=0)[:6]
+    #wshift_quat[:3] = lin_fitpar[:3]
+    wshift_quat = spm_imatrix(dq_mean.homogeneous_matrix(), order=0)[:6]
+
+    return wshift_quat, wshift_exp, lin_fitpar
+
 
 def paw_quaternion(qr, exponent):
     rot_vector = nq.as_rotation_vector(qr)
@@ -1197,8 +1255,8 @@ def my_mean(x_list):
             #res_mean = (res_mean * c_num + x) / c_deno
             c_num+=1; c_deno+=1
     return res_mean
-x = np.random.random(100)
-np.mean(x)-my_mean(x)
+#x = np.random.random(100)
+#np.mean(x)-my_mean(x)
 
 def random_rotation(amplitude = 360):
     """
@@ -1217,6 +1275,38 @@ def random_rotation(amplitude = 360):
     aff = np.eye(4, 4);
     aff[:3,:3] = nq.as_rotation_matrix(quat)
     return aff
+
+def get_random_vec(range=[-1,1], size=3, normalize=False):
+    if normalize:
+        #if normalize, I assume on want unifor orientation ie, uniform point on a sphere r=1
+        res = np.random.normal(size=3)  # to get uniform orientation on the sphere ...
+        res = res/npl.norm(res)
+        return res
+    res = np.random.uniform(low=range[0], high=range[1], size=size )
+    return res
+def get_random_afine(angle=(2,10), trans=(0,0), origine=(80,100), mode='quat'):
+    if mode == 'quat':
+        theta = np.deg2rad(get_random_vec(angle,1)[0])
+        l = get_random_vec(normalize=True);
+        #orig = get_random_vec(normalize=True) * get_random_vec(origine,1)
+        #m = np.cross(orig, l);
+        #this does not work because only the projection of orig in the normal plan of l, is taken
+        # so add the wanted distance from origine directly to m
+        orig = get_random_vec(normalize=True)
+        m = np.cross(orig, l)
+        m = m / npl.norm(m) * get_random_vec(origine,1)
+        disp = get_random_vec(trans,1)[0];
+        #print(f'dual quat with l {l} m {m}  norm {npl.norm(m)} theta {np.rad2deg(theta)} disp {disp}')
+        dq = DualQuaternion.from_screw(l, m, theta, disp)
+        #get_info_from_dq(dq, verbose=True)
+        aff = dq.homogeneous_matrix()
+    if mode == 'euler':
+        fp = np.ones(12); fp[9:]=0
+        fp[3:6] = get_random_vec(angle,3)
+        fp[:3] = get_random_vec(trans,3)
+        #print(fp)
+        aff = spm_matrix(fp, order=0)
+    return(aff)
 
 def random_rotation_matrix_test(amplitude=1, randgen=None):
     """
@@ -1284,4 +1374,66 @@ def random_rotation_matrix_test(amplitude=1, randgen=None):
     # Construct the rotation matrix  ( V Transpose(V) - I ) R.
     #M = (np.outer(V, V) - np.eye(3)).dot(R)
     return aff
+
+#import SimpleITK as sitk #cant understand fucking convention with itk TransformToDisplacementField
+def get_sphere_mask(image, radius=80):
+    mask = np.zeros_like(image)
+    (sx, sy, sz) = image.shape  # (64,64,64) #
+    center = [sx // 2, sy // 2, sz // 2]
+
+    [kx, ky, kz] = np.meshgrid(np.arange(0, sx, 1), np.arange(0, sy, 1), np.arange(0, sz, 1), indexing='ij')
+    [kx, ky, kz] = [kx - center[0], ky - center[1], kz - center[2]]  # to simulate rotation around center
+    ijk = np.stack([kx, ky, kz])
+    dist_ijk = npl.norm(ijk,axis=0)
+    mask[dist_ijk<radius] = 1
+    return mask
+
+#exact displacement field on a grid
+def get_dist_field(affine, img_shape, return_vect_field=False, scale=None):
+
+    (sx, sy, sz) = img_shape  # (64,64,64) #
+    center = [sx // 2, sy // 2, sz // 2]
+
+    [kx, ky, kz] = np.meshgrid(np.arange(0, sx, 1), np.arange(0, sy, 1), np.arange(0, sz, 1), indexing='ij')
+    [kx, ky, kz] = [kx - center[0], ky - center[1], kz - center[2]]  # to simulate rotation around center
+    ijk = np.stack([kx, ky, kz, np.ones_like(kx)])
+    ijk_flat = ijk.reshape((4, -1))
+    if scale is not None:
+        sc_mat = np.eye(4) * scale; sc_mat[3,3] = 1
+        affine = sc_mat.dot(affine)
+    xyz_flat = affine.dot(ijk_flat)  # implicit convention reference center at 0,0,0
+    if scale is None:
+        disp_flat = xyz_flat - ijk_flat
+    else:
+        disp_flat = xyz_flat - ijk_flat*scale
+
+    disp_norm = npl.norm(disp_flat[:3, :], axis=0)
+    if return_vect_field:
+        return disp_flat[:3, :].reshape([3] + img_shape)
+    return disp_norm.reshape(img_shape)
+
+#displacement quantification
+def compute_FD_P(fp, rmax=80):
+    #https://github.com/FCP-INDI/C-PAC/blob/master/CPAC/generate_motion_statistics/generate_motion_statistics.py
+    fd = np.sum(np.abs(fp[:3])) + (rmax * np.pi/180) * np.sum(np.abs(fp[3:6]))
+    return fd
+def compute_FD_J(aff, rmax=80, center_of_mass=np.array([0,0,0])):
+    M = aff - np.eye(4)
+    A = M[0:3, 0:3]
+    b = M[0:3, 3]   # np.sqrt(np.dot(b.T, b))  is the norm of translation vector
+    b = b + np.dot(A,center_of_mass)
+    fd = np.sqrt( (rmax * rmax / 5) * np.trace(np.dot(A.T, A)) + np.dot(b.T, b) )
+    return fd
+def compute_FD_max(aff, rmax=80):
+    #tisdall et all MRM 2012
+    res = get_info_from_dq(DualQuaternion.from_homogeneous_matrix(aff))
+    theta = np.deg2rad(res['theta'])
+    deltaR = rmax * ( (1 - np.cos(theta))**2 + (np.sin(theta)**2) )**0.5 #maximum disp on a sphere
+    fd = deltaR + npl.norm(res['trans'])
+    return fd
+def compute_FD_test(x):
+    trans = npl.norm(x['trans'])
+    rot = x['theta']
+    fd = trans + 80 / np.sqrt(1) * (np.pi/180) * rot
+    return fd/2
 

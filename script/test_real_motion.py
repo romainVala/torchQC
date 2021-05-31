@@ -6,8 +6,9 @@ from nibabel.viewers import OrthoSlicer3D as ov
 import glob, os, numpy as np, pandas as pd, matplotlib.pyplot as plt, numpy.linalg as npl
 import scipy.linalg as scl, scipy.stats as ss, quaternion as nq
 from scipy.spatial import distance_matrix
-from util_affine import perform_one_motion, product_dict, create_motion_job, select_data, corrupt_data, apply_motion, spm_matrix, spm_imatrix
-from util_affine import get_in
+#from util_affine import perform_one_motion, product_dict, create_motion_job, select_data, corrupt_data, apply_motion, spm_matrix, spm_imatrix
+from util_affine import *
+
 import nibabel as nib
 from read_csv_results import ModelCSVResults
 from types import SimpleNamespace
@@ -30,27 +31,26 @@ def change_root_path(f_path, root_path='/data/romain/PVsynth/motion_on_synth_dat
     snew = ss[k:]
     snew[0] = root_path
     return '/'.join(snew)
-def get_sujname_from_path(ff):
-    name = [];
-    dn = os.path.dirname(ff)
-    for k in range(3):
-        name.append(os.path.basename(dn))
-        dn = os.path.dirname(dn)
-    return '_'.join(reversed(name))
-def interpolate_fitpars(fpars, tr_fpars=None, tr_to_interpolate=2.4, len_output=250):
-    fpars_length = fpars.shape[1]
-    if tr_fpars is None: #case where fitpart where give as it in random motion (the all timecourse is fitted to kspace
-        xp = np.linspace(0,1,fpars_length)
-        x  = np.linspace(0,1,len_output)
+def makeArray(text): #convert numpy array store in csv, back to array
+    array_string = ','.join(text.replace('[ ', '[').split())
+    array_string = array_string.replace('[,','[')
+    return np.array(eval(array_string))
+def parse_string_array(ss):
+    ss=ss.replace('[','')
+    ss=ss.replace(']','')
+    dd = ss.split(' ')
+    dl=[]
+    for ddd in dd:
+        if len(ddd)>2:
+            dl.append(float(ddd))
+    return np.array(dl)
+#reasign each 6 disp key to rot_or rot vector
+def disp_to_vect(s,key,type):
+    if type=='rot':
+        k1 = key[:-1] + '0'; k2 = key[:-1] + '1'; k3 = key[:-1] + '2';
     else:
-        xp = np.asarray(range(fpars_length))*tr_fpars
-        x = np.asarray(range(len_output))*tr_to_interpolate
-    interpolated_fpars = np.asarray([np.interp(x, xp, fp) for fp in fpars])
-    if xp[-1]<x[-1]:
-        diff = x[-1] - xp[-1]
-        npt_added = diff/tr_to_interpolate
-        print(f'adding {npt_added:.1f}')
-    return interpolated_fpars
+        k1 = key[:-1] + '3'; k2 = key[:-1] + '4'; k3 = key[:-1] + '5';
+    return np.array([s[k1], s[k2], s[k3]])
 
 dircati = '/data/romain/PVsynth/motion_on_synth_data/delivery_new'
 fjson = '/data/romain/PVsynth/motion_on_synth_data/test1/main.json'
@@ -63,6 +63,7 @@ fjson = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fit_parmCATI_raw/'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fsl_coreg_rot_trans_sigma_2-256_x0_256_suj_0/'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fsl_coreg_along_x0_transXYZ_suj_0'
+out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fit_parmCATI_raw_demean/'
 
 import dill
 #dill.dump_session('globalsave.pkl')
@@ -74,24 +75,15 @@ allfitpars_raw = glob.glob(dircati+'/*/*/*/*/fitpars.txt')
 fp_paths = allfitpars_raw
 
 fjson = '/data/romain/PVsynth/motion_on_synth_data/test1/main.json'
+param = dict();param['suj_contrast'] = 1;param['suj_noise'] = 0.01;param['suj_index'] = 0;param['suj_deform'] = 0;param['displacement_shift_strategy']=None
 sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
-image = sdata.t1.data[0]
+image = sdata.t1.data[0]; brain_mask = sdata.brain.data[0]
 fi = (np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(image)))).astype(np.complex128)
 
 ### ###### run motion on all fitpar
 split_length = 10
 create_motion_job(fp_paths, split_length, fjson, out_path, res_name='fit_parmCATI_raw', type='one_motion')
 ##############"
-
-
-#read from global csv (to get TR)
-dfall = pd.read_csv(dircati+'/description_copie.csv')
-dfall['Fitpars_path'] = dfall['Fitpars_path'].apply(change_root_path)
-dfall['resdir'] = dfall['Fitpars_path'].apply(get_sujname_from_path); dfall['resdir'] = out_path+dfall['resdir']
-
-allfitpars_raw = dfall['Fitpars_path']
-afffitpars_preproc = [os.path.basename(p) + '/fitpars_preproc.txt' for p in allfitpars_raw]
-dfall = dfall.sort_values(by=['Fitpars_path'])
 
 #read results
 fcsv = glob.glob(out_path+'/*/*csv')
@@ -134,8 +126,18 @@ for ii, fp_path in enumerate(df_coreg.fp.values):
     ddrot = np.linalg.norm(fitpar.T[:,None,3:] - fitpar.T[None,:,3:] , axis=-1)
     df_coreg.loc[ii, 'trans_max'] = dd.max(); df_coreg.loc[ii, 'rot_max'] = ddrot.max();
     df_coreg.loc[ii, 'amp_max_max'] = amplitude_max.max() #not very usefule (underestimation)
+    #store max trans and max rot
+    i,j = np.unravel_index(dd.argmax(), dd.shape)
+    df_coreg.loc[ii, 'max_translation'] = str( (fitpar[:,i] - fitpar[:,j]).tolist())
+    ir,jr = np.unravel_index(ddrot.argmax(), ddrot.shape)
+    df_coreg.loc[ii, 'max_rotation'] = str( fitpar[:,ir] - fitpar[:,jr])
+    if not (i==ir) and (j==jr):
+        print(f'suj {ii} diff max trans and rot')
 
 #get dual_quaternion description angle disp screw axis ...
+#select suj to perform motion sim on
+ind_sel = (df_coreg.amp_max_max>2) | ((df_coreg.amp_max_max>2)) ; print(f'selecting {np.sum(ind_sel)}')
+
 ind_sel = df_coreg.amp_max_max>20
 if 'suj_origin' in dir(): del (suj_origin);
 dq_list = []
@@ -254,74 +256,6 @@ npl.pinv(rr).dot(offset)
 #no single solution go to quaternion !
 
 
-#Average fitpar
-def average_affine(affine):
-    q_list = [];    Aff_mean = np.zeros((4, 4))
-    for aff in affine:
-        q_list.append(nq.from_rotation_matrix(aff) )
-        Aff_mean = Aff_mean + scl.logm(affine)
-    #todo
-
-def average_fitpar(fitpar, weights=None, average_exp_mat=True):
-    q_list = []  #can't
-    Aff_mean = np.zeros((4, 4))
-    Aff_Euc_mean = np.zeros((3, 3))
-    if weights is None:
-        weights = np.ones(fitpar.shape[1])
-    #normalize weigths
-    weights = weights / np.sum(weights)
-
-    dq_mean = DualQuaternion.identity()
-    lin_fitpar = np.sum(fitpar*weights, axis=1)
-    for nbt in range(fitpar.shape[1]):
-        P = np.hstack([fitpar[:,nbt],[1,1,1,0,0,0]])
-        affine = spm_matrix(P.copy(),order=0)  #order 0 to get the affine really applid in motion (change 1 to 0 01/04/21) it is is equivalent, since at the end we go back to euleur angle and trans...
-        # new_q = nq.from_rotation_matrix(affine)
-        # if 'previous_q' not in dir():
-        #     previous_q = new_q
-        # else:
-        #     _ = nq.unflip_rotors([previous_q, new_q], inplace=True)
-        #     previous_q = new_q
-        #q_list.append( new_q  )
-        Aff_Euc_mean = Aff_Euc_mean + weights[nbt] * affine[:3,:3]
-        Aff_mean = Aff_mean + weights[nbt] * scl.logm(affine)
-        dq = DualQuaternion.from_homogeneous_matrix(affine)
-        #dq_mean = DualQuaternion.sclerp(dq, dq_mean, 1-(weights[nbt])/(1+weights[nbt]))
-        dq_mean = DualQuaternion.sclerp(dq_mean, dq,(weights[nbt])/(1+weights[nbt]))
-
-    Aff_mean = scl.expm(Aff_mean)
-    wshift_exp = spm_imatrix(Aff_mean, order=0)[:6]
-
-    #q_mean = nq.mean_rotor_in_chordal_metric(q_list)
-    #Aff_q_rot = nq.as_rotation_matrix(q_mean)
-
-    #Aff_q_rot = scl.polar(Aff_Euc_mean)[0]
-    #Aff_q = np.eye(4)
-    #Aff_q[:3,:3] = Aff_q_rot
-    #wshift_quat = spm_imatrix(Aff_q, order=0)[:6]
-    #wshift_quat[:3] = lin_fitpar[:3]
-    wshift_quat = spm_imatrix(dq_mean.homogeneous_matrix(), order=0)[:6]
-
-    return wshift_quat, wshift_exp, lin_fitpar
-
-def average_fitpar_no_quaternion(fitpar, weights=None, average_exp_mat=True):
-    Aff_mean = np.zeros((4, 4))
-    if weights is None:
-        weights = np.ones(fitpar.shape[1])
-    #normalize weigths
-    weights = weights / np.sum(weights)
-
-    lin_fitpar = np.sum(fitpar*weights, axis=1)
-    for nbt in range(fitpar.shape[1]):
-        P = np.hstack([fitpar[:,nbt],[1,1,1,0,0,0]])
-        affine = spm_matrix(P,order=1) #warning if not the one made by motion
-        Aff_mean = Aff_mean + weights[nbt] * scl.logm(affine)
-
-    Aff_mean = scl.expm(Aff_mean)
-    wshift_exp = spm_imatrix(Aff_mean, order=1)[:6]
-
-    return wshift_exp, lin_fitpar
-
 #explore mean disp for different transform (select from frmi)
 df = pd.DataFrame()
 for dq in dq_list:
@@ -352,84 +286,28 @@ cmap = sns.cubehelix_palette(as_cmap=True)
 fig=plt.figure();ppp = plt.scatter(df.mean_field_dis, severity,c=df.line_dist, cmap=cmap); fig.colorbar(ppp), plt.grid()
 
 
-#displacement quantification
-#import SimpleITK as sitk #cant understand fucking convention with itk TransformToDisplacementField
-def get_sphere_mask(image, radius=80):
-    mask = np.zeros_like(image)
-    (sx, sy, sz) = image.shape  # (64,64,64) #
-    center = [sx // 2, sy // 2, sz // 2]
+df=pd.read_csv('/data/romain/PVsynth/displacement/displacement_sphere_5mm_5deg.csv')
+df.aff = df.aff.apply(lambda x: makeArray(x))
+df.euler_fp = df.euler_fp.apply(lambda x: makeArray(x))
 
-    [kx, ky, kz] = np.meshgrid(np.arange(0, sx, 1), np.arange(0, sy, 1), np.arange(0, sz, 1), indexing='ij')
-    [kx, ky, kz] = [kx - center[0], ky - center[1], kz - center[2]]  # to simulate rotation around center
-    ijk = np.stack([kx, ky, kz])
-    dist_ijk = npl.norm(ijk,axis=0)
-    mask[dist_ijk<radius] = 1
-    return mask
-
-def get_dist_field(affine, img_shape, return_vect_field=False, scale=None):
-
-    (sx, sy, sz) = img_shape  # (64,64,64) #
-    center = [sx // 2, sy // 2, sz // 2]
-
-    [kx, ky, kz] = np.meshgrid(np.arange(0, sx, 1), np.arange(0, sy, 1), np.arange(0, sz, 1), indexing='ij')
-    [kx, ky, kz] = [kx - center[0], ky - center[1], kz - center[2]]  # to simulate rotation around center
-    ijk = np.stack([kx, ky, kz, np.ones_like(kx)])
-    ijk_flat = ijk.reshape((4, -1))
-    if scale is not None:
-        sc_mat = np.eye(4) * scale; sc_mat[3,3] = 1
-        affine = sc_mat.dot(affine)
-    xyz_flat = affine.dot(ijk_flat)  # implicit convention reference center at 0,0,0
-    if scale is None:
-        disp_flat = xyz_flat - ijk_flat
-    else:
-        disp_flat = xyz_flat - ijk_flat*scale
-
-    disp_norm = npl.norm(disp_flat[:3, :], axis=0)
-    if return_vect_field:
-        return disp_flat[:3, :].reshape([3] + img_shape)
-    return disp_norm.reshape(img_shape)
-
-def get_random_vec(range=[-1,1], size=3, normalize=False):
-    res = np.random.uniform(low=range[0], high=range[1], size=size )
-    if normalize:
-        res = res/npl.norm(res)
-    return res
-
-def get_random_afine(angle=(2,10), trans=(0,0), origine=(80,100), mode='quat'):
-    if mode == 'quat':
-        theta = np.deg2rad(get_random_vec(angle,1)[0])
-        l = get_random_vec(normalize=True);
-        #orig = get_random_vec(normalize=True) * get_random_vec(origine,1)
-        #m = np.cross(orig, l);
-        #this does not work because only the projection of orig in the normal plan of l, is taken
-        # so add the wanted distance from origine directly to m
-        orig = get_random_vec(normalize=True)
-        m = np.cross(orig, l)
-        m = m / npl.norm(m) * get_random_vec(origine,1)
-        disp = get_random_vec(trans,1)[0];
-        #print(f'dual quat with l {l} m {m}  norm {npl.norm(m)} theta {np.rad2deg(theta)} disp {disp}')
-        dq = DualQuaternion.from_screw(l, m, theta, disp)
-        #get_info_from_dq(dq, verbose=True)
-        aff = dq.homogeneous_matrix()
-    if mode == 'euler':
-        fp = np.ones(12); fp[9:]=0
-        fp[3:6] = get_random_vec(angle,3)
-        fp[:3] = get_random_vec(trans,3)
-        #print(fp)
-        aff = spm_matrix(fp, order=0)
-    return(aff)
-
+#Displacement testing
 df = pd.DataFrame(); sphere_mask = get_sphere_mask(image)
-for i in range(1000):
-    res=dict()
-    aff = get_random_afine(angle=(-20,20), trans=(-20,20), origine=(0,150), mode='quat')
+brain_mask[brain_mask>0] = 1 #need pure mask
+for i in range(200):
+    aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='quat')
+    aff = get_random_afine(angle=(2,2), trans=(-5,5), origine=(0,150), mode='euler')
     disp_norm = get_dist_field(aff, list(image.shape))
     #disp_norm_small = get_dist_field(aff, [22,26,22], scale=8)
-
-    mean_disp = np.mean(disp_norm)
+    disp_norm_mask = disp_norm * (brain_mask.numpy())
+    mean_disp, max_disp, min_disp = np.mean(disp_norm), np.max(disp_norm_mask), np.min(disp_norm_mask[brain_mask>0])
     wmean_disp = np.sum(disp_norm*image.numpy())/np.sum(image.numpy())
-    wmean_disp_sphere = np.sum(disp_norm*sphere_mask)/np.sum(sphere_mask)
-    res = dict(mean_disp=mean_disp, wmean_disp=wmean_disp,wmean_disp_sphere=wmean_disp_sphere, aff=aff)
+    wmean_disp_mask = np.sum(disp_norm_mask)/np.sum(brain_mask.numpy())
+    disp_norm_mask_sphere = disp_norm*sphere_mask
+    wmean_disp_sphere = np.sum(disp_norm_mask_sphere)/np.sum(sphere_mask)
+    max_disp_sphere, min_disp_sphere = np.max(disp_norm_mask_sphere), np.min(disp_norm_mask_sphere[sphere_mask>0])
+    res = dict(mean_disp=mean_disp, wmean_disp=wmean_disp,wmean_disp_sphere=wmean_disp_sphere, aff=aff,
+               wmean_disp_mask=wmean_disp_mask, max_disp=max_disp, min_disp=min_disp,
+               max_disp_sphere=max_disp_sphere, min_disp_sphere=min_disp_sphere)
     fp = spm_imatrix(aff, order=0)[:6]
     res['euler_trans'] = npl.norm(fp[:3])
     res['euler_rot'] = npl.norm(fp[3:])
@@ -441,39 +319,38 @@ for i in range(1000):
     res = dict(get_info_from_dq(DualQuaternion.from_homogeneous_matrix(aff)), **res)
     df = df.append(res, ignore_index=True)
 
-
-def compute_FD_P(fp):
-    #https://github.com/FCP-INDI/C-PAC/blob/master/CPAC/generate_motion_statistics/generate_motion_statistics.py
-    fd = np.sum(np.abs(fp[:3])) + (50 * np.pi/180) * np.sum(np.abs(fp[3:6]))
-    return fd
-def compute_FD_J(aff, rmax=80):
-    M = aff - np.eye(4)
-    A = M[0:3, 0:3]
-    b = M[0:3, 3]   # np.sqrt(np.dot(b.T, b))  is the norm of translation vector
-    fd = np.sqrt( (rmax * rmax / 5) * np.trace(np.dot(A.T, A)) + np.dot(b.T, b) )
-    return fd
-def compute_FD(x):
-    trans = npl.norm(x['trans'])
-    rot = x['theta']
-    fd = trans + 80 / np.sqrt(1) * (np.pi/180) * rot
-    return fd/2
-def aff_trace(aff):
-    M = aff -np.eye(4)
-    A = M[0:3, 0:3]
-    b = M[0:3, 3]
-    #return np.sqrt(np.dot(b.T, b))
-    return np.trace(np.dot(A.T, A))
-
-df['traceT'] = df.aff.apply(lambda x: aff_trace(x))
+img_center = np.array(brain_mask.numpy().shape)//2
+import scipy
+center_ofm=[0,0,0] #scipy.ndimage.measurements.center_of_mass(brain_mask.numpy()) - img_center
 
 df['fd_P'] = df.euler_fp.apply(lambda x : compute_FD_P(x) )
-df['fd_J'] = df.aff.apply(lambda x : compute_FD_J(x) )
-df['fd_R'] = df.apply(lambda x : compute_FD(x), axis=1)
-x = df.wmean_disp_sphere # x = df.mean_disp
-fig, axs = plt.subplots(nrows=2, ncols=2)
-axs[0,0].scatter(x, df.fd_P); axs[0,0].grid(); axs[0,0].set_ylabel('df_P')
-axs[0,1].scatter(x, df.fd_J); axs[0,1].grid(); axs[0,1].set_ylabel('df_J')
-axs[1,0].scatter(x, df.fd_R); axs[1,0].grid(); axs[1,0].set_ylabel('df_R')
+df['fd_J'] = df.aff.apply(lambda x : compute_FD_J(x, center_of_mass=center_ofm) )
+df['fd_M'] = df.aff.apply(lambda x : compute_FD_max(x) )
+err = df.fd_J - df.wmean_disp_sphere
+err = df.euler_trans-df.disp
+transrot = df.apply(lambda x: np.dot(x.l,x.trans/npl.norm(x.trans)), axis=1)
+transrotN = df.apply(lambda x: np.dot(x.l,x.trans/npl.norm(x.trans)), axis=1)
+transrot = abs(df.apply(lambda x: np.dot(x.l,x.trans), axis=1))
+transrotN = df.apply(lambda x: npl.norm(np.cross(x.l,x.trans)), axis=1)
+(df.euler_trans - np.sqrt(transrot**2+transrotN**2)).max() #identique
+(transrot-abs(df.disp)).max()       #identique
+
+plt.figure();plt.scatter(err,abs(transrot)/abs(df.euler_trans))
+plt.figure();plt.scatter(err,abs(transrotN)/abs(transrot))
+
+
+plt.figure();plt.scatter(df.disp,df.euler_trans)
+x = df.max_disp; # df.wmean_disp_mask #df.wmean_disp_sphere # x = df.mean_disp
+for x_key in sel_key:
+    x = df[x_key]
+    fig, axs = plt.subplots(nrows=2, ncols=2)
+    axs[0,0].scatter(x, df.fd_P); axs[0,0].grid(); axs[0,0].set_ylabel('fd_P'); axs[0,0].set_xlabel(x_key)
+    axs[0,1].scatter(x, df.fd_J); axs[0,1].grid(); axs[0,1].set_ylabel('fd_J'); axs[0,1].set_xlabel(x_key)
+    axs[1,0].scatter(x, df.fd_M); axs[1,0].grid(); axs[1,0].set_ylabel('fd_M'); axs[1,0].set_xlabel(x_key)
+
+sel_key =['mean_disp', 'max_disp', 'wmean_disp_mask', 'wmean_disp_sphere']
+sel_key +=['max_disp_sphere']
+sns.pairplot(df[sel_key],kind="scatter", corner=True)
 
 ind = (df.wmean_disp_sphere>29.5)&(df.wmean_disp_sphere<30.5)
 dd = df.loc[ind,:]
@@ -566,14 +443,18 @@ fi_phase = np.fft.fftshift(np.fft.fft(np.fft.ifftshift(image), axis=1)) #phase i
 
 
 #wcfft = abs(np.sum(np.sum(fi_phase,axis=0),axis=1))
-wafft = abs(np.sum(np.sum(abs(fi_phase),axis=0),axis=1))
-wa2fft = abs(np.sum(np.sum(abs(fi_phase**2),axis=0),axis=1))
+wafft =  np.sum(abs(fi_phase),axis=(0,2))
+wa2fft = np.sum(abs(fi_phase**2),axis=(0,2))
 coef_TF_3D = np.sum(abs(fi), axis=(0,2)) # easier to comute than with interval (but equivalent)
 coef2_TF_3D = np.sum(abs(fi**2), axis=(0,2)) # this one is equivalent to wafft**2
-
 w_coef_shaw = wafft/np.sum(wafft) #since it is equivalent
 w_coef_short = coef_TF_3D/np.sum(coef_TF_3D)
 
+plt.figure(); plt.plot(wafft/np.sum(wafft)); plt.plot(wa2fft/np.sum(wa2fft))
+plt.plot(coef_TF_3D/np.sum(coef_TF_3D)); plt.plot(coef2_TF_3D/np.sum(coef2_TF_3D))
+plt.plot(wafft**2 / np.sum(wafft**2)); plt.plot(coef_TF_3D**2/np.sum(coef_TF_3D**2));
+plt.legend(['wa', 'wa2', 'wtf', 'wtf2', 'wa**2', 'wtf**2'])
+# wa2 == wa**2 == wtf2
 #ov(abs(fi_phase))
 ff_phase = np.sum(np.sum(abs(fi_phase),axis=0),axis=1)
 # test different computation for the weigths
@@ -679,7 +560,7 @@ for ii, fp_path in enumerate(df_coreg.fp.values):
         #print(f'n={i} mean disp {i} (full/approx) = {rrr}  / {rrr2} after shift {rcheck2}')
         cname = f'before_coreg_short_wTF_Disp_{i}';        df_coreg.loc[ii, cname] = rrr2
 
-        print(f'n={i} fsl shift {fsl_shift}  wTF shift {wshift[i]}  wshaw shift {wshift_shaw[i]}')
+        #print(f'n={i} fsl shift {fsl_shift}  wTF shift {wshift[i]}  wshaw shift {wshift_shaw[i]}')
         #spm_imatrix(npl.inv(Aff_mean),order=0)
         cname = f'w_exp_TF_disp{i}';        df_coreg.loc[ii, cname] = wshift[i]
         cname = f'w_exp_shaw_disp{i}';        df_coreg.loc[ii, cname] = wshift_shaw[i]
@@ -699,13 +580,8 @@ for ii, fp_path in enumerate(df_coreg.fp.values):
 df_coreg.to_csv(out_path+'/df_coreg_fitparCATI_new_raw_sub.csv')
 df_coreg.to_csv(out_path+'/df_coreg_fitpar_Sigmas_X256.csv')
 
-#reasign each 6 disp key to rot_or rot vector
-def disp_to_vect(s,key,type):
-    if type=='rot':
-        k1 = key[:-1] + '0'; k2 = key[:-1] + '1'; k3 = key[:-1] + '2';
-    else:
-        k1 = key[:-1] + '3'; k2 = key[:-1] + '4'; k3 = key[:-1] + '5';
-    return np.array([s[k1], s[k2], s[k3]])
+df_coreg = pd.read_csv(out_path+'/df_coreg_fitparCATI_new_raw_sub.csv')
+df_coreg['fpok'] = df_coreg['fp'].apply(lambda x: change_root_path(x,root_path='/network/lustre/iss01/cenir/analyse/irm/users/ghiles.reguig/These/Dataset/cati_full/delivery_new'))
 
 key_disp = [k for k in df_coreg.keys() if 'isp_1' in k]; key_replace_length = 7
 key_disp = [k for k in df_coreg.keys() if 'isp1' in k]; key_replace_length = 6
@@ -753,6 +629,14 @@ dfm['shift']=dfm['shift'].str.replace('_quat_','');
 sns.catplot(data=dfm,x='shift', y='error', col='ei',hue='interp', kind='strip', col_wrap=2, dodge=True)
 sns.catplot(data=dfm,x='shift', y='error', col='ei',hue='interp', kind='boxen', col_wrap=2, dodge=True)
 sns.pairplot(df1[sel_key], kind="scatter", corner=True)
+
+#concat for further substraction
+def concat_col(x, col1, col2):
+    return np.hstack([x[col1], x[col2]])
+df_coreg.w2_eul_TF_trans = df_coreg.w2_eul_TF_trans.apply(lambda x: parse_string_array(x))
+df_coreg.w2_eul_TF_rot = df_coreg.w2_eul_TF_rot.apply(lambda x: parse_string_array(x))
+df_coreg.subtract_fit = df_coreg.apply(lambda x: concat_col(x,'w2_eul_TF_trans','w2_eul_TF_rot'), axis=1)
+
 
 #explore max error on CATI fit
 df_coreg['error_w_exp_shaw_trans']
@@ -819,7 +703,8 @@ cmap = sns.color_palette("coolwarm", len(df_coreg.amplitude.unique()))
 ykey = 'm_NCC_brain' #ykeys_noshift[0]
 for ykey in ykeys:
     fig = sns.relplot(data=df_coreg, x="sigma", y=ykey, hue="amplitude", legend='full', kind="line",
-                  palette=cmap, col='mvt_type', col_wrap=2)
+                      palette=cmap, col='mvt_axe', col_wrap=2)
+                    #palette=cmap, col='mvt_type', col_wrap=2)
 
 #different sigma
 dfsub = df_coreg[df_coreg['sym']==1]
@@ -983,3 +868,189 @@ fitpar =  np.tile(spm_imatrix(dq.homogeneous_matrix(), order=0)[:6,np.newaxis],(
 cor_disp=True
 smot8, df, res_fitpar, res = apply_motion(sdata, tmot, fitpar, config_runner,suj_name='rotfront_Z_2',
                                           root_out_dir='/home/romain.valabregue/tmp', param=param)
+
+#apply motion on fp tremor
+fjson = '/data/romain/PVsynth/motion_on_synth_data/test1/main.json'
+param = dict();param['suj_contrast'] = 1;param['suj_noise'] = 0.01;param['suj_index'] = 0;param['suj_deform'] = 0;param['displacement_shift_strategy']=None
+sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
+image = sdata.t1.data[0]; brain_mask = sdata.brain.data[0]
+
+dout = '/data/romain/PVsynth/motion_on_synth_data/tremor/'
+fp_file = glob.glob(dout+'/files_rp/rp*txt')
+df=pd.DataFrame()
+for fpf in fp_file:
+    fp = np.loadtxt(fpf)
+    tmot.nT = fp.shape[1];    tmot.simulate_displacement = False
+    fout = f'{os.path.basename(fpf)[:-4]}'
+    root_out_dir = dout+fout;
+    if not os.path.isdir(root_out_dir): os.mkdir(root_out_dir)
+    df = apply_motion(sdata, tmot, fp, config_runner,root_out_dir=root_out_dir,param=param,
+                                              fsl_coreg=True,suj_name='suj')
+    #sout.t1.save(dout + fout+'.nii')
+
+
+
+#CATI fitpar
+import json
+ljson = json.load(open(dircati_rrr + 'summary.json'))
+dircati_rrr = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/CATI_datasets/fmri/'
+dfall = pd.read_csv(dircati_rrr+'/description_copie.csv')
+dfall['sujname'] = dfall['Fitpars_path'].apply(get_sujname_only_from_path);
+dfall['session'] = dfall['Fitpars_path'].apply(get_session_from_path);
+dfall['center'] =  dfall['Fitpars_path'].apply(get_center_from_path);
+dfall['cati_path'] = dfall.apply(lambda x : get_cati_path(x,ljson), axis=1)
+#remove suj not found
+dfall = dfall.dropna()
+
+dfall['brain_mask'] = dfall.cati_path.apply(get_cati_brain_mask)
+dfall.to_csv(dircati_rrr+'/data_all.csv')
+
+def get_cati_path(x, ljson):
+    proto = x['Protocol']
+    center = x['center']
+    suj = x['sujname']
+    session = x['session']
+
+    if proto in ljson:
+        ljson = ljson[proto]
+    else:
+        print(f'missin proto {proto}'); return None
+
+    if center in ljson:
+        ljson = ljson[center]
+    else:
+        print(f'missin proto {proto} center {center}'); return None
+
+    if suj in ljson:
+        ljson = ljson[suj]
+    else:
+        print(f'missin proto {proto} center {center} suj {suj}'); return None
+    if session in ljson:
+        dir_path = ljson[session]
+    else:
+        print(f'missiong proto {proto} center {center} suj {suj} sess {session}')
+        return None
+    dir_path = dir_path + '/input/'
+    if not os.path.isdir(dir_path):
+        print(f'path {dir_path} not exist')
+    return dir_path
+def get_session_from_path(ff):
+    name = [];
+    dn = os.path.dirname(ff)
+    dn = os.path.basename(dn)
+    return dn
+def get_sujname_only_from_path(ff):
+    name = [];
+    dn = os.path.dirname(ff)
+    dn = os.path.dirname(dn)
+    dn = os.path.basename(dn)
+    return dn
+def get_center_from_path(ff):
+    name = [];
+    dn = os.path.dirname(ff)
+    dn = os.path.dirname(dn)
+    dn = os.path.dirname(dn)
+    dn = os.path.basename(dn)
+    return dn
+def get_cati_brain_mask(ff):
+    vol_mask = ff+'/rsfMRI_brain.nii.gz'
+    if os.path.isfile(vol_mask):
+        return vol_mask
+    else:
+        print(f'missing {vol_mask}')
+        return None
+def get_sujname_from_path(ff):
+    name = [];
+    dn = os.path.dirname(ff)
+    for k in range(3):
+        name.append(os.path.basename(dn))
+        dn = os.path.dirname(dn)
+    return '_'.join(reversed(name))
+
+#read from global csv (to get TR)
+dfall = pd.read_csv(dircati_rrr+'/data_all.csv') #dircati+'/description_copie.csv')
+#dfall['Fitpars_path'] = dfall['Fitpars_path'].apply(change_root_path)
+dfall['sujname_all'] = dfall['Fitpars_path'].apply(get_sujname_from_path); #dfall['sujname_all'] = out_path+dfall['resdir']
+dfall.fp = dfall.Fitpars_path
+
+allfitpars_raw = dfall['Fitpars_path']
+afffitpars_preproc = [os.path.dirname(p) + '/fitpars_preproc.txt' for p in allfitpars_raw]
+dfall = dfall.sort_values(by=['Fitpars_path'])
+
+df_coreg.to_csv(dircati_rrr+'/data_all_param.csv')
+
+df_big = df_coreg[(df_coreg['trans_max']>10) | (df_coreg['rot_max']>10) ]
+dfsub = df_coreg[(df_coreg['trans_max']<=10) & (df_coreg['rot_max']<=10) ]
+plt.figure();plt.hist(dfsub.rot_max,bins=100)
+plt.figure();plt.hist(dfsub.trans_max,bins=100)
+df_medium = dfsub[ (dfsub['trans_max']>2) | (dfsub['rot_max']>2) ]
+
+
+nbsuj = len(df_medium)
+trans = np.zeros(nbsuj);angle_sum = np.zeros(nbsuj);thetas = np.zeros(nbsuj);disp = np.zeros(nbsuj);
+origin_pts= np.zeros((3,nbsuj)); axiscrew= np.zeros((3,nbsuj)); line_distance= np.zeros(nbsuj); y_min = np.zeros(nbsuj)
+euler_list = np.zeros((6,nbsuj))
+for ii, fp in enumerate(df_medium.Fitpars_path):
+    #fitpar  = np.loadtxt(fp)
+    #P = np.hstack([fitpar[:, nbt], [1, 1, 1, 0, 0, 0]])
+    P =  np.hstack([parse_string_array(df_medium.max_rotation.values[ii]), [1, 1, 1, 0, 0, 0]])
+    euler_list[:,ii] = P[:6]
+    trans[ii] = npl.norm(P[:3])
+    angle_sum[ii] = npl.norm(np.abs(P[3:6]))  # too bad in maths : euler norm = teta ! but sometimes aa small shift
+    aff = spm_matrix(P, order=1)
+    dq = DualQuaternion.from_homogeneous_matrix(aff)
+    #one_sub_dq_list.append(dq)
+    l, m, tt, dd = dq.screw()
+
+    thetas[ii] = np.rad2deg(tt);
+    disp[ii] = abs(dd)
+    if npl.norm(l) < 1e-10:
+        origin_pts[:, ii] = [0, 0, 0]
+    else:
+        origin_pts[:, ii] = np.cross(l, m)
+    axiscrew[:, ii] = l;
+    line_distance[ii] = npl.norm(m)
+
+    mask_path = os.path.dirname(df_medium.brain_mask.values[ii]) + '/rsfMRI_brain_mask.nii.gz'
+    v=nb.load(mask_path)
+    aff=v.affine;
+    M=aff[:3,:3]; voxel_size = np.diagonal(np.sqrt(M @ M.T))
+    data=v.get_fdata()
+    mask = data>0;    mm = mask.sum(axis=2).sum(axis=0)
+    #find first non zero
+    kk = -1; y=0
+    while y==0:
+        kk+=1
+        y = mm[kk]
+    y_min[ii] = (kk - data.shape[1]//2 ) * voxel_size[1]
+
+fig = plt.figure();ax = plt.axes(projection ='3d');plt.xlabel('x') ;plt.ylabel('y')
+X, Y, Z = zip(*origin_pts.T); U,V,W = zip(*axiscrew.T*1)
+ax.quiver(X, Y, Z, U, V, W)
+
+fig = plt.figure();ax = plt.axes(projection ='3d');plt.xlabel('x') ;plt.ylabel('y')
+ax.scatter(axiscrew[0,:],axiscrew[1,:],axiscrew[2,:])
+
+fig ,ax = plt.subplots(nrows=2,ncols=2)
+aa=ax[0,0]; aa.hist(origin_pts[0,:],bins=100); aa.set_ylabel('origin_pts X');aa.grid()
+#aa=ax[0,1]; aa.hist(origin_pts[1,:],bins=100); aa.set_ylabel('origin_pts Y');aa.grid()
+aa=ax[0,1]; aa.hist(origin_pts[1,:]-y_min,bins=100); aa.set_ylabel('origin_pts Y');aa.grid()
+aa=ax[1,0]; aa.hist(origin_pts[2,:],bins=100); aa.set_ylabel('origin_pts Z');aa.grid()
+aa=ax[1,1]; aa.hist(thetas,bins=100); aa.set_ylabel('theta');aa.grid()
+
+fig ,ax = plt.subplots(nrows=2,ncols=2)
+aa=ax[0,0]; aa.hist(axiscrew[0,:],bins=100); aa.set_ylabel('suj_screew X');aa.grid()
+aa=ax[0,1]; aa.hist(axiscrew[1,:],bins=100); aa.set_ylabel('suj_screew Y');aa.grid()
+aa=ax[1,0]; aa.hist(axiscrew[2,:],bins=100); aa.set_ylabel('suj_screew Z');aa.grid()
+aa=ax[1,1]; aa.hist(trans,bins=100); aa.set_ylabel('trans');aa.grid()
+
+fig ,ax = plt.subplots(nrows=2,ncols=3)
+aa=ax[0,0]; aa.hist(euler_list[0,:],bins=100); aa.set_ylabel('TX');aa.grid()
+aa=ax[0,1]; aa.hist(euler_list[1,:],bins=100); aa.set_ylabel('TY');aa.grid()
+aa=ax[0,2]; aa.hist(euler_list[2,:],bins=100); aa.set_ylabel('TZ');aa.grid()
+aa=ax[1,0]; aa.hist(euler_list[3,:],bins=100); aa.set_ylabel('RX');aa.grid()
+aa=ax[1,1]; aa.hist(euler_list[4,:],bins=100); aa.set_ylabel('RY');aa.grid()
+aa=ax[1,2]; aa.hist(euler_list[5,:],bins=100); aa.set_ylabel('RZ');aa.grid()
+
+plt.figure(); plt.scatter(trans, disp); plt.grid()
+plt.figure(); plt.scatter(angle_sum, thetas); plt.grid()

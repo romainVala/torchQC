@@ -498,7 +498,7 @@ class Config:
         for transform in struct['val_transforms']:
             transform_list.append(parse_transform(transform))
         struct['val_transforms'] = torchio.transforms.Compose(transform_list)
-
+        self.val_transfo_list = transform_list
         transform_list = []
         for transform in struct['post_transforms']:
             transform_list.append(parse_transform(transform))
@@ -762,11 +762,16 @@ class Config:
                     image_attributes = ref_images[img_name]['attributes']
                     image_attributes.update(
                         {'components': [c for c in components]})
-                    img = torchio.Image(
-                        type=ref_images[img_name]['type'],
-                        path=[s[img_name][c] for c in components],
-                        **image_attributes
-                    )
+                    if ref_images[img_name]['type'] == 'label':
+                        img = torchio.LabelMap( path=[s[img_name][c] for c in components], **image_attributes)
+                    elif ref_images[img_name]['type'] == 'label4D':
+                        image_attributes.update({'channels_last':True})
+                        img = torchio.LabelMap(path=[s[img_name][c] for c in components], **image_attributes)
+                    elif  ref_images[img_name]['type'] == 'intensity':
+                        img = torchio.ScalarImage( path=[s[img_name][c] for c in components], **image_attributes)
+                    else:
+                        raise (f'error image type {ref_images[img_name]["type"]} is not know either intensity or label')
+
                     s[img_name] = img
                 if 'name' not in s:
                     s['name'] = n
@@ -835,7 +840,15 @@ class Config:
                 for component_name, component in csv_file['components'].items():
                     component_path = res[component['column_name']][suj_idx]
                     image_name = component['image']
-                    update_subject(subject, data_struct['images'],
+                    dds =  data_struct['images']
+                    if "attributes" in component:
+                        ccname = component['attributes']['column_name']
+                        if "attributes" in dds[image_name]:
+                            dds[image_name]['attributes'].update({ccname : res[ccname][suj_idx]})
+                        else:
+                            dds[image_name]['attributes'] = {ccname: res[ccname][suj_idx]}
+
+                    update_subject(subject, dds,
                                    component_name, component_path, image_name)
                 relevant_dict[suj_idx] = subject
 
