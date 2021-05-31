@@ -7,6 +7,7 @@ from matplotlib.widgets import Slider
 from typing import Sequence
 from functools import reduce, lru_cache
 from torch.utils.data import DataLoader
+from scipy.ndimage.measurements import center_of_mass
 
 vox_views = [['sag', 'vox', 50], ['ax', 'vox', 50], ['cor', 'vox', 50]]
 
@@ -74,6 +75,43 @@ class View:
 
         return int(round(mapped_position)), int(round(position))
 
+    def center_of_mass_position(self):
+        # Visualize label from center of mass
+        com = center_of_mass(self.label[self.channel])
+        mapped_position = com[self.view_idx]
+
+        if self.coordinate_system == "vox":
+            position = 100 * mapped_position / self.img.shape[self.view_idx]
+        else:
+            position_vector = np.zeros(4)
+            position_vector[3] = 1
+            position_vector[self.view_idx] = mapped_position
+            position = np.dot(self.affine, position_vector)[self.view_idx]
+
+        return int(round(mapped_position)), int(round(position))
+
+    def max_volume_position(self):
+        # Visualize label from the slice with maximum label volume
+        axes = [(1, 2), (0, 2), (0, 1)]
+        s = np.sum(self.label[self.channel], axis=axes[self.view_idx])
+        maximum = -1
+        idx = 0
+        for i, item in enumerate(s):
+            if item > maximum:
+                maximum = item
+                idx = i
+        mapped_position = idx
+
+        if self.coordinate_system == "vox":
+            position = 100 * mapped_position / self.img.shape[self.view_idx]
+        else:
+            position_vector = np.zeros(4)
+            position_vector[3] = 1
+            position_vector[self.view_idx] = mapped_position
+            position = np.dot(self.affine, position_vector)[self.view_idx]
+
+        return int(round(mapped_position)), int(round(position))
+
     @lru_cache(100)
     def img_slice(self, position):
         if self.view_idx == 0:
@@ -107,8 +145,17 @@ class View:
             view_slice = self.label[channel][:, :, position]
         return np.flipud(view_slice.T)
 
-    def render(self, init=False):
-        mapped_position, self.position = self.mapped_position(self.position)
+    def render(self, init=False, synchronize=None):
+        if self.label is not None:
+            if synchronize == 'center_of_mass':
+                mapped_position, self.position = self.center_of_mass_position()
+            elif synchronize == 'max_volume':
+                mapped_position, self.position = self.max_volume_position()
+            else:
+                mapped_position, self.position = self.mapped_position(self.position)
+        else:
+            mapped_position, self.position = self.mapped_position(self.position)
+
         img_slice = self.img_slice(mapped_position)
         label_slice = None
 
@@ -320,7 +367,7 @@ class Figure:
         for view_object in self.view_objects.values():
             view_object.set_is_drawn(self.is_drawn)
 
-    def render_views(self, images, affines, labels, init=False):
+    def render_views(self, images, affines, labels, init=False, synchronize=None):
         for i in self.idx:
             img, affine, label = images[i], affines[i], None
 
@@ -336,7 +383,7 @@ class Figure:
         # Render each view
         for view_object in self.view_objects.values():
             view_object.axis.set_visible(True)
-            view_object.render(init)
+            view_object.render(init=init, synchronize=synchronize)
 
         # Update slider value
         if self.label_key_name is not None:
@@ -346,7 +393,7 @@ class Figure:
         for axis in self.other_axes:
             axis.set_visible(False)
 
-    def display_figure(self):
+    def display_figure(self, synchronize=None):
         # Load subjects
         images, affines, labels = self.load_subjects()
 
@@ -354,7 +401,7 @@ class Figure:
         self.set_views()
 
         # Render views
-        self.render_views(images, affines, labels, init=True)
+        self.render_views(images, affines, labels, init=True, synchronize=synchronize)
 
     def set_is_drawn(self, is_drawn):
         self.is_drawn = is_drawn
@@ -366,11 +413,11 @@ class Figure:
         for view_key, view_object in self.view_objects.items():
             view_object.set_img_affine_and_label(None, None, None)
 
-    def update(self, view_keys, update_function):
+    def update(self, view_keys, update_function, synchronize=None):
         for key in view_keys:
             view_object = self.view_objects[key]
             update_function(view_object)
-            view_object.render()
+            view_object.render(synchronize=synchronize)
 
         self.fig.canvas.flush_events()
 
@@ -394,7 +441,7 @@ class Figure:
                 lambda x: x.set_position(x.position + delta)
             )
 
-    def on_key_press(self, event):
+    def on_key_press(self, event, synchronize):
         if event.key == 'down':
             delta = -1
         else:
@@ -402,7 +449,8 @@ class Figure:
 
         self.update(
             self.view_objects.keys(),
-            lambda x: x.set_channel((x.channel + delta) % self.num_labels)
+            lambda x: x.set_channel((x.channel + delta) % self.num_labels),
+            synchronize
         )
 
     def on_slide(self, val):
@@ -474,6 +522,9 @@ class PlotDataset:
         threshold: the threshold below which label are not shown.
         preload: Boolean to choose whether to preload all subjects are not.
             Default is True.
+        synchronize_view_to_label: show images from center of mass or maximum volume of the label.
+            Possible values are 'center_of_mass' or 'max_volume'. Dataset must have labels.
+            Default is None (meaning that the position will be set by the 'views' parameter).
     """
 
     def __init__(self, dataset, views=None, view_org=None,
@@ -481,7 +532,7 @@ class PlotDataset:
                  figsize=(16, 9), update_all_on_scroll=False, add_text=True,
                  label_key_name=None, alpha=0.2, cmap='RdBu',
                  patch_sampler=None, nb_patches=4, threshold=0.01,
-                 preload=True):
+                 preload=True, synchronize_view_to_label=None):
         self.dataset = dataset
         self.views = views if views is not None else vox_views
         self.view_org = self.parse_view_org(view_org)
@@ -499,6 +550,7 @@ class PlotDataset:
         self.nb_patches = nb_patches
         self.threshold = threshold
         self.preload = preload
+        self.synchronize_view_to_label = synchronize_view_to_label
 
         self.figure_objects = []
         self.fig = None
@@ -653,7 +705,7 @@ class PlotDataset:
         if self.label_key_name is not None and not self.updating_views:
             if event.key == 'down' or event.key == 'up':
                 self.updating_views = True
-                self.figure_objects[self.current_figure].on_key_press(event)
+                self.figure_objects[self.current_figure].on_key_press(event, self.synchronize_view_to_label)
                 self.updating_views = False
 
     def on_go_to(self, event):
