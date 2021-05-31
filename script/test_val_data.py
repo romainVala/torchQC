@@ -3,6 +3,7 @@ from utils_file import gfile, gdir, get_parent_path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 
 prefix = "/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/"
 
@@ -404,3 +405,13 @@ vol_T1ms = gfile(suj,'^mT')
 vol_brain = gfile(suj,'^brain_T1w_1mm.nii.gz')
 df = pd.DataFrame({"volume_T1": vol_T1, "volume_mask_brain":vol_brain,"volume_ms":vol_T1ms,  "suj_name":sujname})
 df.to_csv('/home/romain.valabregue/datal/QCcnn/CATI_datasets/HCP_val44_suj7.csv')
+
+
+#again to add affine mni coregistration file
+#df100 = pd.read_csv('/home/romain.valabregue/datal/QC/CATI/CATI_QCall_100suj.csv')
+df100 = pd.read_csv('/home/romain.valabregue/datal/QCcnn/CATI_datasets/CATI_QCall_100suj.csv')
+fT1 = df100.volume_T1
+dT1 = [os.path.dirname(ff) for ff in fT1  ]
+faff = gfile(dT1,'^aff.*txt')
+df100['affine_mni'] = faff
+df100.to_csv('/home/romain.valabregue/datal/QCcnn/CATI_datasets/CATI_QCall_100suj.csv')
