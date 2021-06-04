@@ -31,8 +31,12 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
     #tmot.metrics = None
     tmot.nT = fp.shape[1]
     tmot.simulate_displacement = False; #tmot.oversampling_pct = 1
-    tmot.fitpars = fp
     tmot.displacement_shift_strategy = param['displacement_shift_strategy']
+    if tmot.displacement_shift_strategy is None: #let's force demean for the first try to be not too far
+        fp = fp - np.mean(fp, axis=1, keepdims=True)
+        print('first motion is done with demean')
+
+    tmot.fitpars = fp
     smot = tmot(sdata)
     batch_time = time.time() - start;     start = time.time()
     print(f'First motion in  {batch_time} ')
@@ -117,6 +121,7 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         for i in range(6):
             fp[i, :] = fp[i, :] - trans_rot[i]
         tmot.fitpars = fp
+        tmot.displacement_shift_strategy = None
 
         smot_shift = tmot(sdata)
         out_vol = out_dir + '/vol_motion_no_shift.nii'
@@ -136,6 +141,12 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
                                                                 torch.zeros(1).unsqueeze(0),
                                                                 batch_time, save=False, extra_info=extra_info)
 
+        start = time.time()
+        image, brain_mask = sdata.t1.data[0].numpy(), sdata.brain.data[0].numpy()
+        df_disp = get_displacement_field_metric(image, brain_mask, fp)
+        batch_time = time.time() - start
+        print(f'Displacement field metrics in   {batch_time} ')
+
         #concatenate metrics dataframe before and after coreg
         df_keep1 = df_before_coreg[['transforms_metrics']]
         mres = ModelCSVResults(df_data=df_keep1, out_tmp="/tmp/rrr")
@@ -150,7 +161,7 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         df2 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix);
         df2.pop('transforms_metrics')
 
-        dfall = pd.concat([df2, df1], sort=True, axis=1);
+        dfall = pd.concat([df_disp, df2, df1], sort=True, axis=1);
 
         if out_dir is not None:
             if not os.path.isdir(out_dir): os.mkdir(out_dir)
@@ -624,6 +635,55 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
 
     return y
 
+def get_displacement_field_metric(image, brain_mask, fitpar):
+
+    #prepare weigths to check size
+    img_fft = (np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(image)))).astype(np.complex128)
+    coef_TF = np.sum(abs(img_fft), axis=(0,2)) ;
+    coef_shaw = np.sqrt( np.sum(abs(img_fft**2), axis=(0,2)) ) ;
+
+    if fitpar.shape[1] != coef_TF.shape[0] :
+        #just interpolate end to end. at image slowest dimention size
+        fitpar = interpolate_fitpars(fitpar, len_output=coef_TF.shape[0])
+        print(f'displacement_field: interp fitpar for wcoef new shape {fitpar.shape}')
+
+    nbt = fitpar.shape[1]
+
+    brain_mask[brain_mask > 0] = 1  # need pure mask
+    mean_disp_mask = np.zeros(nbt);    wimage_disp = np.zeros(nbt)    #mean_disp = np.zeros(nbt);
+    # max_disp = np.zeros(nbt);    min_disp = np.zeros(nbt)
+
+    for i in range(nbt):
+        P = np.hstack((fitpar[:, i], np.array([1, 1, 1, 0, 0, 0])))
+        aff = spm_matrix(P, order=0)
+
+        disp_norm = get_dist_field(aff, list(image.shape))
+        # disp_norm_small = get_dist_field(aff, [22,26,22], scale=8)
+        disp_norm_mask = disp_norm * (brain_mask)
+        # mean_disp[i] = np.mean(disp_norm)  #not usefull since take the all cube
+        # max_disp[i], min_disp[i] = np.max(disp_norm_mask), np.min(disp_norm_mask[brain_mask > 0])
+        #compute the weighted displacement (weigths beeing the image intensity) but wihtin brain mask !
+        wimage_disp[i] = np.sum(disp_norm_mask * image) / np.sum(image)
+        mean_disp_mask[i] = np.sum(disp_norm_mask) / np.sum(brain_mask)
+
+    #compute weighted metrics
+    res = dict(
+        MD_mask_mean = np.mean(mean_disp_mask) ,
+        MD_wimg_mean = np.mean(wimage_disp),
+        MD_mask_wTF  = np.sum(mean_disp_mask * coef_TF) / np.sum(coef_TF),
+        MD_mask_wTF2 = np.sum(mean_disp_mask * coef_TF**2) / np.sum(coef_TF**2),
+        MD_mask_wSH  = np.sum(mean_disp_mask * coef_shaw) / np.sum(coef_shaw),
+        MD_mask_wSH2 = np.sum(mean_disp_mask * coef_shaw**2) / np.sum(coef_shaw**2),
+        MD_wimg_wTF  = np.sum(wimage_disp * coef_TF) / np.sum(coef_TF),
+        MD_wimg_wTF2 = np.sum(wimage_disp * coef_TF**2) / np.sum(coef_TF**2),
+        MD_wimg_wSH  = np.sum(wimage_disp * coef_shaw) / np.sum(coef_shaw),
+        MD_wimg_wSH2 = np.sum(wimage_disp * coef_shaw**2) / np.sum(coef_shaw**2),
+    )
+
+    df = pd.DataFrame();
+    df = df.append(res, ignore_index=True)
+    return df
+
 def torch_deg2rad(tensor: torch.Tensor) -> torch.Tensor:
     r"""Function that converts angles from degrees to radians.
     Args:
@@ -714,7 +774,7 @@ def spm_imatrix(M, order=1):
     P = np.array([tx, ty, tz, rx, ry, rz, scalx, scaly, scalz, shearx, sheary, shearz])
     return P
 
-def spm_matrix(P,order=0):
+def spm_matrix(P,order=1):
     """
     FORMAT [A] = spm_matrix(P )
     P(0)  - x translation
@@ -1141,10 +1201,9 @@ def interpolate_fitpars(fpars, tr_fpars=None, tr_to_interpolate=2.4, len_output=
     return interpolated_fpars
 
 #Average fitpar
-def average_fitpar(fitpar, weights=None, average_exp_mat=True):
+def average_fitpar(fitpar, weights=None):
     q_list = []  #can't
     Aff_mean = np.zeros((4, 4))
-    Aff_Euc_mean = np.zeros((3, 3))
     if weights is None:
         weights = np.ones(fitpar.shape[1])
     #normalize weigths
@@ -1162,12 +1221,12 @@ def average_fitpar(fitpar, weights=None, average_exp_mat=True):
         #     _ = nq.unflip_rotors([previous_q, new_q], inplace=True)
         #     previous_q = new_q
         #q_list.append( new_q  )
-        Aff_Euc_mean = Aff_Euc_mean + weights[nbt] * affine[:3,:3]
         Aff_mean = Aff_mean + weights[nbt] * scl.logm(affine)
         dq = DualQuaternion.from_homogeneous_matrix(affine)
-        #dq_mean = DualQuaternion.sclerp(dq, dq_mean, 1-(weights[nbt])/(1+weights[nbt]))
-        dq_mean = DualQuaternion.sclerp(dq_mean, dq,(weights[nbt])/(1+weights[nbt]))
+        #dq_mean = DualQuaternion.sclerp(dq_mean, dq,(weights[nbt])/(1+weights[nbt]))
+        dq_meanE = weights[nbt] * dq if 'dq_meanE' not in dir() else  dq_meanE + weights[nbt] * dq
 
+    dq_meanE.normalize()
     Aff_mean = scl.expm(Aff_mean)
     wshift_exp = spm_imatrix(Aff_mean, order=0)[:6]
 
@@ -1179,9 +1238,10 @@ def average_fitpar(fitpar, weights=None, average_exp_mat=True):
     #Aff_q[:3,:3] = Aff_q_rot
     #wshift_quat = spm_imatrix(Aff_q, order=0)[:6]
     #wshift_quat[:3] = lin_fitpar[:3]
-    wshift_quat = spm_imatrix(dq_mean.homogeneous_matrix(), order=0)[:6]
+    #wshift_quat = spm_imatrix(dq_mean.homogeneous_matrix(), order=0)[:6]
+    wshift_quatE = spm_imatrix(dq_meanE.homogeneous_matrix(), order=0)[:6]
 
-    return wshift_quat, wshift_exp, lin_fitpar
+    return wshift_quatE, wshift_exp, lin_fitpar
 
 
 def paw_quaternion(qr, exponent):
@@ -1217,6 +1277,20 @@ def polar_mean_affin(aff_list, weights=None):
     Aff_mean = np.eye(4)
     Aff_mean[:3,:3] = scl.polar(Aff_Euc_mean)[0]
     return Aff_mean
+def dq_euclidian_mean(qr_list, weights=None):
+    if weights is None:
+        weights = np.ones(len(aff_list))
+    #normalize weigths
+    weights = weights / np.sum(weights)
+
+    for ii, qr in enumerate(qr_list):
+        if ii==0:
+            res_mean =  weights[ii]*qr
+        else:
+            res_mean = res_mean + weights[ii]*qr
+    res_mean.normalize()
+    return res_mean
+
 def dq_slerp_mean(dq_list):
     c_num, c_deno = 1, 2
     for ii, dq in enumerate(dq_list):
@@ -1242,6 +1316,19 @@ def qr_slerp_mean(qr_list):
             res_mean = nq.slerp(res_mean, qr, 0, 1, t) #res_mean * c_num + dq) / c_deno
             c_num+=1; c_deno+=1
     return res_mean
+def qr_euclidian_mean(qr_list, weights=None):
+    if weights is None:
+        weights = np.ones(len(aff_list))
+    #normalize weigths
+    weights = weights / np.sum(weights)
+
+    for ii, qr in enumerate(qr_list):
+        if ii==0:
+            res_mean =  weights[ii]*qr
+        else:
+            res_mean = res_mean + weights[ii]*qr
+
+    return res_mean / res_mean.norm()
 
 def my_mean(x_list):
     #just decompose the mean as a recursiv interpolation between 2 number, (to be extend to slerp interpolation)
@@ -1304,7 +1391,20 @@ def get_random_afine(angle=(2,10), trans=(0,0), origine=(80,100), mode='quat'):
         fp = np.ones(12); fp[9:]=0
         fp[3:6] = get_random_vec(angle,3)
         fp[:3] = get_random_vec(trans,3)
-        #print(fp)
+        aff = spm_matrix(fp, order=0)
+    if mode == 'euler2':
+        fp = np.ones(12); fp[9:]=0
+        angle_amplitude = get_random_vec(angle,1)
+        trans_amplitude = get_random_vec(trans, 1)
+        fp[:3] =  get_random_vec(normalize=True) * trans_amplitude
+        fp[3:6] = get_random_vec(normalize=True) * angle_amplitude
+        aff = spm_matrix(fp, order=0)
+    if mode == 'euler3':
+        fp = np.ones(12); fp[9:]=0
+        angle_amplitude = np.random.normal(loc=angle[1]/2, scale=angle[1],size=1)
+        trans_amplitude = np.random.normal(loc=trans[1]/2, scale=trans[1],size=1)
+        fp[:3] =  get_random_vec(normalize=True) * trans_amplitude
+        fp[3:6] = get_random_vec(normalize=True) * angle_amplitude
         aff = spm_matrix(fp, order=0)
     return(aff)
 
