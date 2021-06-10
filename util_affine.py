@@ -10,7 +10,11 @@ import torchio as tio
 
 pi = torch.tensor(3.14159265358979323846)
 import numpy.linalg as npl
-import quaternion as nq
+try:
+    import quaternion as nq
+except :
+    print('can not import quaternion package, ... not a big deal')
+
 from dual_quaternions import DualQuaternion
 import scipy.linalg as scl
 
@@ -23,7 +27,8 @@ def product_dict(**kwargs):
     return list(dict(zip(keys, values)) for values in product(*vals))
 
 def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_info=dict(), param=dict(),
-                 root_out_dir=None, suj_name='NotSet', fsl_coreg=True, return_motion=False, save_fitpars=False):
+                 root_out_dir=None, suj_name='NotSet', suj_orig_name=None,
+                 fsl_coreg=True, return_motion=False, save_fitpars=False):
 
     if 'displacement_shift_strategy' not in param: param['displacement_shift_strategy']=None
     # apply motion transform
@@ -46,7 +51,7 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
     df_before_coreg, report_time = config_runner.record_regression_batch(df_before_coreg, smot, torch.zeros(1).unsqueeze(0),
                                 torch.zeros(1).unsqueeze(0), batch_time, save=False, extra_info=extra_info)
 
-
+    clean_output = param["clean_output"] if "clean_output" in param else 0
     if fsl_coreg:
         import subprocess
         import numpy.linalg as npl
@@ -64,7 +69,10 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
 
         if root_out_dir is None: raise ('error outut path (root_out_dir) must be se ')
         if not os.path.isdir(root_out_dir): os.mkdir(root_out_dir)
-        orig_vol = root_out_dir + f'/vol_orig_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}.nii'
+        if suj_orig_name is None:
+            orig_vol = root_out_dir + f'/vol_orig_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}.nii'
+        else:
+            orig_vol = f'{root_out_dir}/{suj_orig_name}.nii'
         # save orig data in the upper dir
         if not os.path.isfile(orig_vol):
             sdata.t1.save(orig_vol)
@@ -83,6 +91,8 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         if not outvalue == 0:
             print(" ** Error  in " + cmd + " satus is  " + str(outvalue))
 
+        if clean_output>0:
+            os.remove(out_vol)
         #### reading and transforming FSL flirt Affine to retriev trans and rot set with spm_matrix(order=0) (as used torchio motion)
         out_aff = np.loadtxt(out_affine)
         affine = smot.t1.affine
@@ -125,7 +135,8 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
 
         smot_shift = tmot(sdata)
         out_vol = out_dir + '/vol_motion_no_shift.nii'
-        smot_shift.t1.save(out_vol)
+        if clean_output <2:
+            smot_shift.t1.save(out_vol)
 
         batch_time = time.time() - start
         print(f'coreg and second motion in  {batch_time} ')
@@ -165,7 +176,11 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
 
         if out_dir is not None:
             if not os.path.isdir(out_dir): os.mkdir(out_dir)
-            dfall.to_csv(out_dir + f'/metrics_fp_{suj_name}.csv')
+            saved_filename =  f'{out_dir}/metrics_fp_{suj_name}'
+            dfall.to_pickle(saved_filename + '.gz', protocol=3)
+            dfall["history"] = saved_filename + '.gz'
+            dfall.to_csv(saved_filename + ".csv")
+
             if save_fitpars:
                 fp_orig = fp.copy()
                 for i in range(6):
@@ -500,6 +515,18 @@ def create_motion_job(params, split_length, fjson, out_path, res_name, type='mot
                              f'json_file = \'{fjson}\'',
                              '_ = perform_one_motion(fp_path,json_file, root_out_dir=out_path) "'])
             jobs.append(cmd)
+    elif type=='one_motion_simulated':
+        cmd_init = '\n'.join(['python -c "', "from util_affine import perform_one_simulated_motion "])
+        jobs = []
+        for nj in range(nb_job):
+            ind_start = nj * split_length;
+            ind_end = np.min([(nj + 1) * split_length, nb_param])
+
+            cmd = '\n'.join([cmd_init, f'params = {params[ind_start:ind_end]}',
+                             f'out_path = \'{out_path}\'',
+                             f'json_file = \'{fjson}\'',
+                             '_ = perform_one_simulated_motion(params,json_file, root_out_dir=out_path) "'])
+            jobs.append(cmd)
 
     job_params = dict()
     job_params[
@@ -514,6 +541,66 @@ def create_motion_job(params, split_length, fjson, out_path, res_name, type='mot
 
     create_jobs(job_params)
 
+def get_default_param(param=None):
+    if param is None:
+        param = dict()
+
+    if not isinstance(param, list):
+        params = [param]
+    else:
+        params = param
+    for param in params:
+        if 'suj_contrast' not in param: param['suj_contrast'] = 1
+        if 'suj_noise' not in param: param['suj_noise'] = 0.01
+        if 'suj_index' not in param: param['suj_index'] = 0
+        if 'suj_deform' not in param: param['suj_deform'] = 0
+        if 'displacement_shift_strategy' not in param: param['displacement_shift_strategy']=None
+
+    return params
+
+def perform_one_simulated_motion(params, fjson, root_out_dir=None, fsl_coreg=True, return_motion=False):
+    df = pd.DataFrame()
+    params  = get_default_param(params)
+    for param in params:
+        # get the data
+        sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
+        # load mvt fitpars
+
+        suj_name0 = f'Suj_{sdata.name}_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}_S{param["suj_seed"]}'
+
+        for nbmot in range(param['nb_x0s']):
+            cmd = '\n'.join(['python -c "', "from util_affine import perform_one_simulated_motion ",
+                             f'params = {param}',
+                             f'out_path = \'{root_out_dir}\'',
+                             f'json_file = \'{fjson}\'',
+                             '_ = perform_one_simulated_motion(params,json_file, root_out_dir=out_path) "'
+                             ])
+
+            tmot.preserve_center_frequency_pct = 0;
+            tmot.nT = 218
+            amplitude = param['amplitude']
+            tmot.maxGlobalDisp, tmot.maxGlobalRot = (amplitude, amplitude), (amplitude, amplitude)
+            tmot._simulate_random_trajectory()
+            fp = tmot.fitpars
+            
+            fp_name = f'_fp_Amp{amplitude}_N{nbmot:02d}'
+            suj_name = suj_name0 + fp_name
+
+            extra_info = dict( suj_name_fp=suj_name, flirt_coreg=1)
+            extra_info = dict(param, **extra_info)
+            extra_info['out_dir'] = suj_name
+            extra_info['job_cmd'] = cmd
+
+            one_df = apply_motion(sdata, tmot, fp, config_runner, extra_info=extra_info, param=param,
+                                  root_out_dir=root_out_dir, suj_name=suj_name,  suj_orig_name = suj_name0,
+                                  fsl_coreg=fsl_coreg, save_fitpars=True)
+            if len(df)==0:
+                df = one_df
+            else:
+                df = pd.concat([df, one_df], axis=0, sort=False)
+
+    return df
+
 def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None, fsl_coreg=True, return_motion=False):
     def get_sujname_from_path(ff):
         name = [];
@@ -524,14 +611,8 @@ def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None, fsl_coreg
         return '_'.join(reversed(name))
 
     df = pd.DataFrame()
-    if param is None:
-        param = dict()
+    param  = get_default_param(param)
 
-    if 'suj_contrast' not in param: param['suj_contrast'] = 1
-    if 'suj_noise' not in param: param['suj_noise'] = 0.01
-    if 'suj_index' not in param: param['suj_index'] = 0
-    if 'suj_deform' not in param: param['suj_deform'] = 0
-    if 'displacement_shift_strategy' not in param: param['displacement_shift_strategy']=None
     if isinstance(fp_paths, str):
         fp_paths = [fp_paths]
 
@@ -651,7 +732,7 @@ def get_displacement_field_metric(image, brain_mask, fitpar):
 
     brain_mask[brain_mask > 0] = 1  # need pure mask
     mean_disp_mask = np.zeros(nbt);    wimage_disp = np.zeros(nbt)    #mean_disp = np.zeros(nbt);
-    # max_disp = np.zeros(nbt);    min_disp = np.zeros(nbt)
+    max_disp = np.zeros(nbt);    min_disp = np.zeros(nbt)
 
     for i in range(nbt):
         P = np.hstack((fitpar[:, i], np.array([1, 1, 1, 0, 0, 0])))
@@ -661,14 +742,17 @@ def get_displacement_field_metric(image, brain_mask, fitpar):
         # disp_norm_small = get_dist_field(aff, [22,26,22], scale=8)
         disp_norm_mask = disp_norm * (brain_mask)
         # mean_disp[i] = np.mean(disp_norm)  #not usefull since take the all cube
-        # max_disp[i], min_disp[i] = np.max(disp_norm_mask), np.min(disp_norm_mask[brain_mask > 0])
+        max_disp[i], min_disp[i] = np.max(disp_norm_mask), np.min(disp_norm_mask[brain_mask > 0])
         #compute the weighted displacement (weigths beeing the image intensity) but wihtin brain mask !
         wimage_disp[i] = np.sum(disp_norm_mask * image) / np.sum(image)
         mean_disp_mask[i] = np.sum(disp_norm_mask) / np.sum(brain_mask)
 
     #compute weighted metrics
     res = dict(
-        MD_mask_mean = np.mean(mean_disp_mask) ,
+        mean_disp_mask = mean_disp_mask,
+        max_disp = max_disp,
+        min_disp = min_disp,
+        MD_mask_mean = np.mean(mean_disp_mask),
         MD_wimg_mean = np.mean(wimage_disp),
         MD_mask_wTF  = np.sum(mean_disp_mask * coef_TF) / np.sum(coef_TF),
         MD_mask_wTF2 = np.sum(mean_disp_mask * coef_TF**2) / np.sum(coef_TF**2),
