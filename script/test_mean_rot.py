@@ -9,10 +9,11 @@ nb_mean=500
 euler_mean, euler_choral, euler_exp, euler_pol, euler_slerp, euler_qr_slerp = np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3))
 for i in range(nb_mean):
     #rot_euler = np.random.normal(size=(10, 3),loc=20,scale=5) #in degree
-    rot_euler = np.random.uniform(-20,20,size=(10, 3)) #in degree
+    rot_euler = np.random.uniform(-10,10,size=(10, 3)) #in degree
     #print(f'min {np.min(rot_euler)} max {np.max(rot_euler)}')
     aff_list = get_affine_rot_from_euler(rot_euler) #4*4 affine matrix
     qr_list = [ nq.from_rotation_matrix(aff) for aff in aff_list]  #unit quaternion
+    dq_list = [ DualQuaternion.from_homogeneous_matrix(aff) for aff in aff_list]  #unit quaternion
 
     euler_mean[i,:] = np.mean(rot_euler,axis=0)
 
@@ -27,6 +28,9 @@ for i in range(nb_mean):
 
     qr_mean = qr_slerp_mean(qr_list)
     euler_qr_slerp[i,:] = get_euler_from_qr(qr_mean)
+    #qr_mean = qr_euclidian_mean(qr_list) #arg diff 180  ??
+    #qr_mean = dq_euclidian_mean(dq_list)
+    #euler_qr_slerp[i, :] = get_euler_from_dq(qr_mean)
 
 print(f'max diff euler between exp matrix and euler mean {np.max(np.abs(euler_exp - euler_mean))}')
 print(f'max diff euler between polar matrix and euler mean {np.max(np.abs(euler_pol - euler_mean))}')
@@ -59,6 +63,49 @@ print(f'max diff euler between choral and polar {np.max(np.abs(euler_choral - eu
 # max diff euler between slerp and exp  0.11185358484109642
 # max diff euler between slerp and polar  0.29266563097344833
 # ####
+
+#idem but with affine
+
+np.random.seed(4)
+nb_mean, nb_aff = 500, 205
+euler_trans, exp_trans, quat_trans, euler_rot, exp_rot, quat_rot  = np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3))
+for i in range(nb_mean):
+    aff_list = [ get_random_afine(angle=(0,20), trans=(0,20), origine=(0,150), mode='euler2') for i in range(nb_aff)]
+    fitpar = np.array([spm_imatrix(aff, order=0)[:6] for aff in aff_list]).T
+
+    m_quat, mshift, m_lin = average_fitpar(fitpar)
+    euler_trans[i,:], exp_trans[i,:], quat_trans[i,:] = m_lin[:3], mshift[:3], m_quat[:3]
+    euler_rot[i,:], exp_rot[i,:], quat_rot[i,:] = m_lin[3:], mshift[3:], m_quat[3:]
+    if i%50==0:
+        print(f'{i}')
+
+errT = npl.norm(euler_trans - quat_trans,axis=1)
+errR = npl.norm(euler_rot - quat_rot,axis=1)
+print(f' euler / quat  trans {np.mean(errT):.3f} < {np.max(errT):.3f}   Rot {np.mean(errR):.3f} < {np.max(errR):.3f} ')
+errT = npl.norm(euler_trans - exp_trans,axis=1)
+errR = npl.norm(euler_rot - exp_rot,axis=1)
+print(f' euler / exp  trans {np.mean(errT):.3f} < {np.max(errT):.3f}   Rot {np.mean(errR):.3f} < {np.max(errR):.3f} ')
+errT = npl.norm(quat_trans - exp_trans,axis=1)
+errR = npl.norm(quat_rot - exp_rot,axis=1)
+print(f' quat / exp  trans {np.mean(errT):.3f} < {np.max(errT):.3f}   Rot {np.mean(errR):.3f} < {np.max(errR):.3f} ')
+
+pour -10,10   500, 100
+ euler / quat  trans 0.022 < 0.049   Rot 0.016 < 0.049
+ euler / exp  trans 0.022 < 0.049   Rot 0.016 < 0.049
+ quat / exp  trans 0.001 < 0.001   Rot 0.000 < 0.001
+pour -10,10   500, 5
+ euler / quat  trans 0.083 < 0.282   Rot 0.060 < 0.183
+ euler / exp  trans 0.083 < 0.285   Rot 0.060 < 0.181
+ quat / exp  trans 0.002 < 0.009   Rot 0.001 < 0.005
+
+pour 0,20 500, 205
+ euler / quat  trans 0.061 < 0.142   Rot 0.046 < 0.121
+ euler / exp  trans 0.060 < 0.142   Rot 0.046 < 0.122
+ quat / exp  trans 0.003 < 0.007   Rot 0.002 < 0.004
+pour0, 20 500, 5
+euler / quat  trans 0.333 < 1.154   Rot 0.242 < 0.789
+ euler / exp  trans 0.333 < 1.164   Rot 0.242 < 0.788
+ quat / exp  trans 0.015 < 0.068   Rot 0.010 < 0.040
 
 
 #difference / mean
