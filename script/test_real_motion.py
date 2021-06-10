@@ -4,9 +4,8 @@ from segmentation.config import Config
 from segmentation.run_model import RunModel
 from nibabel.viewers import OrthoSlicer3D as ov
 import glob, os, numpy as np, pandas as pd, matplotlib.pyplot as plt, numpy.linalg as npl
-import scipy.linalg as scl, scipy.stats as ss, quaternion as nq
+import scipy.linalg as scl, scipy.stats as ss #, quaternion as nq
 from scipy.spatial import distance_matrix
-#from util_affine import perform_one_motion, product_dict, create_motion_job, select_data, corrupt_data, apply_motion, spm_matrix, spm_imatrix
 from util_affine import *
 
 import nibabel as nib
@@ -41,12 +40,12 @@ def parse_string_array(ss):
     dd = ss.split(' ')
     dl=[]
     for ddd in dd:
-        if len(ddd)>2:
+        if len(ddd)>1:
             dl.append(float(ddd))
     return np.array(dl)
 #reasign each 6 disp key to rot_or rot vector
 def disp_to_vect(s,key,type):
-    if type=='rot':
+    if type=='trans':
         k1 = key[:-1] + '0'; k2 = key[:-1] + '1'; k3 = key[:-1] + '2';
     else:
         k1 = key[:-1] + '3'; k2 = key[:-1] + '4'; k3 = key[:-1] + '5';
@@ -61,6 +60,7 @@ out_path = '/data/romain/PVsynth/motion_on_synth_data/fsl_coreg_along_x0_rot_ori
 dircati = '/network/lustre/iss01/cenir/analyse/irm/users/ghiles.reguig/These/Dataset/cati_full/delivery_new/'
 fjson = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/test1/main.json'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fit_parmCATI_raw/'
+out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fit_parmCATI_raw_new/'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fsl_coreg_rot_trans_sigma_2-256_x0_256_suj_0/'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fsl_coreg_along_x0_transXYZ_suj_0'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fit_parmCATI_raw_demean/'
@@ -82,7 +82,7 @@ fi = (np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(image)))).astype(np.complex12
 
 ### ###### run motion on all fitpar
 split_length = 10
-create_motion_job(fp_paths, split_length, fjson, out_path, res_name='fit_parmCATI_raw', type='one_motion')
+create_motion_job(fp_paths, split_length, fjson, out_path, res_name='fit_parmCATI_raw', type='one_motion',job_pack=10)
 ##############"
 
 #read results
@@ -111,14 +111,17 @@ df_coreg['TR'] = dfall['TR']
 
 
 #add max amplitude and select data
+dq_list, fitpar_list = [], []
 for ii, fp_path in enumerate(df_coreg.fp.values):
     fitpar = np.loadtxt(fp_path)
     amplitude_max = fitpar.max(axis=1) - fitpar.min(axis=1)
     trans = npl.norm(fitpar[:3,:], axis=0); angle = npl.norm(fitpar[3:6,:], axis=0)
     for i in range(6):
         cname = f'amp_max{i}';        df_coreg.loc[ii, cname] = amplitude_max[i]
-        cname = f'zero_shift{i}';        df_coreg.loc[ii, cname] = fitpar[i,fitpar.shape[1]//2]
-        cname = f'mean_shift{i}';        df_coreg.loc[ii, cname] = np.mean(fitpar[i,:])
+        #cname = f'zero_shift{i}';        df_coreg.loc[ii, cname] = fitpar[i,fitpar.shape[1]//2]
+        #cname = f'mean_shift{i}';        df_coreg.loc[ii, cname] = np.mean(fitpar[i,:])
+        cname = f'center_Disp_{i}';        df_coreg.loc[ii, cname] = fitpar[i,fitpar.shape[1]//2]
+        cname = f'mean_Disp_{i}';        df_coreg.loc[ii, cname] = np.mean(fitpar[i,:])
 
     #dd = distance_matrix(fitpar[:3,:].T, fitpar[:3,:].T)
     trans_diff = fitpar.T[:,None,:3] - fitpar.T[None,:,:3]  #numpy broadcating rule !
@@ -126,13 +129,113 @@ for ii, fp_path in enumerate(df_coreg.fp.values):
     ddrot = np.linalg.norm(fitpar.T[:,None,3:] - fitpar.T[None,:,3:] , axis=-1)
     df_coreg.loc[ii, 'trans_max'] = dd.max(); df_coreg.loc[ii, 'rot_max'] = ddrot.max();
     df_coreg.loc[ii, 'amp_max_max'] = amplitude_max.max() #not very usefule (underestimation)
+    df_coreg.loc[ii, 'amp_max_trans'] = amplitude_max[:3].max() #not very usefule (underestimation)
+    df_coreg.loc[ii, 'amp_max_rot'] = amplitude_max[3:].max() #not very usefule (underestimation)
     #store max trans and max rot
     i,j = np.unravel_index(dd.argmax(), dd.shape)
-    df_coreg.loc[ii, 'max_translation'] = str( (fitpar[:,i] - fitpar[:,j]).tolist())
+    fitpar_tmax = (fitpar[:,i] - fitpar[:,j])
+    df_coreg.loc[ii, 'max_translation'] = str( fitpar_tmax.tolist())
     ir,jr = np.unravel_index(ddrot.argmax(), ddrot.shape)
-    df_coreg.loc[ii, 'max_rotation'] = str( fitpar[:,ir] - fitpar[:,jr])
+    fitpar_rmax = fitpar[:,ir] - fitpar[:,jr]
+    df_coreg.loc[ii, 'max_rotation'] = str(fitpar_rmax)
+
+    P = np.hstack([fitpar_tmax, [1, 1, 1, 0, 0, 0]])
+    aff = spm_matrix(P, order=1)
+    dq = DualQuaternion.from_homogeneous_matrix(aff)
+    fitpar_list.append(fitpar_tmax)
+    dq_list.append(dq)
     if not (i==ir) and (j==jr):
         print(f'suj {ii} diff max trans and rot')
+    else:
+        P = np.hstack([fitpar_rmax, [1, 1, 1, 0, 0, 0]])
+        aff = spm_matrix(P, order=1)
+        dq = DualQuaternion.from_homogeneous_matrix(aff)
+        fitpar_list.append(fitpar_rmax)
+        dq_list.append(dq)
+
+isel= (df_coreg.trans_max>1) | (df_coreg.rot_max>1)
+
+plt.figure()
+plt.hist(df_coreg.trans_max[df_coreg.trans_max<10],bins=100)
+PP = np.array(fitpar_list)
+Pmax = np.max(PP,axis=1)
+PP = PP[Pmax<10,:] # filter out 79 suj
+fig ,ax = plt.subplots(nrows=2,ncols=3)
+legend = ['Tx','Ty','Tz','Rx','Ry','Rz']
+for i in range(6):
+    ii,jj = np.unravel_index(i, [2,3])
+    aa = ax[ii,jj]; aa.hist(PP[:,i], bins=250); aa.set_xlim([-5,5])
+    aa.title.set_text(legend[i])
+
+dq_arr = np.array(dq_list) ; dq_arr = dq_arr[Pmax<10]
+nbpts = len(dq_arr)
+thetas = np.zeros(nbpts); disp = np.zeros(nbpts); axiscrew = np.zeros((3,nbpts))
+line_distance = np.zeros(nbpts); origin_pts = np.zeros((3,nbpts))
+trans = np.zeros(nbpts);angle_sum = np.zeros(nbpts); one_sub_dq_list=[]
+for nbt, dq in enumerate(dq_arr):
+    l, m, tt, dd = dq.screw()
+    thetas[nbt] = np.rad2deg(tt); disp[nbt] = abs(dd)
+    if npl.norm(l)<1e-10:
+        origin_pts[:,nbt] = [0, 0, 0]
+    else:
+        origin_pts[:,nbt] = np.cross(l,m)
+    axiscrew[:,nbt] = l;   line_distance[nbt] = npl.norm(m)
+    P = PP[nbt,:]
+    trans[nbt] = npl.norm(P[:3])
+    angle_sum[nbt] = npl.norm(np.abs(P[3:6])) #too bad in maths : euler norm = teta ! but sometimes aa small shift
+
+isel = (line_distance<300) & (trans <10) & (thetas<10); nbbins=150
+
+fig ,ax = plt.subplots(nrows=5,ncols=3)
+aa=ax[0,0]; aa.hist(axiscrew[0,isel],bins=nbbins); aa.set_ylabel('orient X');aa.axvline(axiscrew[0,isel].mean(), color='k', linestyle='dashed', linewidth=2)
+aa=ax[0,1]; aa.hist(axiscrew[1,isel],bins=nbbins); aa.set_ylabel('orient Y');aa.axvline(axiscrew[0,isel].mean(), color='k', linestyle='dashed', linewidth=2)
+aa=ax[0,2]; aa.hist(axiscrew[2,isel],bins=nbbins); aa.set_ylabel('orient Z');aa.axvline(axiscrew[0,isel].mean(), color='k', linestyle='dashed', linewidth=2)
+aa=ax[1,0]; aa.hist(origin_pts[0,isel2],bins=nbbins); aa.set_ylabel('origin_pts X'); aa.axvline(origin_pts[0,isel2].mean(), color='k', linestyle='dashed', linewidth=2); #aa.set_xlim([-200,200])
+aa=ax[1,1]; aa.hist(origin_pts[1,isel2],bins=nbbins); aa.set_ylabel('origin_pts Y'); aa.axvline(origin_pts[1,isel2].mean(), color='k', linestyle='dashed', linewidth=2); #aa.set_xlim([-200,200])
+aa=ax[1,2]; aa.hist(origin_pts[2,isel2],bins=nbbins); aa.set_ylabel('origin_pts Z'); aa.axvline(origin_pts[2,isel2].mean(), color='k', linestyle='dashed', linewidth=2); #aa.set_xlim([-200,200])
+aa=ax[2,0]; aa.hist(thetas[isel], bins=nbbins); aa.set_ylabel('theta'); aa.axvline(thetas.mean(), color='k', linestyle='dashed', linewidth=2)
+aa=ax[2,1]; aa.hist(trans[isel], bins=nbbins); aa.set_ylabel('trans_norm'); aa.axvline(trans.mean(), color='k', linestyle='dashed', linewidth=2)
+aa=ax[2,2]; aa.hist(disp[isel], bins=nbbins); aa.set_ylabel('disp'); aa.axvline(disp.mean(), color='k', linestyle='dashed', linewidth=2)
+#fig, ax = plt.subplots(nrows=3,ncols=3)
+aa=ax[3,0]; aa.hist(PP[isel,0],bins=nbbins); aa.set_ylabel('TX');aa.axvline(PP[isel,0].mean(), color='k', linestyle='dashed', linewidth=2); #aa.set_xlim([-4,4])
+aa=ax[3,1]; aa.hist(PP[isel,1],bins=nbbins); aa.set_ylabel('TY');aa.axvline(PP[isel,1].mean(), color='k', linestyle='dashed', linewidth=2); #aa.set_xlim([-4,4])
+aa=ax[3,2]; aa.hist(PP[isel,2],bins=nbbins); aa.set_ylabel('TZ');aa.axvline(PP[isel,2].mean(), color='k', linestyle='dashed', linewidth=2); #aa.set_xlim([-4,4])
+aa=ax[4,0]; aa.hist(PP[isel,3],bins=nbbins); aa.set_ylabel('RX');aa.axvline(PP[isel,3].mean(), color='k', linestyle='dashed', linewidth=2); #aa.set_xlim([-4,4])
+aa=ax[4,1]; aa.hist(PP[isel,4],bins=nbbins); aa.set_ylabel('RY');aa.axvline(PP[isel,4].mean(), color='k', linestyle='dashed', linewidth=2); #aa.set_xlim([-4,4])
+aa=ax[4,2]; aa.hist(PP[isel,5],bins=nbbins); aa.set_ylabel('RZ');aa.axvline(PP[isel,5].mean(), color='k', linestyle='dashed', linewidth=2); #aa.set_xlim([-4,4])
+
+tnorm = npl.norm(PP[:,:3],axis=1); rnorm = npl.norm(PP[:,3:],axis=1)
+aa=ax[2,0]; aa.hist(rnorm[isel], bins=nbbins); aa.set_ylabel('euler_norm'); aa.axvline(rnorm.mean(), color='k', linestyle='dashed', linewidth=2)
+aa=ax[2,1]; aa.hist(tnorm[isel], bins=nbbins); aa.set_ylabel('trans_norm'); aa.axvline(tnorm.mean(), color='k', linestyle='dashed', linewidth=2)
+fig ,ax = plt.subplots(nrows=2,ncols=2)
+aa=ax[0,0]; aa.scatter(disp, trans)
+aa=ax[0,1]; aa.scatter(thetas, angle_sum)
+
+#same with random affine
+nbpts=10000
+thetas = np.zeros(nbpts); disp = np.zeros(nbpts); axiscrew = np.zeros((3,nbpts))
+line_distance = np.zeros(nbpts); origin_pts = np.zeros((3,nbpts))
+trans = np.zeros(nbpts);trans_e = np.zeros(nbpts);angle_sum = np.zeros(nbpts); one_sub_dq_list=[]
+PP = np.zeros((nbpts,6)); skip=0
+for nbt in range(nbpts):
+    #aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='quat')
+    aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='euler3')
+    dq = DualQuaternion.from_homogeneous_matrix(aff)
+    res = get_info_from_dq(dq)
+#    while res['line_dist'] > 500:
+#        skip +=1
+#        aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='euler2')
+#        dq = DualQuaternion.from_homogeneous_matrix(aff)
+#        res = get_info_from_dq(dq)
+
+    thetas[nbt] = res['theta'];  disp[nbt] =  res['disp']
+    origin_pts[:,nbt] = res['origin_pts']; axiscrew[:,nbt] = res['l'];   line_distance[nbt] = res['line_dist']
+    trans[nbt] = npl.norm(res['trans'])
+    P = spm_imatrix(aff, order=0) ; PP[nbt,:] = P[:6]
+    trans_e[nbt] = npl.norm(P[:3])
+    angle_sum[nbt] = npl.norm(np.abs(P[3:6])) #too bad in maths : euler norm = teta ! but sometimes aa small shift
+isel = range(nbpts)
+isel2 = line_distance<1000; print(f'skip {nbpts - np.sum(isel2)} jsut for orign_ptx')
 
 #get dual_quaternion description angle disp screw axis ...
 #select suj to perform motion sim on
@@ -158,7 +261,7 @@ for ii, fp_path in enumerate(df_coreg.fp.values):
         aff = spm_matrix(P, order=1)
         dq = DualQuaternion.from_homogeneous_matrix(aff)
         one_sub_dq_list.append(dq)
-        l, m, tt, dd = dq.screw(rtol=1e-5)
+        l, m, tt, dd = dq.screw()
 
         thetas[nbt] = np.rad2deg(tt); disp[nbt] = abs(dd)
         if npl.norm(l)<1e-10:
@@ -213,14 +316,6 @@ X, Y, Z = zip(*origin_pts.T); U,V,W = zip(*axiscrew.T*5)
 ax.quiver(X, Y, Z, U, V, W)
 fig = plt.figure();ax = plt.axes(projection ='3d');plt.xlabel('x') ;plt.ylabel('y')
 ax.scatter(suj_origin[0,:],suj_origin[1,:],suj_origin[2,:])
-fig ,ax = plt.subplots(nrows=2,ncols=2)
-aa=ax[0,0]; aa.hist(suj_origin[0,:],bins=500); aa.set_ylabel('origin_pts X');aa.grid()
-aa=ax[0,1]; aa.hist(suj_origin[1,:],bins=500); aa.set_ylabel('origin_pts Y');aa.grid()
-aa=ax[1,0]; aa.hist(suj_origin[2,:],bins=500); aa.set_ylabel('origin_pts Z');aa.grid()
-fig ,ax = plt.subplots(nrows=2,ncols=2)
-aa=ax[0,0]; aa.hist(suj_screew[0,:],bins=500); aa.set_ylabel('suj_screew X');aa.grid()
-aa=ax[0,1]; aa.hist(suj_screew[1,:],bins=500); aa.set_ylabel('suj_screew Y');aa.grid()
-aa=ax[1,0]; aa.hist(suj_screew[2,:],bins=500); aa.set_ylabel('suj_screew Z');aa.grid()
 
 df = pd.DataFrame()
 dq_dict = [get_info_from_dq(dq) for dq in dq_list]
@@ -235,25 +330,6 @@ fig.suptitle('40000 affine from CATI raw theta>2')
 plt.plot(np.sort(df_coreg.amp_max_max));plt.grid()
 df_coreg = df_coreg[ (df_coreg.amp_max_max>2) ];  df_coreg.index = range(len(df_coreg))
 
-[tx,ty,tz,rx,ry,rz] = fitpar[:,110]
-[tx,ty,tz,rx,ry,rz] = [0,0,0,10,15,20]
-aff = spm_matrix([tx,ty,tz,rx,ry,rz,1,1,1,0,0,0],order=1)
-
-# change aff_direct to have rotation expres at nifi origin
-voxel_shift = [-100, -200, 50]
-T = spm_matrix([voxel_shift[0], voxel_shift[1], voxel_shift[2], 0, 0, 0, 1, 1, 1, 0, 0, 0], order=4);
-Ti = npl.inv(T)
-aff_new = np.matmul(T, np.matmul(aff, Ti))
-#aff_new = np.matmul(Ti, np.matmul(aff, T))
-
-dq = DualQuaternion.from_homogeneous_matrix(aff_new)
-l, m, tt, dd = dq.screw(rtol=1e-5)
-np.cross(l,m)
-
-rot = aff_new.copy(); offset = rot[:,3].copy(); offset[3]=0; rot[:,3] = [0, 0, 0, 1]
-rr = np.eye(4) - rot
-npl.pinv(rr).dot(offset)
-#no single solution go to quaternion !
 
 
 #explore mean disp for different transform (select from frmi)
@@ -293,9 +369,11 @@ df.euler_fp = df.euler_fp.apply(lambda x: makeArray(x))
 #Displacement testing
 df = pd.DataFrame(); sphere_mask = get_sphere_mask(image)
 brain_mask[brain_mask>0] = 1 #need pure mask
-for i in range(200):
-    aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='quat')
-    aff = get_random_afine(angle=(2,2), trans=(-5,5), origine=(0,150), mode='euler')
+for i in range(1000):
+    #aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='quat')
+    #aff = get_random_afine(angle=(2,2), trans=(-5,5), origine=(0,150), mode='euler2')
+    aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='euler2')
+
     disp_norm = get_dist_field(aff, list(image.shape))
     #disp_norm_small = get_dist_field(aff, [22,26,22], scale=8)
     disp_norm_mask = disp_norm * (brain_mask.numpy())
@@ -319,6 +397,11 @@ for i in range(200):
     res = dict(get_info_from_dq(DualQuaternion.from_homogeneous_matrix(aff)), **res)
     df = df.append(res, ignore_index=True)
 
+axiscrew = np.vstack( df.l.values).T; origin_pts = np.vstack(df.origin_pts.values).T; thetas = df.theta.values
+trans = df.trans.apply(lambda x: npl.norm(x)).values; disp = df.disp
+PP=np.vstack(df.aff.apply(lambda x: spm_imatrix(x,order=0)[:6]).values)
+isel2 = isel = range(trans.shape[0])
+
 img_center = np.array(brain_mask.numpy().shape)//2
 import scipy
 center_ofm=[0,0,0] #scipy.ndimage.measurements.center_of_mass(brain_mask.numpy()) - img_center
@@ -341,15 +424,16 @@ plt.figure();plt.scatter(err,abs(transrotN)/abs(transrot))
 
 plt.figure();plt.scatter(df.disp,df.euler_trans)
 x = df.max_disp; # df.wmean_disp_mask #df.wmean_disp_sphere # x = df.mean_disp
+fig, axs = plt.subplots(nrows=3, ncols=3); nrow=0
 for x_key in sel_key:
     x = df[x_key]
-    fig, axs = plt.subplots(nrows=2, ncols=2)
-    axs[0,0].scatter(x, df.fd_P); axs[0,0].grid(); axs[0,0].set_ylabel('fd_P'); axs[0,0].set_xlabel(x_key)
-    axs[0,1].scatter(x, df.fd_J); axs[0,1].grid(); axs[0,1].set_ylabel('fd_J'); axs[0,1].set_xlabel(x_key)
-    axs[1,0].scatter(x, df.fd_M); axs[1,0].grid(); axs[1,0].set_ylabel('fd_M'); axs[1,0].set_xlabel(x_key)
+    aa=axs[nrow,0]; aa.scatter(x, df.fd_P); aa.grid(); aa.set_ylabel('fd_P'); aa.set_xlabel(x_key)
+    aa=axs[nrow,1]; aa.scatter(x, df.fd_J); aa.grid(); aa.set_ylabel('fd_J'); aa.set_xlabel(x_key)
+    aa=axs[nrow,2]; aa.scatter(x, df.fd_M); aa.grid(); aa.set_ylabel('fd_M'); aa.set_xlabel(x_key)
+    nrow+=1
 
-sel_key =['mean_disp', 'max_disp', 'wmean_disp_mask', 'wmean_disp_sphere']
-sel_key +=['max_disp_sphere']
+sel_key =[ 'wmean_disp_mask', 'wmean_disp_sphere', 'max_disp_sphere']
+sel_key =['mean_disp', 'max_disp', 'wmean_disp_mask', 'wmean_disp_sphere', 'max_disp_sphere']
 sns.pairplot(df[sel_key],kind="scatter", corner=True)
 
 ind = (df.wmean_disp_sphere>29.5)&(df.wmean_disp_sphere<30.5)
@@ -449,6 +533,7 @@ coef_TF_3D = np.sum(abs(fi), axis=(0,2)) # easier to comute than with interval (
 coef2_TF_3D = np.sum(abs(fi**2), axis=(0,2)) # this one is equivalent to wafft**2
 w_coef_shaw = wafft/np.sum(wafft) #since it is equivalent
 w_coef_short = coef_TF_3D/np.sum(coef_TF_3D)
+w_coef_shaw2 = np.sqrt(coef2_TF_3D) #an other way then from 3D fft
 
 plt.figure(); plt.plot(wafft/np.sum(wafft)); plt.plot(wa2fft/np.sum(wa2fft))
 plt.plot(coef_TF_3D/np.sum(coef_TF_3D)); plt.plot(coef2_TF_3D/np.sum(coef2_TF_3D))
@@ -539,6 +624,7 @@ for ii, fp_path in enumerate(df_coreg.fp.values):
     #fitparinter = _interpolate_space_timing(fitpar, 0.004, 2.3,[218, 182],0)
     #fitparinter = _tile_params_to_volume_dims(fitparinter, list(image.shape))
 
+    m_quat, mshift, m_lin = average_fitpar(fitpar, np.ones_like(w_coef_short))
     w_quat, wshift, w_lin = average_fitpar(fitpar, w_coef_short)
     w_quat_shaw, wshift_shaw, w_lin_shaw = average_fitpar(fitpar, w_coef_shaw)
     w2_quat, w2shift, w2_lin = average_fitpar(fitpar, w_coef_short**2)
@@ -553,15 +639,16 @@ for ii, fp_path in enumerate(df_coreg.fp.values):
         #rcheck = df_nocoreg.loc[ii,f'm_wTF_Disp_{i}']
         #print(f'n={i} mean disp {i} = {rrr}  / {rcheck} after shift {rcheck2}')
         #cname = f'before_coreg_wTF_Disp_{i}';        df_coreg.loc[ii, cname] = rrr
-
         rrr2 = np.sum(fitpar[i]*w_coef_short) #/ np.sum(w_coef_short)
         #fsl_shift = df_coreg.loc[ii, f'shift_T{i + 1}'] if i < 3 else df_coreg.loc[ii, f'shift_R{i - 2}']
-        fsl_shift = 111#df_coreg.loc[ii, f'shift_{i}']
+        #fsl_shift = 111#df_coreg.loc[ii, f'shift_{i}']
         #print(f'n={i} mean disp {i} (full/approx) = {rrr}  / {rrr2} after shift {rcheck2}')
-        cname = f'before_coreg_short_wTF_Disp_{i}';        df_coreg.loc[ii, cname] = rrr2
+        #cname = f'before_coreg_short_wTF_Disp_{i}';        df_coreg.loc[ii, cname] = rrr2
 
-        #print(f'n={i} fsl shift {fsl_shift}  wTF shift {wshift[i]}  wshaw shift {wshift_shaw[i]}')
-        #spm_imatrix(npl.inv(Aff_mean),order=0)
+        cname = f'w_exp_Me_disp{i}';        df_coreg.loc[ii, cname] = mshift[i]
+        cname = f'w_quat_Me_disp{i}';        df_coreg.loc[ii, cname] = m_quat[i]
+        cname = f'w_eul_Me_disp{i}';        df_coreg.loc[ii, cname] = m_lin[i]
+
         cname = f'w_exp_TF_disp{i}';        df_coreg.loc[ii, cname] = wshift[i]
         cname = f'w_exp_shaw_disp{i}';        df_coreg.loc[ii, cname] = wshift_shaw[i]
         cname = f'w_quat_TF_disp{i}';        df_coreg.loc[ii, cname] = w_quat[i]
@@ -581,10 +668,14 @@ df_coreg.to_csv(out_path+'/df_coreg_fitparCATI_new_raw_sub.csv')
 df_coreg.to_csv(out_path+'/df_coreg_fitpar_Sigmas_X256.csv')
 
 df_coreg = pd.read_csv(out_path+'/df_coreg_fitparCATI_new_raw_sub.csv')
-df_coreg['fpok'] = df_coreg['fp'].apply(lambda x: change_root_path(x,root_path='/network/lustre/iss01/cenir/analyse/irm/users/ghiles.reguig/These/Dataset/cati_full/delivery_new'))
+df_coreg['fp'] = df_coreg['fp'].apply(lambda x: change_root_path(x,root_path='/network/lustre/iss01/cenir/analyse/irm/users/ghiles.reguig/These/Dataset/cati_full/delivery_new'))
+restore_key = ['shift_rot',  'shift_trans', 'zero_shift_trans', 'mean_shift_trans', 'zero_shift_rot','mean_shift_rot',
+               'w2_exp_TF_trans', 'w2_exp_TF_rot' ]
+for k in restore_key:
+    df_coreg[k] = df_coreg[k].apply(lambda  x: parse_string_array(x))
 
-key_disp = [k for k in df_coreg.keys() if 'isp_1' in k]; key_replace_length = 7
-key_disp = [k for k in df_coreg.keys() if 'isp1' in k]; key_replace_length = 6
+key_disp = [k for k in df_coreg.keys() if 'isp_1' in k]; key_replace_length = 7  # computed in torchio
+key_disp = [k for k in df_coreg.keys() if 'isp1' in k]; key_replace_length = 6  #if computed here
 key_disp = ['shift_0']; key_replace_length = 2
 key_disp = [ 'zero_shift0', 'mean_shift4']; key_replace_length = 1
 for k in key_disp:
@@ -593,30 +684,42 @@ for k in key_disp:
     new_key = k[:-key_replace_length] +'_rot'
     df_coreg[new_key] = df_coreg.apply(lambda s: disp_to_vect(s, k, 'rot'),  axis=1)
     for ii in range(6):
-        key_del = f'{k[:-1]}{ii}';  del(df_coreg[key_del])
+        key_del = f'{k[:-1]}{ii}';  print(f'create {new_key}  delete {key_del}') #del(df_coreg[key_del])
 
 #same but with vector
 #ynames=['w_exp_TF_trans','w_exp_shaw_trans','w_quat_TF_trans','w_quat_shaw_trans','w_eul_TF_trans','w_eul_shaw_trans']
-ynames=['w_exp_TF_trans','w_exp_shaw_trans','w_eul_TF_trans','w_eul_shaw_trans']
+ynames=[ 'w_exp_TF_trans','w_exp_shaw_trans','w_eul_TF_trans','w_eul_shaw_trans']
+ynames+=['w_exp_Me_trans', 'w_eul_Me_trans','w_exp_Me_rot', 'w_eul_Me_rot',]
 ynames+=['w2_exp_TF_trans','w2_exp_shaw_trans','w2_eul_TF_trans','w2_eul_shaw_trans', 'zero_shift_trans', 'mean_shift_trans']
 #ynames=['w_exp_TF_rot','w_exp_shaw_rot','w_quat_TF_rot','w_quat_shaw_rot','w_eul_TF_rot','w_eul_shaw_rot']
-ynames+=['w_exp_TF_rot','w_exp_shaw_rot','w_eul_TF_rot','w_eul_shaw_rot']
+ynames+=['w_exp_Me_rot','w_exp_TF_rot','w_exp_shaw_rot','w_eul_TF_rot','w_eul_shaw_rot']
 ynames+=['w2_exp_TF_rot','w2_exp_shaw_rot','w2_eul_TF_rot','w2_eul_shaw_rot', 'zero_shift_rot', 'mean_shift_rot']
-e_yname,d_yname=[],[]
 
+#name from torchio metric
+ynames = ['wTF_trans', 'wTF2_trans', 'wTFshort_trans', 'wTFshort2_trans', 'wSH_trans', 'wSH2_trans']
+ynames += ['wTF_rot', 'wTF2_rot', 'wTFshort_rot', 'wTFshort2_rot', 'wSH_rot', 'wSH2_rot']
+ynames = [ 'no_shift_wTF_trans', 'no_shift_wTF2_trans', 'no_shift_wTFshort_trans', 'no_shift_wTFshort2_trans', 'no_shift_wSH_trans', 'no_shift_wSH2_trans']
+ynames += [ 'no_shift_wTF_rot', 'no_shift_wTF2_rot', 'no_shift_wTFshort_rot', 'no_shift_wTFshort2_rot', 'no_shift_wSH_rot', 'no_shift_wSH2_rot']
+ynames += [ 'center_trans', 'mean_trans','center_rot', 'mean_rot']
+
+
+e_yname,d_yname=[],[]
 e_yname += [f'error_{yy}' for yy in ynames ]
 d_yname += [f'{yy}' for yy in ynames ]
 for yname in ynames:
     xname ='shift_rot' if  'rot' in yname else 'shift_trans';
     x = df_coreg[f'{xname}'];  y = df_coreg[f'{yname}'];
-    cname = f'error_{yname}';        df_coreg[cname] = (y-x).apply(lambda x: npl.norm(x))
+    cname = f'error_{yname}';
+    df_coreg[cname] = (y).apply(lambda x: npl.norm(x)) #
+    df_coreg[cname] = (y-x).apply(lambda x: npl.norm(x))
 
-
-dfm = df_coreg.melt(id_vars=['fp'], value_vars=e_yname, var_name='shift', value_name='error')
+ind_sel = (df_coreg.trans_max<10) & (df_coreg.rot_max<10)
+dfm = df_coreg[ind_sel].melt(id_vars=['fp'], value_vars=e_yname, var_name='shift', value_name='error')
 dfm["ei"] = 0
 for kk in  dfm['shift'].unique() :
     dfm.loc[dfm['shift'] == kk, 'ei'] = 'trans' if 'trans' in kk else 'rot'  #int(kk[-1])
     dfm.loc[dfm['shift'] == kk, 'shift'] = kk[6:-6] if 'trans' in kk else kk[6:-4]
+    #dfm.loc[dfm['shift'] == kk, 'shift'] = kk[6:] if 'trans' in kk else kk[6:]
 dfm.loc[dfm['shift'].str.contains('exp'),'interp'] = 'exp'
 dfm.loc[dfm['shift'].str.contains('eul'),'interp'] = 'eul'
 dfm.loc[dfm['shift'].str.contains('quat'),'interp'] = 'quat'
@@ -625,6 +728,9 @@ dfm.loc[dfm['shift'].str.contains('mean'),'interp'] = 'eul'
 dfm['shift']=dfm['shift'].str.replace('_exp_','');dfm['shift']=dfm['shift'].str.replace('_eul_','')
 dfm['shift']=dfm['shift'].str.replace('_quat_','');
 #dfm['shift']=dfm['shift'].str.replace('zero_','');dfm['shift'] = dfm['shift'].str.replace('mean_', '')
+
+sns.set_style("darkgrid")
+sns.catplot(data=dfm,x='shift', y='error', col='ei', kind='boxen', col_wrap=2, dodge=True)
 
 sns.catplot(data=dfm,x='shift', y='error', col='ei',hue='interp', kind='strip', col_wrap=2, dodge=True)
 sns.catplot(data=dfm,x='shift', y='error', col='ei',hue='interp', kind='boxen', col_wrap=2, dodge=True)
@@ -637,26 +743,46 @@ df_coreg.w2_eul_TF_trans = df_coreg.w2_eul_TF_trans.apply(lambda x: parse_string
 df_coreg.w2_eul_TF_rot = df_coreg.w2_eul_TF_rot.apply(lambda x: parse_string_array(x))
 df_coreg.subtract_fit = df_coreg.apply(lambda x: concat_col(x,'w2_eul_TF_trans','w2_eul_TF_rot'), axis=1)
 
+#plot some exp lin quat diff
+(df_coreg.w_eul_Me_trans - df_coreg.mean_shift_trans).apply(lambda x:npl.norm(x)).max() #max is 0.0197 because fitpar interp
+print(f'euler / exp Trans  {(df_coreg.w_eul_Me_trans - df_coreg.w_exp_Me_trans).apply(lambda x: npl.norm(x)).max()}')
+print(f'euler / exp Rot    {(df_coreg.w_eul_Me_rot - df_coreg.w_exp_Me_rot).apply(lambda x:npl.norm(x)).max()}')
+print(f'euler / quat Trans {(df_coreg.w_eul_Me_trans - df_coreg.w_quat_Me_trans).apply(lambda x:npl.norm(x)).max()}')
+print(f'euler / quat Rot   {(df_coreg.w_eul_Me_rot  - df_coreg.w_quat_Me_rot).apply(lambda x: npl.norm(x)).max()}')
+print(f'exp / quat Trans {(df_coreg.w_exp_Me_trans - df_coreg.w_quat_Me_trans).apply(lambda x:npl.norm(x)).max()}')
+print(f'exp / quat Rot   {(df_coreg.w_exp_Me_rot  - df_coreg.w_quat_Me_rot).apply(lambda x: npl.norm(x)).max()}')
+#max error for i=298
+errT = (df_coreg.w2_exp_TF_trans - df_coreg.shift_trans).apply(lambda x:npl.norm(x))
+errR = (df_coreg.w2_exp_TF_rot - df_coreg.shift_rot).apply(lambda x:npl.norm(x))
 
 #explore max error on CATI fit
 df_coreg['error_w_exp_shaw_trans']
 np.sort(df_coreg['error_w_exp_shaw_trans'].values)[::-1][:50]
-ind_sel = np.argsort(df_coreg['error_w_exp_shaw_rot'].values)[::-1][:10]
+ind_sel = np.argsort(df_coreg['error_w_exp_shaw_rot'].values)[::-1][:10];
+ind_sel=np.where(errT>1)[0]
+do_plot = False
 for ii in ind_sel:
-    print(f'loading {df_coreg.fp.values[ii]}')
+    print(f'row {ii} loading {df_coreg.fp.values[ii]}')
     fitpar = np.loadtxt(df_coreg.fp.values[ii])
-    fig=plt.figure()
-    plt.plot(fitpar.T); plt.legend(['tx','ty','tz','rx','ry','rz']); plt.grid()
-    center = fitpar.shape[1]//2
-    ax=fig.get_axes()[0]; plt.plot([center, center], ax.get_ylim(),'k')
+    if do_plot:
+        fig=plt.figure()
+        plt.plot(fitpar.T); plt.legend(['tx','ty','tz','rx','ry','rz']); plt.grid()
+        center = fitpar.shape[1]//2
+        ax=fig.get_axes()[0]; plt.plot([center, center], ax.get_ylim(),'k')
     perform_one_motion(df_coreg.fp.values[ii], fjson, fsl_coreg=True, return_motion=False, root_out_dir='/data/romain/PVsynth/motion_on_synth_data/fit_parmCATI_raw_saved')
+#visu check 92 368 1015
+fcsv = glob.glob('/data/romain/PVsynth/motion_on_synth_data/fit_parmCATI_raw_saved/*/*csv')
+dfres = pd.concat(   [pd.read_csv(ff) for ff in fcsv] , ignore_index=True);
+dfres['shift_trans'] = dfres.apply(lambda s: disp_to_vect(s, 'shift_0', 'trans'), axis=1)
+dfres['shift_rot'] = dfres.apply(lambda s: disp_to_vect(s, 'shift_0', 'rot'), axis=1)
 
+df3 = pd.merge(dfres, df_coreg, on='fp')
+df3.sort_values('m_L1_map_x', inplace=True)
 
-
-
+import statsmodels.api as sm
 for yname in ynames:
     #plot
-    fig, axs = plt.subplots(nrows=2,ncols=3)
+    fig, axs = plt.subplots(nrows=2,ncols=3, figsize=(14,8));
     max_errors=0
     for  i, ax in enumerate(axs.flatten()):
         #fsl_shift = df_coreg[ f'shift_T{i + 1}'] if i < 3 else df_coreg[ f'shift_R{i - 2}']
@@ -665,18 +791,19 @@ for yname in ynames:
         #yname = 'w_quat_shaw_disp' #'no_shift_wTF2_Disp_' #'before_coreg_wTF_Disp_'  #
         #x = df_coreg[f'm_wTF2_Disp_{i}'] + fsl_shift
         #yname = 'no_shift_wTF2_Disp_'
-        xname = 'w_exp_shaw_disp'
-        yname = 'w_quat_shaw_disp'
+        #xname = 'wTFshort_Disp_' #'w_exp_shaw_disp'
+        #yname = 'wTF_Disp_' #'w_quat_shaw_disp'
         #x = fsl_shift if xname=='fsl_shift' else df_coreg[f'{xname}{i}'];
         x = df_coreg[f'{xname}{i}']
         y = df_coreg[f'{yname}{i}'];
         #y=df_coreg[f'wTF_Disp_{i}'] + fsl_shift   #identic
 
-        ax.scatter(x,y);ax.plot([x.min(),x.max()],[x.min(),x.max()]);
+        #ax.scatter(x,y);ax.plot([x.min(),x.max()],[x.min(),x.max()]);
+        sm.graphics.mean_diff_plot(y,x, ax=ax);plt.tight_layout()
         #ax.hist(y-x, bins=64);
         max_error = np.max(np.abs(y-x)); mean_error = np.mean(np.abs(y-x))
         max_errors = max_error if max_error>max_errors else max_errors
-        corrPs, Pval = ss.pearsonr(x, y)
+        corrPs, Pval = ss.pearsonr(y,x)
         print(f'cor is {corrPs} P {Pval} max error for {i} is {max_error}')
         ax.title.set_text(f'R = {corrPs:.2f} err mean {mean_error:.2f} max {max_error:.2f}')
     fig.text(0.5, 0.04, xname, ha='center')
@@ -689,6 +816,7 @@ err = df_coreg.w_exp_shaw_disp5 - df_coreg.w_quat_shaw_disp5
 df_coreg.fp.Valeus[err.argmax()]
 wshift_quat, wshift_exp, lin_fitpar = average_fitpar(fitpar)
 
+#same comparison but withe trans and rot vector difference
 
 #plot sigmas
 ykeys=['m_grad_H_camb','m_grad_H_nL2','m_grad_H_corr','m_grad_H_dice','m_grad_H_kl','m_grad_H_jensen','m_grad_H_topsoe','m_grad_H_inter']
