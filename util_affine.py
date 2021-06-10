@@ -365,8 +365,9 @@ def select_data(json_file, param=None, to_canonical=False):
         suj_ind = param['suj_index']
         if 'suj_seed' in param:
             suj_seed = param['suj_seed']
-            np.random.seed(suj_seed)
-            torch.manual_seed(suj_seed)
+            if suj_seed is not None:
+                np.random.seed(suj_seed)
+                torch.manual_seed(suj_seed)
         else:
             suj_seed=-1
         contrast = param['suj_contrast']
