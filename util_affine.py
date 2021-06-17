@@ -34,14 +34,16 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
     # apply motion transform
     start = time.time()
     #tmot.metrics = None
-    tmot.nT = fp.shape[1]
-    tmot.simulate_displacement = False; #tmot.oversampling_pct = 1
-    tmot.displacement_shift_strategy = param['displacement_shift_strategy']
-    if tmot.displacement_shift_strategy is None: #let's force demean for the first try to be not too far
-        fp = fp - np.mean(fp, axis=1, keepdims=True)
-        print('first motion is done with demean')
+    if isinstance(tmot, tio.transforms.augmentation.intensity.RandomMotionFromTimeCourse):
+        tmot.nT = fp.shape[1]
+        tmot.simulate_displacement = False; #tmot.oversampling_pct = 1
+        tmot.displacement_shift_strategy = param['displacement_shift_strategy']
+        if tmot.displacement_shift_strategy is None: #let's force demean for the first try to be not too far
+            fp = fp - np.mean(fp, axis=1, keepdims=True)
+            print('first motion is done with demean')
 
-    tmot.fitpars = fp
+        tmot.fitpars = fp
+
     smot = tmot(sdata)
     batch_time = time.time() - start;     start = time.time()
     print(f'First motion in  {batch_time} ')
@@ -130,8 +132,17 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         trans_rot = spm_imatrix(out_aff)[:6]
         for i in range(6):
             fp[i, :] = fp[i, :] - trans_rot[i]
-        tmot.fitpars = fp
-        tmot.displacement_shift_strategy = None
+
+        if isinstance(tmot, tio.transforms.augmentation.intensity.RandomMotionFromTimeCourse):
+            tmot.fitpars = fp
+            tmot.displacement_shift_strategy = None
+        else: #MotionFromTimeCourse
+            #argument are then in dict ... arg ...
+            for kkey in tmot.fitpars.keys():
+                tmot.fitpars[kkey] = fp
+                if not isinstance(tmot.frequency_encoding_dim ,dict):
+                    print('arggg')
+                    tmot.frequency_encoding_dim = dict(t1=tmot.frequency_encoding_dim)
 
         smot_shift = tmot(sdata)
         out_vol = out_dir + '/vol_motion_no_shift.nii'
@@ -182,6 +193,7 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
             dfall.to_csv(saved_filename + ".csv")
 
             if save_fitpars:
+                np.savetxt(out_dir + '/fitpars_shift.txt',fp)
                 fp_orig = fp.copy()
                 for i in range(6):
                     fp_orig[i, :] = fp_orig[i, :] + trans_rot[i]
@@ -1285,9 +1297,23 @@ def interpolate_fitpars(fpars, tr_fpars=None, tr_to_interpolate=2.4, len_output=
         print(f'adding {npt_added:.1f}')
     return interpolated_fpars
 
+def geodesicL2Mean(aff_list, Rmean_estimate):
+
+    print(f'Rmean {Rmean_estimate}')
+    for i in range(10):
+        diff_aff = np.zeros_like(aff_list[0])
+        for aff in aff_list:
+            diff_aff = diff_aff + scl.logm(np.matmul(Rmean_estimate.T, aff))
+        diff_aff = diff_aff / len(aff_list)
+        print(f'error in matrix Mean is {npl.norm(diff_aff)}')
+        Rmean_estimate = np.matmul(Rmean_estimate, scl.expm(diff_aff).T)
+        print(f'Rmean {Rmean_estimate}')
+
+    return Rmean_estimate
+
 #Average fitpar
 def average_fitpar(fitpar, weights=None):
-    q_list = []  #can't
+    aff_list = []  #can't
     Aff_mean = np.zeros((4, 4))
     if weights is None:
         weights = np.ones(fitpar.shape[1])
@@ -1299,6 +1325,7 @@ def average_fitpar(fitpar, weights=None):
     for nbt in range(fitpar.shape[1]):
         P = np.hstack([fitpar[:,nbt],[1,1,1,0,0,0]])
         affine = spm_matrix(P.copy(),order=0)  #order 0 to get the affine really applid in motion (change 1 to 0 01/04/21) it is is equivalent, since at the end we go back to euleur angle and trans...
+        aff_list.append(affine)
         # new_q = nq.from_rotation_matrix(affine)
         # if 'previous_q' not in dir():
         #     previous_q = new_q
@@ -1315,6 +1342,9 @@ def average_fitpar(fitpar, weights=None):
     Aff_mean = scl.expm(Aff_mean)
     wshift_exp = spm_imatrix(Aff_mean, order=0)[:6]
 
+    Aff_mean2 = geodesicL2Mean(aff_list, Aff_mean)
+    wshift_exp2 = spm_imatrix(Aff_mean2, order=0)[:6]
+
     #q_mean = nq.mean_rotor_in_chordal_metric(q_list)
     #Aff_q_rot = nq.as_rotation_matrix(q_mean)
 
@@ -1326,7 +1356,7 @@ def average_fitpar(fitpar, weights=None):
     #wshift_quat = spm_imatrix(dq_mean.homogeneous_matrix(), order=0)[:6]
     wshift_quatE = spm_imatrix(dq_meanE.homogeneous_matrix(), order=0)[:6]
 
-    return wshift_quatE, wshift_exp, lin_fitpar
+    return wshift_quatE, wshift_exp, lin_fitpar, wshift_exp2
 
 
 def paw_quaternion(qr, exponent):
@@ -1471,6 +1501,22 @@ def get_random_afine(angle=(2,10), trans=(0,0), origine=(80,100), mode='quat'):
         #print(f'dual quat with l {l} m {m}  norm {npl.norm(m)} theta {np.rad2deg(theta)} disp {disp}')
         dq = DualQuaternion.from_screw(l, m, theta, disp)
         #get_info_from_dq(dq, verbose=True)
+        aff = dq.homogeneous_matrix()
+    if mode == 'quat2':
+        theta = np.deg2rad(get_random_vec(angle,1)[0])
+        l = get_random_vec(normalize=True);
+        #m = get_random_vec(normalize=True)
+        #m = m  * get_random_vec(origine,1)
+        m = np.zeros(3)
+        m[:2] = get_random_vec(size=2)
+        m[2] = -(l[0]*m[0] + l[1]*m[1] ) / l[2]
+        m = m/npl.norm(m) * get_random_vec(origine,1)
+        disp = get_random_vec(trans,1)[0];
+        #print(f'dual quat with l {l} m {m}  norm {npl.norm(m)} theta {np.rad2deg(theta)} disp {disp}')
+        dq = DualQuaternion.from_screw(l, m, theta, disp)
+        #res=get_info_from_dq(dq, verbose=True)
+        if abs(res['disp'])>5:
+            qsdf
         aff = dq.homogeneous_matrix()
     if mode == 'euler':
         fp = np.ones(12); fp[9:]=0
