@@ -128,8 +128,53 @@ class GZReader:
                     plt.savefig(output_path)
                     plt.close()
                     self.written_files.append(output_path)
+                #Bad bug fix, du to frequency_encogin_dim save without a dict ...
+                if isinstance(tr,torchio.transforms.augmentation.intensity.random_motion_from_time_course.MotionFromTimeCourse):
+                    if isinstance(tr.tr, dict):
+                        if not isinstance(tr.frequency_encoding_dim, dict):
+                            value = tr.frequency_encoding_dim
+                            aaa = dict()
+                            for k in tr.tr.keys():
+                                aaa[k] = value
+                            tr.frequency_encoding_dim = aaa
             res = trsfms(sub)
             return res
+    def get_volume_torchio_without_motion(self, idx, return_orig=False):
+        subject_row = self.get_row(idx)
+        dict_suj = dict()
+        if not pd.isna(subject_row["image_filename"]):
+            path_imgs = self.read_path(subject_row["image_filename"])
+            if path_imgs:
+                if isinstance(path_imgs, list):
+                    imgs = ScalarImage(tensor=np.asarray([nb.load(p).get_fdata() for p in path_imgs]))
+                else:
+                    imgs = ScalarImage(path_imgs)
+                dict_suj["t1"] = imgs
+
+        if "label_filename" in subject_row.keys() and not pd.isna(subject_row["label_filename"]):
+            path_imgs = self.read_path(subject_row["label_filename"])
+            if isinstance(path_imgs, list):
+                imgs = LabelMap(tensor=np.asarray([nb.load(p).get_fdata() for p in path_imgs]))
+            else:
+                imgs = LabelMap(path_imgs)
+            dict_suj["label"] = imgs
+        sub = Subject(dict_suj)
+        if "history" not in self.df_data.columns:
+            return sub
+        else:
+            trsfms = self.get_transformations(idx)
+            trsfms_short=[]
+            for tr in trsfms.transforms: #.transforms:
+                print(tr.name)
+                if isinstance(tr, torchio.transforms.LabelsToImage):
+                    tr.label_key = "label"
+                if isinstance(tr, torchio.transforms.MotionFromTimeCourse):
+                    tmot = tr
+                    break
+                trsfms_short.append(tr)
+            trsfms_short = torchio.Compose(trsfms_short)
+            res = trsfms_short(sub)
+            return res, tmot
 
     def get_transformations(self, idx):
         from torchio.transforms import Compose
