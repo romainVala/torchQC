@@ -72,19 +72,27 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         if root_out_dir is None: raise ('error outut path (root_out_dir) must be se ')
         if not os.path.isdir(root_out_dir): os.mkdir(root_out_dir)
         if suj_orig_name is None:
-            orig_vol = root_out_dir + f'/vol_orig_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}.nii'
+            orig_vol_name = f'vol_orig_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}.nii'
         else:
-            orig_vol = f'{root_out_dir}/{suj_orig_name}.nii'
+            orig_vol_name = f'{suj_orig_name}.nii'
         # save orig data in the upper dir
-        if not os.path.isfile(orig_vol):
-            sdata.t1.save(orig_vol)
+        #if not os.path.isfile(orig_vol):
+        #    sdata.t1.save(orig_vol)
+        #bad idea with random contrast, since it can change with seeding ... and then wrong flirt
 
         out_dir = root_out_dir + '/' + suj_name
         if not os.path.isdir(out_dir): os.mkdir(out_dir)
+        orig_vol = f'{out_dir}/{orig_vol_name}'
+        sdata.t1.save(orig_vol)
+
         out_vol = out_dir + '/vol_motion.nii'
         smot.t1.save(out_vol)
         out_vol_nifti_reg = out_dir + '/r_vol_motion.nii'
         out_affine = out_dir + '/coreg_affine.txt'
+
+        if np.allclose(sdata.t1.affine, smot.t1.affine) is False:
+            print(f'WWWWWWWWWWhat the fuck Afine orig is {sdata.t1.affine} but after motion {smot.t1.affine} ')
+            qsdf
 
         # cmd = f'reg_aladin -rigOnly -ref {orig_vol} -flo {out_vol} -res {out_vol_nifti_reg} -aff {out_affine}'
         # cmd = f'flirt -dof 6 -ref {out_vol} -in {orig_vol}  -out {out_vol_nifti_reg} -omat {out_affine}'
@@ -582,6 +590,10 @@ def perform_one_simulated_motion(params, fjson, root_out_dir=None, fsl_coreg=Tru
         suj_name0 = f'Suj_{sdata.name}_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}_S{param["suj_seed"]}'
 
         for nbmot in range(param['nb_x0s']):
+            if 'new_suj' in param:
+                if param['new_suj']:
+                    sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
+
             cmd = '\n'.join(['python -c "', "from util_affine import perform_one_simulated_motion ",
                              f'params = {param}',
                              f'out_path = \'{root_out_dir}\'',
@@ -706,14 +718,14 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         y = np.hstack([y[0:center], np.flip(y[0:center])])
 
     if return_all6:
-        if mvt_axes[0] == 6:
+        if mvt_axes[0] == 6: #oy1
             orig_pos = [0, -80, 0]  # np.array([90, 28, 90]) - np.array([90,108, 90])
             l = [0, 0, 1];            m = np.cross(orig_pos, l);
             theta = np.deg2rad(amplitude);            disp = 0;
             dq = DualQuaternion.from_screw(l, m, theta, disp)
             fp = np.tile(spm_imatrix(dq.homogeneous_matrix(), order=0)[:6, np.newaxis], (1, resolution))
             fp[:,y==0] = 0
-        elif mvt_axes[0] == 7:
+        elif mvt_axes[0] == 7: #oy2
             orig_pos = [0, 80, 0]  # np.array([90, 28, 90]) - np.array([90,108, 90])
             l = [0, 0, 1];
             m = np.cross(orig_pos, l);
