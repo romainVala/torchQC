@@ -64,18 +64,28 @@ print(f'max diff euler between choral and polar {np.max(np.abs(euler_choral - eu
 # max diff euler between slerp and polar  0.29266563097344833
 # ####
 
+import statsmodels.api as sm
+
+sm.graphics.mean_diff_plot(euler_mean,euler_exp);
+sm.graphics.mean_diff_plot(euler_pol,euler_exp);
+sm.graphics.mean_diff_plot(euler_qr_slerp,euler_exp);
+sm.graphics.mean_diff_plot(euler_qr_slerp,euler_pol);
+
 #idem but with affine
 
 np.random.seed(4)
-nb_mean, nb_aff = 500, 205
+nb_mean, nb_aff = 100, 5
 euler_trans, exp_trans, quat_trans, euler_rot, exp_rot, quat_rot  = np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3)), np.zeros((nb_mean,3))
+exp_trans2, exp_rot2 = np.zeros((nb_mean,3)), np.zeros((nb_mean,3))
+
 for i in range(nb_mean):
     aff_list = [ get_random_afine(angle=(0,20), trans=(0,20), origine=(0,150), mode='euler2') for i in range(nb_aff)]
     fitpar = np.array([spm_imatrix(aff, order=0)[:6] for aff in aff_list]).T
 
-    m_quat, mshift, m_lin = average_fitpar(fitpar)
+    m_quat, mshift, m_lin, mshift2 = average_fitpar(fitpar)
     euler_trans[i,:], exp_trans[i,:], quat_trans[i,:] = m_lin[:3], mshift[:3], m_quat[:3]
     euler_rot[i,:], exp_rot[i,:], quat_rot[i,:] = m_lin[3:], mshift[3:], m_quat[3:]
+    exp_trans[i, :], exp_rot[i,:] = mshift2[:3],mshift2[3:]
     if i%50==0:
         print(f'{i}')
 
