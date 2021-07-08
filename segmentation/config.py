@@ -468,7 +468,7 @@ class Config:
                     }
                 else:
                     t_dict = [
-                        parse_transform(p_and_t['transform']) for p_and_t in
+                        parse_transform(p_and_t) for p_and_t in
                         t['transforms']
                     ]
                 return t_class(t_dict, **attributes)
@@ -784,7 +784,8 @@ class Config:
             if name_pattern is None:
                 core = os.path.relpath(string, Path(string).parent)
             else:
-                core = '_'.join(re.findall(name_pattern, string))
+                #core = '_'.join(re.findall(name_pattern, string))
+                core = re.findall(name_pattern, string)[0]
             return prefix + core + suffix
 
         def create_dataset(subject_list, transforms, epoch_length=None):
