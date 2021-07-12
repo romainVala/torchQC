@@ -17,6 +17,7 @@ import warnings
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
 from apex import amp
+from torch.utils.tensorboard import SummaryWriter
 
 
 class ArrayTensorJSONEncoder(json.JSONEncoder):
@@ -57,6 +58,11 @@ class RunModel:
         self.logger = logger
         self.debug_logger = debug_logger
         self.results_dir = results_dir
+        self.logs_dir = results_dir + '/tb_logs'
+        self.create_folder_if_not_exists(self.logs_dir)
+        self.tb_logger = SummaryWriter(self.logs_dir)
+        self.tb_df_train = pd.DataFrame()
+        self.tb_df_val = pd.DataFrame()
 
         self.batch_size = batch_size
         self.patch_size = patch_size
@@ -66,6 +72,7 @@ class RunModel:
         # Set attributes to keep track of information during training
         self.epoch = struct['current_epoch']
         self.iteration = 0
+        self.val_iteration = 0
 
         # Retrieve information from structure
         self.criteria = struct['criteria']
@@ -113,6 +120,11 @@ class RunModel:
 
         self.eval_csv_basename = None
         self.save_transformed_samples = False
+
+    @staticmethod
+    def create_folder_if_not_exists(path):
+        if not os.path.exists(path):
+            os.makedirs(path)
 
     def log(self, info):
         if self.logger is not None:
@@ -313,6 +325,8 @@ class RunModel:
         for i, sample in enumerate(loader, 1):
             if self.model.training:
                 self.iteration = i
+            else:
+                self.val_iteration = i
             if isinstance(sample, list):
                 self.batch_size = self.batch_size * len(sample)
                 for ii, ss in enumerate(sample):
@@ -435,6 +449,9 @@ class RunModel:
                     self.model.eval()
                     validation_loss = self.train_loop()
                     self.model.train()
+                    self.tb_logger.add_scalars('Average Train/Val loss',
+                                               {'Train': average_loss,
+                                                'Val': validation_loss}, self.epoch)
 
                 # Update scheduler at the end of the epoch
                 if i == len(loader) and self.lr_scheduler is not None:
@@ -806,6 +823,62 @@ class RunModel:
             self.record_history(info, sample, idx)
 
             df = df.append(info, ignore_index=True)
+
+        save_frequency = 30  # Log on TB every (save_frequency / batch_size) iterations
+        train_len = len(self.train_loader) if self.train_loader else 0
+        val_len = len(self.val_loader) if self.val_loader else 0
+
+        total_iter = {'Train': (self.epoch - 1) * train_len + self.iteration,
+                      'Val': (self.epoch - 1) * val_len + self.val_iteration}
+
+        if (mode == 'Train' and self.tb_df_train.shape[0] < save_frequency) or \
+                (mode == 'Val' and self.tb_df_val.shape[0] < save_frequency):
+            current_iter = self.iteration if mode == 'Train' else self.val_iteration
+            start = current_iter * self.batch_size - self.batch_size
+            end = current_iter * self.batch_size
+            if df.shape[0] < end:
+                end = df.shape[0]
+            for idx in range(start, end):
+                values = {'loss': df['loss'].iloc[idx],
+                          'predicted_occupied_volume_SNR': df['predicted_occupied_volume_SNR'].iloc[idx],
+                          'occupied_volume_SNR': df['occupied_volume_SNR'].iloc[idx],
+                          'predicted_occupied_volume_SNL': df['predicted_occupied_volume_SNL'].iloc[idx],
+                          'occupied_volume_SNL': df['occupied_volume_SNL'].iloc[idx]
+                          }
+                if not self.model.training:
+                    for metric in self.metrics:
+                        name = f'metric_{metric["name"]}'
+                        values[name] = float(df[name].iloc[idx])
+                if mode == 'Train':
+                    self.tb_df_train = self.tb_df_train.append(values, ignore_index=True)
+                elif mode == 'Val':
+                    self.tb_df_val = self.tb_df_val.append(values, ignore_index=True)
+
+        if (mode == 'Train' and self.tb_df_train.shape[0] >= save_frequency) or \
+                (mode == 'Val' and self.tb_df_val.shape[0] >= save_frequency):
+            tb_values = self.tb_df_train if mode == 'Train' else self.tb_df_val
+
+            self.tb_logger.add_scalar('Total {} loss'.format(mode),
+                                      tb_values['loss'].mean(),
+                                      total_iter[mode])
+            self.tb_logger.add_scalar('Total {} SNR volume ratio'.format(mode),
+                                      (tb_values['predicted_occupied_volume_SNR'] /
+                                      tb_values['occupied_volume_SNR']).mean(),
+                                      total_iter[mode])
+            self.tb_logger.add_scalar('Total {} SNL volume ratio'.format(mode),
+                                      (tb_values['predicted_occupied_volume_SNL'] /
+                                      tb_values['occupied_volume_SNL']).mean(),
+                                      total_iter[mode])
+            if not self.model.training:
+                for metric in self.metrics:
+                    name = f'metric_{metric["name"]}'
+                    self.tb_logger.add_scalar(name,
+                                              tb_values[name].mean(),
+                                              total_iter[mode])
+            if mode == 'Train':
+                self.tb_df_train = pd.DataFrame()
+            elif mode == 'Val':
+                self.tb_df_val = pd.DataFrame()
 
         if save:
             self.save_info(mode, df, sample, csv_name)
