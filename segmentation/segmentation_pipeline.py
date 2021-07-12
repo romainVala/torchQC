@@ -136,3 +136,5 @@ if __name__ == "__main__":
         create_jobs(jobs_struct)
 
     plt.show()
+    print('done')
+
