@@ -839,12 +839,15 @@ class RunModel:
             if df.shape[0] < end:
                 end = df.shape[0]
             for idx in range(start, end):
-                values = {'loss': df['loss'].iloc[idx],
-                          'predicted_occupied_volume_SNR': df['predicted_occupied_volume_SNR'].iloc[idx],
-                          'occupied_volume_SNR': df['occupied_volume_SNR'].iloc[idx],
-                          'predicted_occupied_volume_SNL': df['predicted_occupied_volume_SNL'].iloc[idx],
-                          'occupied_volume_SNL': df['occupied_volume_SNL'].iloc[idx]
-                          }
+                if self.criteria[0]['criterion'].mixt_activation:
+                    max_channel = shape[1] - self.criteria[0]['criterion'].mixt_activation
+                else:
+                    max_channel = shape[1]
+                values = {'loss': df['loss'].iloc[idx]}
+                for channel in list(range(max_channel)):
+                    suffix = self.labels[channel]
+                    values[f'predicted_occupied_volume_{suffix}'] = df['predicted_occupied_volume_SNR'].iloc[idx]
+                    values[f'occupied_volume_{suffix}'] = df['occupied_volume_SNR'].iloc[idx]
                 if not self.model.training:
                     for metric in self.metrics:
                         name = f'metric_{metric["name"]}'
