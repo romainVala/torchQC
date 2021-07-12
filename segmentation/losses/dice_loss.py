@@ -1,4 +1,4 @@
-from segmentation.metrics.utils import mean_metric
+from segmentation.metrics.utils import mean_metric, weighted_mean_metric
 import torch.nn as nn
 import torch
 
@@ -80,3 +80,26 @@ class Dice:
     def mean_binarized_dice_loss(self, prediction, target):
         target = (target > self.cut).float()
         return self.mean_dice_loss(prediction, target)
+
+    def weighted_mean_dice_loss(self, prediction, target):
+        return weighted_mean_metric(prediction, target, self.dice_loss)
+
+    def generalized_dice_loss(self, prediction, target):
+        """
+        Adapted from Sudre et al. "Generalised Dice overlap as a deep learning loss
+        function for highly unbalanced segmentations"
+        """
+        reference_seg = target.float()
+        proba_map = prediction.float()
+        smooth_num = 1e-5
+        smooth_den = 1e-5
+        weight = 1 / (torch.sum(reference_seg, dim=[0, 2, 3, 4]) ** 2)
+        intersection = torch.sum(torch.mul(reference_seg, proba_map), dim=[0, 2, 3, 4])
+        sum = torch.sum(torch.add(reference_seg, proba_map), dim=[0, 2, 3, 4])
+        numerator = torch.sum(torch.mul(weight, intersection))
+        denominator = torch.sum(torch.mul(weight, sum))
+        gdl = 1 - (2 * numerator + smooth_num) / (denominator + smooth_den)
+        return gdl
+
+    def identity_loss(self, x, y):
+        return 1
