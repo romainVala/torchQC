@@ -132,11 +132,3 @@ def mean_metric(prediction, target, metric):
 
     return res / len(channels)
 
-
-def weighted_mean_metric(prediction, target, metric):
-    channels = list(range(target.shape[1]))
-    res = 0.
-    weights = [0.45, 0.45, 0.1]
-    for channel in channels:
-        res += weights[channel] * metric(prediction[:, channel, ...], target[:, channel, ...])
-    return res / len(channels)

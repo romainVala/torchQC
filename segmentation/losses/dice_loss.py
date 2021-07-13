@@ -1,4 +1,4 @@
-from segmentation.metrics.utils import mean_metric, weighted_mean_metric
+from segmentation.metrics.utils import mean_metric
 import torch.nn as nn
 import torch
 
@@ -79,9 +79,6 @@ class Dice:
     def mean_binarized_dice_loss(self, prediction, target):
         target = (target > self.cut).float()
         return self.mean_dice_loss(prediction, target)
-
-    def weighted_mean_dice_loss(self, prediction, target):
-        return weighted_mean_metric(prediction, target, self.dice_loss)
 
     def generalized_dice_loss(self, prediction, target):
         """
