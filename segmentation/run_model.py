@@ -929,16 +929,13 @@ class RunModel:
                         if isinstance(hhh, tio.transforms.augmentation.intensity.random_noise.Noise)  :
                             labels[batch_idx, target_idx] = hhh.std[self.image_key_name] * scale_label[target_idx]
             else:
-                histo = data['history']
-                for batch_idx, hh in enumerate(histo): #length = batch size
-                    for hhh in hh : #length: number of transfo that lead history info
-                        #if '_metrics' in hhh[1].keys():
-                        if isinstance(hhh,dict): #hhh.name == 'RandomMotionFromTimeCourse':
-                            #dict_metrics = hhh[1]["_metrics"][self.image_key_name]
-                            if '_metrics' in hhh:
-                                dict_metrics = hhh['_metrics'][self.image_key_name]
-                                labels[batch_idx, target_idx] = dict_metrics[target] * scale_label[target_idx]
+                histo = data['transforms_metrics'] #  data['history']
+                for batch_idx, dicm in enumerate(histo): #length = batch size
+                    if len(dicm) >0 : # a transform with _metrics exist (motion ...)
+                        dict_metrics = dicm[0][1][self.image_key_name]
+                        labels[batch_idx, target_idx] = dict_metrics[target] * scale_label[target_idx]
 
+        #print(f'label ar {labels}')
         inputs = to_var(inputs.float(), self.device)
         labels = to_var(labels.float(), self.device)
 
