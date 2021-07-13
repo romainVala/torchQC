@@ -831,6 +831,11 @@ class RunModel:
         total_iter = {'Train': (self.epoch - 1) * train_len + self.iteration,
                       'Val': (self.epoch - 1) * val_len + self.val_iteration}
 
+        if self.criteria[0]['criterion'].mixt_activation:
+            max_channel = shape[1] - self.criteria[0]['criterion'].mixt_activation
+        else:
+            max_channel = shape[1]
+
         if (mode == 'Train' and self.tb_df_train.shape[0] < save_frequency) or \
                 (mode == 'Val' and self.tb_df_val.shape[0] < save_frequency):
             current_iter = self.iteration if mode == 'Train' else self.val_iteration
@@ -839,15 +844,11 @@ class RunModel:
             if df.shape[0] < end:
                 end = df.shape[0]
             for idx in range(start, end):
-                if self.criteria[0]['criterion'].mixt_activation:
-                    max_channel = shape[1] - self.criteria[0]['criterion'].mixt_activation
-                else:
-                    max_channel = shape[1]
                 values = {'loss': df['loss'].iloc[idx]}
                 for channel in list(range(max_channel)):
                     suffix = self.labels[channel]
-                    values[f'predicted_occupied_volume_{suffix}'] = df['predicted_occupied_volume_SNR'].iloc[idx]
-                    values[f'occupied_volume_{suffix}'] = df['occupied_volume_SNR'].iloc[idx]
+                    values[f'predicted_occupied_volume_{suffix}'] = df[f'predicted_occupied_volume_{suffix}'].iloc[idx]
+                    values[f'occupied_volume_{suffix}'] = df[f'occupied_volume_{suffix}'].iloc[idx]
                 if not self.model.training:
                     for metric in self.metrics:
                         name = f'metric_{metric["name"]}'
@@ -864,14 +865,13 @@ class RunModel:
             self.tb_logger.add_scalar('Total {} loss'.format(mode),
                                       tb_values['loss'].mean(),
                                       total_iter[mode])
-            self.tb_logger.add_scalar('Total {} SNR volume ratio'.format(mode),
-                                      (tb_values['predicted_occupied_volume_SNR'] /
-                                      tb_values['occupied_volume_SNR']).mean(),
-                                      total_iter[mode])
-            self.tb_logger.add_scalar('Total {} SNL volume ratio'.format(mode),
-                                      (tb_values['predicted_occupied_volume_SNL'] /
-                                      tb_values['occupied_volume_SNL']).mean(),
-                                      total_iter[mode])
+            for channel in list(range(max_channel)):
+                suffix = self.labels[channel]
+                self.tb_logger.add_scalar('Total {} {} volume ratio'.format(mode, suffix),
+                                          (tb_values[f'predicted_occupied_volume_{suffix}'] /
+                                          tb_values[f'occupied_volume_{suffix}']).mean(),
+                                          total_iter[mode])
+
             if not self.model.training:
                 for metric in self.metrics:
                     name = f'metric_{metric["name"]}'
