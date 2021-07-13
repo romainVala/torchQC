@@ -58,11 +58,13 @@ class RunModel:
         self.logger = logger
         self.debug_logger = debug_logger
         self.results_dir = results_dir
-        self.logs_dir = results_dir + '/tb_logs'
-        self.create_folder_if_not_exists(self.logs_dir)
-        self.tb_logger = SummaryWriter(self.logs_dir)
-        self.tb_df_train = pd.DataFrame()
-        self.tb_df_val = pd.DataFrame()
+        self.log_on_tensorboard = struct['log_on_tensorboard']
+        if self.log_on_tensorboard is True:
+            self.logs_dir = results_dir + '/tb_logs'
+            self.create_folder_if_not_exists(self.logs_dir)
+            self.tb_logger = SummaryWriter(self.logs_dir)
+            self.tb_df_train = pd.DataFrame()
+            self.tb_df_val = pd.DataFrame()
 
         self.batch_size = batch_size
         self.patch_size = patch_size
@@ -824,64 +826,65 @@ class RunModel:
 
             df = df.append(info, ignore_index=True)
 
-        save_frequency = 30  # Log on TB every (save_frequency / batch_size) iterations
-        train_len = len(self.train_loader) if self.train_loader else 0
-        val_len = len(self.val_loader) if self.val_loader else 0
+        if self.log_on_tensorboard is True:
+            save_frequency = 30  # Log on TB every (save_frequency / batch_size) iterations
+            train_len = len(self.train_loader) if self.train_loader else 0
+            val_len = len(self.val_loader) if self.val_loader else 0
 
-        total_iter = {'Train': (self.epoch - 1) * train_len + self.iteration,
-                      'Val': (self.epoch - 1) * val_len + self.val_iteration}
+            total_iter = {'Train': (self.epoch - 1) * train_len + self.iteration,
+                          'Val': (self.epoch - 1) * val_len + self.val_iteration}
 
-        if self.criteria[0]['criterion'].mixt_activation:
-            max_channel = shape[1] - self.criteria[0]['criterion'].mixt_activation
-        else:
-            max_channel = shape[1]
+            if self.criteria[0]['criterion'].mixt_activation:
+                max_channel = shape[1] - self.criteria[0]['criterion'].mixt_activation
+            else:
+                max_channel = shape[1]
 
-        if (mode == 'Train' and self.tb_df_train.shape[0] < save_frequency) or \
-                (mode == 'Val' and self.tb_df_val.shape[0] < save_frequency):
-            current_iter = self.iteration if mode == 'Train' else self.val_iteration
-            start = current_iter * self.batch_size - self.batch_size
-            end = current_iter * self.batch_size
-            if df.shape[0] < end:
-                end = df.shape[0]
-            for idx in range(start, end):
-                values = {'loss': df['loss'].iloc[idx]}
+            if (mode == 'Train' and self.tb_df_train.shape[0] < save_frequency) or \
+                    (mode == 'Val' and self.tb_df_val.shape[0] < save_frequency):
+                current_iter = self.iteration if mode == 'Train' else self.val_iteration
+                start = current_iter * self.batch_size - self.batch_size
+                end = current_iter * self.batch_size
+                if df.shape[0] < end:
+                    end = df.shape[0]
+                for idx in range(start, end):
+                    values = {'loss': df['loss'].iloc[idx]}
+                    for channel in list(range(max_channel)):
+                        suffix = self.labels[channel]
+                        values[f'predicted_occupied_volume_{suffix}'] = df[f'predicted_occupied_volume_{suffix}'].iloc[idx]
+                        values[f'occupied_volume_{suffix}'] = df[f'occupied_volume_{suffix}'].iloc[idx]
+                    if not self.model.training:
+                        for metric in self.metrics:
+                            name = f'metric_{metric["name"]}'
+                            values[name] = float(df[name].iloc[idx])
+                    if mode == 'Train':
+                        self.tb_df_train = self.tb_df_train.append(values, ignore_index=True)
+                    elif mode == 'Val':
+                        self.tb_df_val = self.tb_df_val.append(values, ignore_index=True)
+
+            if (mode == 'Train' and self.tb_df_train.shape[0] >= save_frequency) or \
+                    (mode == 'Val' and self.tb_df_val.shape[0] >= save_frequency):
+                tb_values = self.tb_df_train if mode == 'Train' else self.tb_df_val
+
+                self.tb_logger.add_scalar('Total {} loss'.format(mode),
+                                          tb_values['loss'].mean(),
+                                          total_iter[mode])
                 for channel in list(range(max_channel)):
                     suffix = self.labels[channel]
-                    values[f'predicted_occupied_volume_{suffix}'] = df[f'predicted_occupied_volume_{suffix}'].iloc[idx]
-                    values[f'occupied_volume_{suffix}'] = df[f'occupied_volume_{suffix}'].iloc[idx]
+                    self.tb_logger.add_scalar('Total {} {} volume ratio'.format(mode, suffix),
+                                              (tb_values[f'predicted_occupied_volume_{suffix}'] /
+                                              tb_values[f'occupied_volume_{suffix}']).mean(),
+                                              total_iter[mode])
+
                 if not self.model.training:
                     for metric in self.metrics:
                         name = f'metric_{metric["name"]}'
-                        values[name] = float(df[name].iloc[idx])
+                        self.tb_logger.add_scalar(name,
+                                                  tb_values[name].mean(),
+                                                  total_iter[mode])
                 if mode == 'Train':
-                    self.tb_df_train = self.tb_df_train.append(values, ignore_index=True)
+                    self.tb_df_train = pd.DataFrame()
                 elif mode == 'Val':
-                    self.tb_df_val = self.tb_df_val.append(values, ignore_index=True)
-
-        if (mode == 'Train' and self.tb_df_train.shape[0] >= save_frequency) or \
-                (mode == 'Val' and self.tb_df_val.shape[0] >= save_frequency):
-            tb_values = self.tb_df_train if mode == 'Train' else self.tb_df_val
-
-            self.tb_logger.add_scalar('Total {} loss'.format(mode),
-                                      tb_values['loss'].mean(),
-                                      total_iter[mode])
-            for channel in list(range(max_channel)):
-                suffix = self.labels[channel]
-                self.tb_logger.add_scalar('Total {} {} volume ratio'.format(mode, suffix),
-                                          (tb_values[f'predicted_occupied_volume_{suffix}'] /
-                                          tb_values[f'occupied_volume_{suffix}']).mean(),
-                                          total_iter[mode])
-
-            if not self.model.training:
-                for metric in self.metrics:
-                    name = f'metric_{metric["name"]}'
-                    self.tb_logger.add_scalar(name,
-                                              tb_values[name].mean(),
-                                              total_iter[mode])
-            if mode == 'Train':
-                self.tb_df_train = pd.DataFrame()
-            elif mode == 'Val':
-                self.tb_df_val = pd.DataFrame()
+                    self.tb_df_val = pd.DataFrame()
 
         if save:
             self.save_info(mode, df, sample, csv_name)
