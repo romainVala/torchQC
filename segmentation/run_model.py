@@ -451,9 +451,10 @@ class RunModel:
                     self.model.eval()
                     validation_loss = self.train_loop()
                     self.model.train()
-                    self.tb_logger.add_scalars('Average Train/Val loss',
-                                               {'Train': average_loss,
-                                                'Val': validation_loss}, self.epoch)
+                    if self.log_on_tensorboard:
+                        self.tb_logger.add_scalars('Average Train/Val loss',
+                                                   {'Train': average_loss,
+                                                    'Val': validation_loss}, self.epoch)
 
                 # Update scheduler at the end of the epoch
                 if i == len(loader) and self.lr_scheduler is not None:
