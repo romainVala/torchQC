@@ -131,3 +131,4 @@ def mean_metric(prediction, target, metric):
         res += metric(prediction[:, channel, ...], target[:, channel, ...])
 
     return res / len(channels)
+
