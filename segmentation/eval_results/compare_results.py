@@ -191,7 +191,7 @@ def plot_dice_against_patch_overlap():
     plt.plot(overlaps, dice_scores)
 
 
-def aggregate_csv_files(pattern, filename, fragment_position=-3):
+def aggregate_csv_files(pattern, filename, fragment_position=-3, name_type=1):
     """Create a CSV file out of smaller ones and add columns 'model',
     'GM', 'SNR' and 'mode'. Small CSV files are used using a glob pattern
     or a list of glob patterns.
@@ -219,16 +219,24 @@ def aggregate_csv_files(pattern, filename, fragment_position=-3):
             GM_level = float('{:.1f}'.format(gm))
             mode = 'T1' if wm > gm else 'T2'
         else:
-            GM_level = fragments[2]
-            GM_level = float(f'0.{GM_level[-1]}')
+            if name_type == 2:
+                GM_level = float(f'{fragments[3]}')/10
+                SNR_level = fragments[5]
+                if SNR_level[0]=='0':
+                    SNR_level = float(f'{SNR_level}')/100
+                else:
+                    SNR_level = float(f'{SNR_level}') / 10
+
+            else:
+                GM_level = fragments[2]
+                GM_level = float(f'0.{GM_level[-1]}')
+                SNR_level = fragments[4]
 
             mode = fragments[1]
         if 'T_RandomNoise' in data_frames[i]:
             ddic = json.loads(data_frames[i]['T_RandomNoise'].values[0])
             std = ddic['std']
             SNR_level = float('{:.3f}'.format(std))
-        else:
-            SNR_level = fragments[4]
 
         model_name = '_'.join(fragments[6:])
 
@@ -239,6 +247,8 @@ def aggregate_csv_files(pattern, filename, fragment_position=-3):
         data_frames[i]['GM'] = GM_level
         data_frames[i]['SNR'] = SNR_level
         data_frames[i]['mode'] = mode
+
+        print(f'parsing {name} with model {model_name}, GM {GM_level} SNR {SNR_level} mode {mode}')
 
     final_data_frame = pd.concat(data_frames)
     final_data_frame.to_csv(filename)
