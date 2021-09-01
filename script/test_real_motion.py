@@ -219,7 +219,7 @@ trans = np.zeros(nbpts);trans_e = np.zeros(nbpts);angle_sum = np.zeros(nbpts); o
 PP = np.zeros((nbpts,6)); skip=0
 for nbt in range(nbpts):
     #aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='quat')
-    aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='euler3')
+    aff = get_random_afine(angle=(-5,5), trans=(-5,5), origine=(0,150), mode='quat2')
     dq = DualQuaternion.from_homogeneous_matrix(aff)
     res = get_info_from_dq(dq)
 #    while res['line_dist'] > 500:
@@ -514,7 +514,16 @@ for nbt in range(fitpar.shape[1]):
 
 print(f'don in {time.time()-start} ')
 
+ishape = (32,32,32)
+disp_vec = get_dist_field(aff,list(ishape),return_vect_field=True)
+zslice=16; [sx,sy,sz] = np.array(ishape)
+[kx, ky, kz] = np.meshgrid(np.arange(0, sx, 1), np.arange(0, sy, 1), np.arange(0, sz, 1), indexing='ij')
+kxm, kym, kzm = kx[:, :, zslice], ky[:, :, zslice], kz[:,:,zslice]
 
+plt.figure();plt.quiver(kxm, kym, disp_vec[0,:,:,zslice],disp_vec[1,:,:,zslice],width=0.001)
+
+fig = plt.figure();ax = plt.axes(projection ='3d');plt.xlabel('x') ;plt.ylabel('y')
+ax.quiver(kxm,kym,kzm,disp_vec[0,:,:,zslice],disp_vec[1,:,:,zslice],disp_vec[2,:,:,zslice])
 
 #get the data
 param = dict();param['suj_contrast'] = 1;param['suj_noise'] = 0.01;param['suj_index'] = 0;param['suj_deform'] = 0;param['displacement_shift_strategy']=None
