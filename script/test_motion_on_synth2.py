@@ -3,7 +3,7 @@ import torchio as tio, torch, time
 from segmentation.config import Config
 from segmentation.run_model import RunModel
 from nibabel.viewers import OrthoSlicer3D as ov
-import glob, os, numpy as np, pandas as pd, matplotlib.pyplot as plt
+import glob, os, numpy as np, pandas as pd, matplotlib.pyplot as plt, numpy.linalg as npl
 pd.set_option('display.max_rows', None, 'display.max_columns', None, 'display.max_colwidth', -1, 'display.width', 400)
 from util_affine import perform_motion_step_loop, product_dict, create_motion_job, select_data, corrupt_data, apply_motion
 import nibabel as nib
@@ -11,6 +11,7 @@ from read_csv_results import ModelCSVResults
 from types import SimpleNamespace
 from kymatio import HarmonicScattering3D
 from types import SimpleNamespace
+sns.set_style("darkgrid")
 
 def show_df(df, keys):
     rout, rout_unique = dict(),dict()
@@ -58,61 +59,27 @@ def split_df_unique_vals(df, list_keys):
             dfout = New_dfout
 
     return dfout
-
+def disp_to_vect(s,key,type):
+    if type=='trans':
+        k1 = key[:-1] + '0'; k2 = key[:-1] + '1'; k3 = key[:-1] + '2';
+    else:
+        k1 = key[:-1] + '3'; k2 = key[:-1] + '4'; k3 = key[:-1] + '5';
+    return np.array([s[k1], s[k2], s[k3]])
 
 #not working, too bad ... from torchio.transforms.augmentation.intensity.torch_random_motion import TorchRandomMotionFromTimeCourse
 #volume=tt.permute(1,2,3,0).numpy()
 #v= nib.Nifti1Image(volume,affine); nib.save(v,'/tmp/t.nii')
+fjson = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/test1/main.json' # '/data/romain/PVsynth/motion_on_synth_data/test1/main.json'
+param = dict();param['suj_contrast'] = 1;param['suj_noise'] = 0.01;param['suj_index'] = 0;param['suj_deform'] = 0;param['displacement_shift_strategy']=None
+sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
+image = sdata.t1.data[0]; brain_mask = sdata.brain.data[0]
+fi = (np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(image)))).astype(np.complex128)
 
-file='/data/romain/PVsynth/motion_on_synth_data/test1/main.json'
-file = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/test1/main.json'
-result_dir='/data/romain/PVsynth/motion_on_synth_data/test1/rrr/'
-config = Config(file, result_dir, mode='eval')
-config.init()
-mr = config.get_runner()
-mr.epoch=4
-
-s1 = config.train_subjects[0]
-transfo_list = config.train_transfo_list
-
-suj_name = ['715041', '713239', '770352', '749058', '765056', '766563'] #3/3 min/max GM_vol
-suj_name +=['707749','765056','789373','704238','733548','770352']  #3/3 min/max vol_mm_tot
-indsuj = [474, 475, 477, 478, 485, 492, 497, 499, 500, 510]
-#     '704238', '707749', '713239', '715041', '733548', '749058', '765056', '766563', '770352', '789373']
-#for ii,ss in enumerate(config.train_subjects):    if  ss.name in suj_name:        indsuj.append(ss.name)
-
-#same label, random motion
-tsynth = transfo_list[0]
-tsynth.mean = [(0.6, 0.6), (0.1, 0.1), (1, 1), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6),
- (0.9, 0.9), (0.6, 0.6), (1, 1), (0.2, 0.2), (0.4, 0.4), (0, 0)]
-ssynth = tsynth(s1)
-tmot = transfo_list[1]
-
-
-#same label random step gaussian motion
-shifts = range(-15, 15, 1)
-l1_loss = torch.nn.L1Loss()
 
 disp_str_list = ['no_shift', 'center_zero', 'demean', 'demean_half' ] # [None 'center_zero', 'demean']
 disp_str = disp_str_list[0];
 mvt_axe_str_list = ['transX', 'transY','transZ', 'rotX', 'rotY', 'rotZ']
 
-all_params = dict(
-    amplitude=[0.5, 1,2,4],
-    sigma =  [0], #if not 0 it will have no x0s ..(with
-    nb_x0s = [1],
-    x0_min = [0],
-    sym = [False, ],
-    mvt_type= ['Const'],
-    mvt_axe = [[1],[4]] ,
-    cor_disp = [False,],
-    disp_str =  ['no_shift'],
-    suj_index = [ 0, 475,  478, 492, 497, 499, 500], #[474, 475, 477, 478, 485, 492, 497, 499, 500, 510],
-    suj_seed = [0,2,4,7,9], #[0,1,2,4,5,6,7,8,9],
-    suj_contrast = [1, 2,3],
-    suj_deform = [False, True,],
-    suj_noise = [0, 0.01, 0.05, 0.1]
-)
 amp = [ 1,2,4,8]
 amp3 = list(np.sqrt(np.array(amp)**2/3))
 all_params = dict(
@@ -164,21 +131,75 @@ out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsy
 
 create_motion_job(params,1,file,out_path,res_name)
 
-mres = ModelCSVResults(df_data=df1, out_tmp="/tmp/rrr")
-keys_unpack = ['T_LabelsToImage'];
-suffix = ['l']
-df1 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix);
-
-csv_file = glob.glob(out_path+'/res_metrics*')
+csv_file = glob.glob(out_path+'/*/metrics*')
 df = [pd.read_csv(ff) for ff in csv_file]
 df1 = pd.concat(df, ignore_index=True); dfall = df1
 show_df(df1,all_params)
 
+
+df1['fp'] =  [os.path.dirname(ff)  + '/fitpars_orig.txt'  for ff in csv_file]
+### recompute motion metrics
+for ii, fp_path in enumerate(df1.fp.values):
+    fitpar = np.loadtxt(fp_path)
+    tmot = tio.transforms.MotionFromTimeCourse(frequency_encoding_dim=0,fitpars=fitpar, tr=1, es=0.001, oversampling_pct=0, displacement_shift_strategy=None)
+    tmot._calc_dimensions(image.shape,0)
+    f_interp = np.zeros([6] + list(image.shape))
+    tmot._compute_motion_metrics(fitpar, f_interp, fi)
+    res = tmot._metrics
+    for k in res.keys():
+        if 'Disp_' in k :
+            df1.loc[ii, k] = res[k]
+
+# sinon le no_shift mais qui est presque equivalen le wTF == wTF_short mais pas les 2 wTF2 == wshaw2 !!!
+# for i in range(6):
+#     k = f'wTF_Disp_{i}'; df1[k]=df1[k] + df1[f'shift_{i}']
+#     k = f'wTF2_Disp_{i}'; df1[k]=df1[k] + df1[f'shift_{i}']
+def correct_amplitude(s):
+    return np.round(2* s['amplitude']*np.sqrt(3) if s['mvt_axe']=='transXtransYtransZ' else 2*s['amplitude'])/2
+df1['amplitude'] = dfall['amplitude']
+df1['amplitude'] = df1.apply(lambda  s: correct_amplitude(s), axis=1)
+
+key_disp = [k for k in df1.keys() if 'isp_1' in k]; key_replace_length = 7  # computed in torchio
+key_disp += ['shift_0'];
+for k in key_disp:
+    if 'shift_0' in k:
+        key_replace_length = 2
+    new_key = k[:-key_replace_length] +'_trans'
+    df1[new_key] = df1.apply(lambda s: disp_to_vect(s, k, 'trans'), axis=1)
+    df1[f'{new_key}N'] = df1[new_key].apply(lambda x: npl.norm(x)) / df1.amplitude
+    new_key = k[:-key_replace_length] +'_rot'
+    df1[new_key] = df1.apply(lambda s: disp_to_vect(s, k, 'rot'),  axis=1)
+    df1[f'{new_key}N'] = df1[new_key].apply(lambda x: npl.norm(x)) / df1.amplitude
+    for ii in range(6):
+        key_del = f'{k[:-1]}{ii}';  print(f'create {new_key}  delete {key_del}') #del(df1[key_del])
+
+
+### plot displacement
+value_name='rotation (degre) '; shift_type='rotN'
+value_name='translation (mm)'; shift_type='transN'
+mixt_variable = [k for k in df1.keys() if shift_type in k]; del mixt_variable[0:4];  del mixt_variable[2] # ['wTF_rotN', 'wTF2_rotN', 'srot']
+hue_order = [f'shift_{shift_type}', f'center_{shift_type}', f'mean_{shift_type}', f'wTFshort_{shift_type}', f'wSH_{shift_type}', f'wSH2_{shift_type}']
+
+dfsub = df1[(df1.mvt_axe=='rotY') ] ; # df1[df1.mvt_axe=='transX'] ;
+dfsub = df1[(df1.mvt_type=='Ustep_sym') & (df1.sigma>12)]# & (df1.amplitude>0.6)] ; # df1[df1.mvt_axe=='transX'] ;
+dfsub = df1[(df1.mvt_axe=='oy2') & (df1.sigma>12)] ; # df1[df1.mvt_axe=='transX'] ;
+dfsub=df1
+# different sigma x0 center
+dfm = dfsub.melt(id_vars=['fp','sigma', 'amplitude','mvt_axe'], value_vars=mixt_variable, var_name='mean', value_name=value_name)
+fig = sns.relplot(data=dfm, x="sigma", y=value_name,hue='mean', legend='full', kind="line", style='amplitude',
+                  col='mvt_axe',col_wrap=2, hue_order=hue_order)
+# different x0
+dfm = dfsub.melt(id_vars=['fp','sigma', 'amplitude','mvt_axe','x0','xend'], value_vars=mixt_variable, var_name='mean', value_name=value_name)
+fig = sns.relplot(data=dfm, x="xend", y=value_name,hue='mean', legend='full', kind="line", col='sigma', col_wrap=2, hue_order=hue_order,style='amplitude')
+plt.text(0.4,0.5,'transXYZ ',transform=plt.gcf().transFigure,bbox={'facecolor': 'grey', 'alpha': 0.5, 'pad': 10})
+
+### plot displacement end
+
+### plot images metrics
 df1 = df1.rename({'m_t1_L1_map':'L1', 'm_t1_NCC':'NCC', 'm_t1_grad_nMI2':'MI', 'm_t1_PSNR':'PSNR','m_t1_nRMSE':'nL2',
                  'm_t1_ssim_SSIM':'SSIM', 'm_t1_grad_ratio':'grad_ratio','m_t1_grad_cor_diff_ratio':'auto_cor_ratio'}, axis='columns')
-
-df1['m_wTF_Disp_1']=df1['m_wTF_Disp_1'] + df1['shift']
-df1['m_wTF2_Disp_1']=df1['m_wTF2_Disp_1'] + df1['shift']
+df1 = df1.rename({'m_L1_map':'L1', 'm_NCC':'NCC', 'm_grad_nMI2':'MI', 'm_PSNR':'PSNR','m_nRMSE':'nL2',
+                 'm_ssim_SSIM':'SSIM', 'm_grad_ratio':'grad_ratio','m_grad_cor_diff_ratio':'auto_cor_ratio'}, axis='columns')
 
 df1 = dfall[dfall['mvt_type']=='Ustep_sym']
 df1 = df1[df1['xend']==256]
@@ -211,13 +232,13 @@ ykeys = ykeys[1:6]
 figres = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/figure/roty_center_sigma/'
 prefix = 'abs_noise' #'sigma_x256' #'abs_noise_colAmp' # 'contrast_'
 for k, dfsub in dfsub_dict.items():
-    #cmap = sns.color_palette("coolwarm", len(dfsub.sigma.unique()))
-    cmap = sns.color_palette("coolwarm", len(dfsub.suj_index.unique()))
+    cmap = sns.color_palette("coolwarm", len(dfsub.sigma.unique()))
+    #cmap = sns.color_palette("coolwarm", len(dfsub.suj_index.unique()))
     for ykey in ykeys:
         if ykey in dfsub:
-            #fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind="line",palette=cmap, col='amplitude',col_wrap=2)
+            fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind="line",palette=cmap, col='amplitude',col_wrap=2)
             #fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind="line",palette=cmap, col='suj_contrast',col_wrap=2,style='suj_deform')
-            fig = sns.relplot(data=dfsub, x="sigma", y=ykey, hue="suj_index", legend='full', kind="line", palette=cmap, col='amplitude', col_wrap=2)
+            #fig = sns.relplot(data=dfsub, x="sigma", y=ykey, hue="suj_index", legend='full', kind="line", palette=cmap, col='amplitude', col_wrap=2)
 
             for aa in fig.axes: aa.grid()
             plt.text(0.1,0.9,ykey,transform=plt.gcf().transFigure,bbox={'facecolor': 'grey', 'alpha': 0.5, 'pad': 10})
