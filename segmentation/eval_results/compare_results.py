@@ -404,10 +404,18 @@ def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None,
         >>> result_file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res1mm_all.csv'
         >>> plot_metric_against_GM_level(result_file, 'metric_dice_loss_GM', ylim=(0, 0.1))
     """
-    df = pd.read_csv(result_file, index_col=0)
+    if isinstance(result_file, list):
+        df_list = [ pd.read_csv(one_res, index_col=0) for one_res in result_file ]
+        df = pd.concat(df_list, sort=False).reindex()
+    else:
+        df = pd.read_csv(result_file, index_col=0)
+
     if filter:
-        rows = df[filter['col']].str.contains(filter['str'])
-        df = df[rows]
+        if isinstance(filter, dict):
+            filter = [filter]
+        for filt in filter:
+            rows = df[filt['col']].str.contains(filt['str'])
+            df = df[rows]
 
     df.sort_values(['model', 'SNR'], axis=0, inplace=True)
     df['model_and_SNR'] = df['model'].str.cat(df['SNR'].astype(str), sep='_')
