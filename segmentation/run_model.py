@@ -209,6 +209,7 @@ class RunModel:
             os.path.join(self.results_dir, f'opt_ep{self.epoch - 1}*.pth.tar')
         )
         if len(opt_files) > 0:
+            self.log(f'loading optimizer from {opt_files[-1]}')
             self.optimizer.load_state_dict(torch.load(opt_files[-1]))
 
         # Try to load scheduler state
@@ -1157,6 +1158,8 @@ class RunModel:
                     str_hist[name] = val
 #               str_hist = {name: str() if isinstance(getattr(hist, name),funtion) else getattr(hist, name) for name in hist.args_names}
             #instead of using str(hist) wich is not correct as a python eval, make a dict of input_param
+            if f'T_{histo_name}' in info:
+                histo_name = f'{histo_name}_2'
             info[f'T_{histo_name}'] = json.dumps(
                 str_hist, cls=ArrayTensorJSONEncoder)
             order.append(histo_name)
@@ -1182,7 +1185,6 @@ class RunModel:
                 if self.eval_csv_basename is not None:
                     csv_name = self.eval_csv_basename + '_' + csv_name #if repeate_eval the val loop change eval_csv_basename
                 filename = f'{resdir}/{csv_name}'
-        df.to_pickle(filename+'.gz', protocol=3)
         df = df.drop(columns=["history"])
         df.to_csv(filename+".csv")
 
