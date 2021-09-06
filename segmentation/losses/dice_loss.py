@@ -63,15 +63,24 @@ class Dice:
         self.cut = cut
         self.smooth = smooth
 
-    def dice_loss(self, prediction, target):
-        target = target.float()
-        prediction = prediction.float()
-        input_flat = prediction.contiguous().view(-1)
-        target_flat = target.contiguous().view(-1)
-        intersection = (input_flat * target_flat).sum()
-        return 1 - ((2. * intersection + self.smooth) /
-                    (input_flat.pow(2).sum() + target_flat.pow(2).sum()
-                     + self.smooth))
+    def dice_loss(self, predictions, targets):
+        #warning, flating all predictions and target and computing one dice score, is not equivalent to
+        # averaging dice scores obtain on each volume ...
+        nb_vol = predictions.shape[0] #btach dimension
+        res = 0
+        for num_vol in range(0, nb_vol ):
+            prediction, target = predictions[num_vol], targets[num_vol]
+            target = target.float()
+            prediction = prediction.float()
+            input_flat = prediction.contiguous().view(-1)
+            target_flat = target.contiguous().view(-1)
+            intersection = (input_flat * target_flat).sum()
+            one_vol_dice =  1 - ((2. * intersection + self.smooth) /
+                        (input_flat.pow(2).sum() + target_flat.pow(2).sum()
+                         + self.smooth))
+            res += one_vol_dice
+        res = res / nb_vol
+        return res
 
     def mean_dice_loss(self, prediction, target):
         return mean_metric(prediction, target, self.dice_loss)
