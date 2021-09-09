@@ -28,7 +28,8 @@ def product_dict(**kwargs):
 
 def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_info=dict(), param=dict(),
                  root_out_dir=None, suj_name='NotSet', suj_orig_name=None,
-                 fsl_coreg=True, return_motion=False, save_fitpars=False):
+                 fsl_coreg=True, return_motion=False, save_fitpars=False,
+                 compute_displacement=False):
 
     if 'displacement_shift_strategy' not in param: param['displacement_shift_strategy']=None
     # apply motion transform
@@ -41,6 +42,7 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         if tmot.displacement_shift_strategy is None: #let's force demean for the first try to be not too far
             fp = fp - np.mean(fp, axis=1, keepdims=True)
             print('first motion is done with demean')
+            #arg, may be not a good idea, for sigma motion
 
         tmot.fitpars = fp
 
@@ -171,11 +173,6 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
                                                                 torch.zeros(1).unsqueeze(0),
                                                                 batch_time, save=False, extra_info=extra_info)
 
-        start = time.time()
-        image, brain_mask = sdata.t1.data[0].numpy(), sdata.brain.data[0].numpy()
-        df_disp = get_displacement_field_metric(image, brain_mask, fp)
-        batch_time = time.time() - start
-        print(f'Displacement field metrics in   {batch_time} ')
 
         #concatenate metrics dataframe before and after coreg
         df_keep1 = df_before_coreg[['transforms_metrics']]
@@ -191,7 +188,17 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         df2 = mres.normalize_dict_to_df(keys_unpack, suffix=suffix);
         df2.pop('transforms_metrics')
 
-        dfall = pd.concat([df_disp, df2, df1], sort=True, axis=1);
+        if compute_displacement:
+            start = time.time()
+            image, brain_mask = sdata.t1.data[0].numpy(), sdata.brain.data[0].numpy()
+            df_disp = get_displacement_field_metric(image, brain_mask, fp)
+            batch_time = time.time() - start
+            print(f'Displacement field metrics in   {batch_time} ')
+
+            dfall = pd.concat([df_disp, df2, df1], sort=True, axis=1);
+        else:
+            print('Skiping displacement field computation')
+            dfall = pd.concat([df2, df1], sort=True, axis=1);
 
         if out_dir is not None:
             if not os.path.isdir(out_dir): os.mkdir(out_dir)
@@ -445,6 +452,7 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
         pp = SimpleNamespace(**param)
         #[amplitude, sigma, sym, mvt_type, mvt_axe, cor_disp, disp_str, nb_x0s, x0_min] = param
         amplitude, sigma, sym, mvt_type, mvt_axe, cor_disp, disp_str, nb_x0s, x0_min =  pp.amplitude, pp.sigma, pp.sym, pp.mvt_type, pp.mvt_axe, pp.cor_disp, pp.disp_str, pp.nb_x0s, pp.x0_min
+        x0_step = pp.x0_step #if 'x0_step' in pp else None
 
         ssynth, tmot, config_runner = select_data(json_file, param)
 
@@ -461,7 +469,12 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
             xcenter = resolution // 2;
             x0s = np.floor(np.linspace(x0_min, xcenter, nb_x0s))
             x0s = x0s[x0s>=sigma//2] #remove first point to not reduce sigma
-        #x0s=[242]
+        if x0_step is not None:
+            xstep = max(int(sigma/x0_step),2)
+            first_x0 = xcenter - nb_x0s * xstep
+            x0s = np.arange(xcenter, first_x0, -xstep)
+            x0s = x0s[x0s > sigma // 2]
+
         for x0 in x0s:
             start = time.time()
             sigma, x0, xend = int(sigma), int(x0), x0 + sigma // 2
@@ -714,8 +727,8 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
     if center=='zero':
         y = y -y[resolution//2]
     if sym:
-        center = y.shape[0]//2
-        y = np.hstack([y[0:center], np.flip(y[0:center])])
+        fp_center = y.shape[0]//2
+        y = np.hstack([y[0:fp_center], np.flip(y[0:fp_center])])
 
     if return_all6:
         if mvt_axes[0] == 6: #oy1
