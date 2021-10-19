@@ -2,6 +2,61 @@ from segmentation.metrics.utils import mean_metric
 import torch.nn as nn
 import torch
 
+class UniVarGaussianLogLkd(object):
+    """
+        thanks to benoit dufumier https://github.com/Duplums/bhb10k-dl-benchmark/blob/main/losses.py
+        cf. Multi-Task Learning Using Uncertainty to Weigh Losses for Scene Geometry and Semantics, Kendall, CVPR 18
+        This loss can be used for classification (using soft cross-entropy, working with both hard or soft labels) and
+        regression with a single variance for each voxel. The Dice loss is not used here since it is a global measure of
+        similarity between 2 segmentation maps.
+    """
+    def __init__(self, pb: str="regression", apply_exp=True, lamb=None, **kwargs):
+        """
+        :param pb: "classif" or "regression"
+        :param apply_exp: if True, assumes network output log(var**2)
+        :param kwargs: kwargs given to PyTorch MSELoss if regression pb
+        """
+
+        self.apply_exp = apply_exp
+        if pb == "classif":
+            self.sup_loss = UniVarGaussianLogLkd.softXEntropy
+            self.lamb = 0.5 if lamb is None else lamb
+        elif pb == "regression":
+            self.sup_loss = torch.nn.MSELoss(reduction="mean", **kwargs)
+            self.lamb = 1 if lamb is None else lamb
+        else:
+            raise ValueError("Unknown pb: %s"%pb)
+
+    @staticmethod
+    def softXEntropy(input, target):
+        """
+        :param input: output segmentation, shape [*, C, *]
+        :param target: target soft classes, shape [*, C, *]
+        :return: Xentropy, shape [*, *]
+        """
+        logprob = torch.nn.functional.log_softmax(input, dim=1)
+        return - (target * logprob).sum(dim=1)/target.sum(dim=1)
+
+    #def __call__(self, x, sigma2, target):
+    def __call__(self, x, target):
+        """
+        rrr change to 2 input argument to avoid changing the generic call of the loss (loss(prediction,target)
+        :param x: output segmentation, shape [*, C, *]
+        :param sigma2 == sigma**2 or log(sigma**2) if apply_exp is set: variance map, shape [*, *]
+        :param target: true segmentation, assuming that soft-labels are available, shape [*, C, *]
+        :return: log-likelihood for logistic regression (classif)/ridge regression (regression) with uncertainty
+        """
+        #sigam2 is supposed to be the last predicted output
+        sigma2 = x[:,-1,:]
+        x = x[:,:-1,::]
+        #print(f'lamb is {self.lamb} shape is {x.shape}')
+        if self.apply_exp:
+            log_sigma2 = sigma2
+            sigma2 = torch.exp(log_sigma2)
+            return (1./sigma2 * self.sup_loss(x, target) + self.lamb * log_sigma2).mean()
+        else:
+            return (1./sigma2 * self.sup_loss(x, target) + self.lamb * torch.log(sigma2)).mean()
+
 class MultiTaskLoss(nn.Module):
     def __init__(self, tasks):
         super(MultiTaskLoss, self).__init__()
