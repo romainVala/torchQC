@@ -32,6 +32,8 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
                  compute_displacement=False):
 
     if 'displacement_shift_strategy' not in param: param['displacement_shift_strategy']=None
+    if 'freq_encoding_dim' not in param: param['freq_encoding_dim']=0
+    ''
     # apply motion transform
     start = time.time()
     #tmot.metrics = None
@@ -39,14 +41,22 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         tmot.nT = fp.shape[1]
         tmot.simulate_displacement = False; #tmot.oversampling_pct = 1
         tmot.displacement_shift_strategy = param['displacement_shift_strategy']
-        if tmot.displacement_shift_strategy is None: #let's force demean for the first try to be not too far
-            fp = fp - np.mean(fp, axis=1, keepdims=True)
-            print('first motion is done with demean')
-            #arg, may be not a good idea, for sigma motion
+        tmot.freq_encoding_dim = param['freq_encoding_dim'] #only use in the constructor to set
+        tmot.frequency_encoding_dim = param['freq_encoding_dim']
+        # if tmot.displacement_shift_strategy is None: #let's force demean for the first try to be not too far
+        #     fp = fp - np.mean(fp, axis=1, keepdims=True)
+        #     print('first motion is done with demean')
+        #     #arg, may be not a good idea, for sigma motion
 
         tmot.fitpars = fp
 
     smot = tmot(sdata)
+    #update fp, since it may have change is displacement_shift_strategy is used
+    for hh in smot.history:
+        if isinstance(hh, tio.transforms.augmentation.intensity.random_motion_from_time_course.MotionFromTimeCourse):
+            fp = hh.fitpars['t1']  #fitpar is modifie in Motion transform not in tmot
+            print(f'max fp is {fp.max(axis=1)}')
+
     batch_time = time.time() - start;     start = time.time()
     print(f'First motion in  {batch_time} ')
 
@@ -450,9 +460,8 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
     df, extra_info, i = pd.DataFrame(), dict(), 0
     for param in params:
         pp = SimpleNamespace(**param)
-        #[amplitude, sigma, sym, mvt_type, mvt_axe, cor_disp, disp_str, nb_x0s, x0_min] = param
-        amplitude, sigma, sym, mvt_type, mvt_axe, cor_disp, disp_str, nb_x0s, x0_min =  pp.amplitude, pp.sigma, pp.sym, pp.mvt_type, pp.mvt_axe, pp.cor_disp, pp.disp_str, pp.nb_x0s, pp.x0_min
-        x0_step = pp.x0_step #if 'x0_step' in pp else None
+        amplitude, sigma, sym, mvt_type, mvt_axe, nb_x0s, x0_min =  pp.amplitude, pp.sigma, pp.sym, pp.mvt_type, pp.mvt_axe, pp.nb_x0s, pp.x0_min
+        xend_steps = pp.xend_steps #if 'xend_steps' in pp else None
 
         ssynth, tmot, config_runner = select_data(json_file, param)
 
@@ -469,11 +478,15 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
             xcenter = resolution // 2;
             x0s = np.floor(np.linspace(x0_min, xcenter, nb_x0s))
             x0s = x0s[x0s>=sigma//2] #remove first point to not reduce sigma
-        if x0_step is not None:
-            xstep = max(int(sigma/x0_step),2)
-            first_x0 = xcenter - nb_x0s * xstep
-            x0s = np.arange(xcenter, first_x0, -xstep)
+        if xend_steps is not None:
+            #interprete as a list of xend
+            xend_steps = np.array(xend_steps)
+            if sym:
+                xend_steps = xend_steps[xend_steps<=xcenter]
+            x0s = xend_steps - sigma//2
             x0s = x0s[x0s > sigma // 2]
+
+        print(f'preparing {len(x0s)} with Sigma {sigma} Sym {sym} and xend : {x0s + sigma//2}')
 
         for x0 in x0s:
             start = time.time()
@@ -491,12 +504,19 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
 
             #get a unique sujname to write resultt
             suj_name = f'Suj_{ssynth.name}_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}_S{param["suj_seed"]}'
+            if 'displacement_shift_strategy' in param:
+                if param['displacement_shift_strategy'] is not None:
+                    suj_name += f'Disp_{param["displacement_shift_strategy"]}'
+            if 'freq_encoding_dim' in param:
+                suj_name += f'_F{param["freq_encoding_dim"]}'
             fp_name  = f'fp_x{x0}_sig{sigma}_Amp{amplitude}_M{mvt_type}_A{mvt_axe_str}_sym{int(sym)}'
+            if xend_steps is not None:
+                fp_name = f'fp_x{xend}_sig{sigma}_Amp{amplitude}_M{mvt_type}_A{mvt_axe_str}_sym{int(sym)}'
+
             suj_name += fp_name
             extra_info['out_dir'] = suj_name
 
-            #smot, df, res_fitpar, res = apply_motion(ssynth, tmot, fp, df, res_fitpar, res, extra_info, config_runner=mr, correct_disp=cor_disp)
-            one_df = apply_motion(ssynth, tmot, fp, config_runner, extra_info=extra_info, param=param,
+            _ = apply_motion(ssynth, tmot, fp, config_runner, extra_info=extra_info, param=param,
                  root_out_dir=out_path, suj_name=suj_name, fsl_coreg=True, save_fitpars=True)
 
             i += 1
@@ -514,7 +534,7 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
     #return df1
 
 def create_motion_job(params, split_length, fjson, out_path, res_name, type='motion_loop',
-                      mem=8000, cpus_per_task=4, walltime='12:00:00', job_pack=1,
+                      mem=6000, cpus_per_task=2, walltime='12:00:00', job_pack=1,
                       jobdir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/' ):
 
     nb_param = len(params)
@@ -601,6 +621,9 @@ def perform_one_simulated_motion(params, fjson, root_out_dir=None, fsl_coreg=Tru
         # load mvt fitpars
 
         suj_name0 = f'Suj_{sdata.name}_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}_S{param["suj_seed"]}'
+        if 'displacement_shift_strategy' in param:
+            if param['displacement_shift_strategy'] is not None:
+                suj_name0 += f'_Disp_{param["displacement_shift_strategy"]}'
 
         for nbmot in range(param['nb_x0s']):
             if 'new_suj' in param:
@@ -750,6 +773,13 @@ def corrupt_data( x0, sigma= 5, amplitude=20, method='gauss', mvt_axes=[1], cent
         else:
             for xx in mvt_axes:
                 fp[xx, :] = y
+            if len(mvt_axes)>1:
+                if len(mvt_axes)==3:
+                    max0 = np.max(fp)
+                    fp = np.sqrt(fp**2 /3);
+                    print(f'because of 3 ax reducing amplitude from {max0} to {np.max(fp)} of 0.86' )
+                else:
+                    print('WARNING pb in amplitude norm')
         y=fp
 
     return y
