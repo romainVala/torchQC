@@ -70,9 +70,9 @@ class MetricOverlay:
         return far_mask
 
     def __call__(self, prediction, target):
-        if (prediction.shape[1] - target.shape[1]) == 1:
-            target = torch.cat([target, 1 - target.sum(dim=1, keepdim=True)],
-                               dim=1)
+        #if (prediction.shape[1] - target.shape[1]) == 1:
+        #    target = torch.cat([target, 1 - target.sum(dim=1, keepdim=True)],
+        #                       dim=1)
 
         if self.binary_volumes:
             prediction = F.one_hot(prediction[:, 0, ...].long()) \
