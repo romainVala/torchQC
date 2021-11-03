@@ -11,6 +11,12 @@ from torchio import SubjectsDataset
 def identity_activation(x):
     return x
 
+def partial_softmax(x, nb_label):
+
+    x[:, :nb_label, ...] = torch.nn.functional.softmax( x[:, :nb_label, ...] , dim=1)
+    #print(f'applying softmax on the first {nb_label}')
+    return x
+
 
 def custom_import(object_dict):
     """
