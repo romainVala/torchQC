@@ -22,11 +22,20 @@ class UniVarGaussianLogLkd(object):
         if pb == "classif":
             self.sup_loss = UniVarGaussianLogLkd.softXEntropy
             self.lamb = 0.5 if lamb is None else lamb
+        elif pb == "BCE_logit":
+            self.sup_loss = torch.nn.BCEWithLogitsLoss(reduction="mean", **kwargs)
+            self.lamb = 0.5 if lamb is None else lamb
         elif pb == "regression":
             self.sup_loss = torch.nn.MSELoss(reduction="none", **kwargs)
             self.lamb = 1 if lamb is None else lamb
         else:
             raise ValueError("Unknown pb: %s"%pb)
+
+    @staticmethod
+    def LogitSoftXEntropy(input, target):
+        logprob = torch.log(torch.nn.functional.sigmoid(input))
+        return - (target * logprob).sum(dim=1)/target.sum(dim=1)
+
 
     @staticmethod
     def softXEntropy(input, target):
