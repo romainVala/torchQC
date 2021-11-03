@@ -547,6 +547,7 @@ class Config:
                 self.set_struct_value(criterion, 'band_width')
                 self.set_struct_value(criterion, 'use_far_mask', False)
                 self.set_struct_value(criterion, 'mixt_activation', 0)
+                self.set_struct_value(criterion, 'sigma_prediction', 0)
                 self.set_struct_value(
                     criterion, 'reported_name',
                     f'{criterion["name"]}_{criterion["method"]}')
@@ -578,6 +579,7 @@ class Config:
                         band_width=criterion['band_width'],
                         use_far_mask=criterion['use_far_mask'],
                         mixt_activation=criterion['mixt_activation'],
+                        sigma_prediction=criterion['sigma_prediction'],
                         additional_learned_param=additional_learned_param
                     ),
                     'weight': criterion['weight'],
