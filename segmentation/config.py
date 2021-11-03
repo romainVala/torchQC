@@ -1037,9 +1037,9 @@ class Config:
                 model.append(mmm)
                 model_name = ''
                 for iii in range(3):
-                    file = os.path.dirname(file)
                     model_name = f'{os.path.basename(file)}_{model_name}'
-                self.model_name.append(model_name)
+                    file = os.path.dirname(file)
+                self.model_name.append(model_name[:-1])
 
             return model, ddd
 
