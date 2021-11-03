@@ -10,7 +10,7 @@ class UniVarGaussianLogLkd(object):
         regression with a single variance for each voxel. The Dice loss is not used here since it is a global measure of
         similarity between 2 segmentation maps.
     """
-    def __init__(self, pb: str="regression", apply_exp=True, lamb=None, **kwargs):
+    def __init__(self, pb: str="regression", apply_exp=True, lamb=None, fake=False,  **kwargs):
         """
         :param pb: "classif" or "regression"
         :param apply_exp: if True, assumes network output log(var**2)
@@ -18,11 +18,12 @@ class UniVarGaussianLogLkd(object):
         """
 
         self.apply_exp = apply_exp
+        self.fake = fake
         if pb == "classif":
             self.sup_loss = UniVarGaussianLogLkd.softXEntropy
             self.lamb = 0.5 if lamb is None else lamb
         elif pb == "regression":
-            self.sup_loss = torch.nn.MSELoss(reduction="mean", **kwargs)
+            self.sup_loss = torch.nn.MSELoss(reduction="none", **kwargs)
             self.lamb = 1 if lamb is None else lamb
         else:
             raise ValueError("Unknown pb: %s"%pb)
@@ -47,15 +48,123 @@ class UniVarGaussianLogLkd(object):
         :return: log-likelihood for logistic regression (classif)/ridge regression (regression) with uncertainty
         """
         #sigam2 is supposed to be the last predicted output
-        sigma2 = x[:,-1,:]
-        x = x[:,:-1,::]
+        if isinstance(x, list):     #should happen just for regression, where sigma_prediction is used in metric (utils)
+            x, sigma2 = x[0], x[1]
+            # sima2 shape [*,1,*] or [*,C,*]
+        else:
+            sigma2 = x[:, -1, :] #withou (-1:) the dimension becomes batch,volume as classif loss
+            x = x[:, :-1, ::]
+
+        if self.fake:
+            if isinstance(self.sup_loss, torch.nn.MSELoss) :
+                res_loss = self.sup_loss(x, target).sum(dim=1).mean()
+            else:
+                res_loss = self.sup_loss(x, target).mean()
+            return res_loss
+
         #print(f'lamb is {self.lamb} shape is {x.shape}')
         if self.apply_exp:
             log_sigma2 = sigma2
-            sigma2 = torch.exp(log_sigma2)
-            return (1./sigma2 * self.sup_loss(x, target) + self.lamb * log_sigma2).mean()
+            sigma2 = torch.exp(log_sigma2) + 1e-6
+
+            if isinstance(self.sup_loss, torch.nn.MSELoss) :
+                mse_loss = self.sup_loss(x, target).sum(dim=1)
+                print(f'MSE/SIGMA min {mse_loss.min():.4f} | {sigma2.min():.4f} max {mse_loss.max():.4f} | {sigma2.max():.4f} mean {mse_loss.mean():.4f} |  {sigma2.mean():.4f}')
+                res_loss = ( 1./sigma2.squeeze(dim=1) * mse_loss  +
+                             self.lamb * log_sigma2.squeeze(dim=1)).mean()
+            else:
+                if x.isnan().any():
+                    qsdf
+
+                the_loss = self.sup_loss(x, target)
+                if the_loss.isnan().any():
+                    azer
+                print(f'BCE/SIGMA min {the_loss.min():.4f} | {sigma2.min():.4f} max {the_loss.max():.4f} | {sigma2.max():.4f} mean {the_loss.mean():.4f} |  {sigma2.mean():.4f}')
+
+                res_loss = (1./sigma2 * the_loss + self.lamb * log_sigma2).mean()
+
         else:
-            return (1./sigma2 * self.sup_loss(x, target) + self.lamb * torch.log(sigma2)).mean()
+            the_loss = self.sup_loss(x, target)
+            print(
+                f'BCE/SIGMA min {the_loss.min():.4f} | {sigma2.min():.4f} max {the_loss.max():.4f} | {sigma2.max():.4f} mean {the_loss.mean():.4f} |  {sigma2.mean():.4f}')
+            res_loss = (1./sigma2 * self.sup_loss(x, target) + self.lamb * torch.log(sigma2)).mean()
+        return res_loss
+
+
+class MultiVarGaussianLogLkd(object):
+    """
+        thanks to benoit dufumier https://github.com/Duplums/bhb10k-dl-benchmark/blob/main/losses.py
+        cf. Multivariate Uncertainty in Deep Learning, Russell, IEEE TNLS 21
+    """
+
+    def __init__(self, pb: str="regression", no_covar=False, **kwargs):
+        """
+        :param pb: "classif" or "regression"
+        :param no_covar: If True, assume that the covariance matrix is diagonal
+        :param kwargs: kwargs given to PyTorch Cross Entropy Loss
+        """
+        if pb == "classif":
+            raise NotImplementedError()
+        elif pb == "regression":
+            pass
+        else:
+            raise ValueError("Unknown pb: %s"%pb)
+        self.no_covar = no_covar
+
+    #def __call__(self, x, Sigma, target):
+    def __call__(self, x, target):
+        """
+        :param x: output segmentation, shape [*, C, *]
+        :param Sigma: co-variance coefficients. It can be:
+            (1) If no_covar==False, shape [*, C(C+1)/2, *] organized as row-first according to tril_indices
+               from torch and numpy : [rho_11, rho_12, ..., rho_1C, rho_22, rho_23,...rho_2C,... rho_CC]
+               with rho_ii = exp(.) > 0 encodes the variances and rho_ij = tanh(.) encodes the correlations.
+               The covariance matrix is M is s.t  M[i][j] = rho_ij * srqrt(rho_ii) * sqrt(rho_ij)
+            (2) If no_covar==True, shape [*, C, *], assuming that all non-diagonal coeff are zeros. We assume it
+                has the form [sigma_1**2, sigma_2**2, ..., sigma_C**2]
+        :param target: true segmentation, shape [*, C, *]
+        :return: log-likelihood for logistic regression with uncertainty
+        """
+
+        if isinstance(x, list):     #should happen just for regression, where sigma_prediction is used in metric (utils)
+            x, Sigma = x[0], x[1]
+            log_Sigma = Sigma
+            Sigma = torch.exp(log_Sigma) + 1e-6
+            #if Sigma.min() < 1e-6:
+            #    print(f'Warning min Sigma {Sigma.min()}')
+
+        C, ndims = x.shape[1], x.ndim
+
+        if self.no_covar:
+            # Simplified Case
+            assert C == Sigma.shape[1] and Sigma.ndim == ndims,\
+                "Inconsistent shape for input data and covariance: {} vs {}".format(x.shape, Sigma.shape)
+            assert torch.all(Sigma > 0), "Negative values found in Sigma"
+            inv_Sigma = 1./Sigma # shape [*, C, *]
+            #logdet_sigma = torch.log(torch.prod(Sigma, dim=1)) # shape [*, *]
+            logdet_sigma = torch.sum(log_Sigma, dim=1) # shape [*, *]
+            err = (target - x) # shape [*, C, *]
+            return ((err * inv_Sigma * err).sum(dim=1) + logdet_sigma.squeeze()).mean()
+        else:
+            # General Case
+            assert (C * (C+1))//2 == Sigma.shape[1] and Sigma.ndim == ndims, \
+                "Inconsistent shape for input data and covariance: {} vs {}".format(x.shape, Sigma.shape)
+            # permutes the 2nd dim to last, keeping other unchanged (in v1.9, eq. to torch.moveaxis(1, -1))
+            swap_channel_last = (0,) + tuple(range(2,ndims)) + (1,)
+            # First, re-arrange covar matrix to have shape [*, *, C, C]
+            covar_shape = (Sigma.shape[0],) + Sigma.shape[2:] + (C, C)
+            tril_ind = torch.tril_indices(row=C, col=C, offset=0)
+            triu_ind = torch.triu_indices(row=C, col=C, offset=0)
+            Sigma_ = torch.zeros(covar_shape, device=x.device)
+            Sigma_[..., tril_ind[0], tril_ind[1]] = Sigma.permute(swap_channel_last)
+            Sigma_[..., triu_ind[0], triu_ind[1]] = Sigma.permute(swap_channel_last)
+            # Then compute determinant and inverse of covariance matrices
+            logdet_sigma = torch.logdet(Sigma_) # shape [*, *]
+            inv_sigma = torch.inverse(Sigma_) # shape [*, *, C, C]
+            # Finally, compute log-likehood of multivariate gaussian distribution
+            err = (target - x).permute(swap_channel_last).unsqueeze(-1) # shape [*, *, C, 1]
+            return ((err.transpose(-1,-2) @ inv_sigma @ err).squeeze() + logdet_sigma.squeeze()).mean()
+
 
 class MultiTaskLoss(nn.Module):
     def __init__(self, tasks):
@@ -162,4 +271,10 @@ class Dice:
         return gdl
 
     def identity_loss(self, x, y):
+        return 1
+
+class Fake_metric:
+    def __init__(self):
+        pass
+    def apply(self,x,y):
         return 1
