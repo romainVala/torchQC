@@ -42,7 +42,7 @@ class RunModel:
     def __init__(self, model, device, train_loader, val_loader, val_set,
                  test_set, image_key_name, label_key_name, labels,
                  logger, debug_logger, results_dir, batch_size,
-                 patch_size, struct, post_transforms):
+                 patch_size, struct, post_transforms, model_name):
         self.model = model
         self.device = device
 
@@ -122,6 +122,7 @@ class RunModel:
 
         self.eval_csv_basename = None
         self.save_transformed_samples = False
+        self.model_name = model_name
 
     @staticmethod
     def create_folder_if_not_exists(path):
@@ -272,7 +273,12 @@ class RunModel:
         self.log_peak_CPU_memory()
         for nb_eval in range(self.eval_repeate):
             with torch.no_grad():
-                self.model.eval()
+                if isinstance(self.model, list):
+                    print(f'List model size {len(self.model)}')
+                    for model in self.model:
+                        model.eval()
+                else:
+                    self.model.eval()
                 if nb_eval > 0:
                     self.eval_csv_basename = f'V{nb_eval}'+ self.eval_csv_basename if self.eval_csv_basename else f'V{nb_eval}'
                 patch_size = self.patch_size or self.eval_patch_size
@@ -304,7 +310,8 @@ class RunModel:
 
     def train_loop(self, save_model=True):
         eval_dropout = 0
-        if self.model.training:
+        is_model_training = self.model[0].training if isinstance(self.model, list) else self.model.training
+        if is_model_training:
             self.log('Training')
             model_mode = 'Train'
             loader = self.train_loader
@@ -326,7 +333,7 @@ class RunModel:
         average_loss, max_loss = None, None
 
         for i, sample in enumerate(loader, 1):
-            if self.model.training:
+            if is_model_training:
                 self.iteration = i
             else:
                 self.val_iteration = i
@@ -351,7 +358,10 @@ class RunModel:
                 if self.split_batch_gpu and self.batch_size > 1: #usefull, when using ListOf transform that pull sample in batch to avoid big full volume batch in gpu
                     predictions = torch.cat([self.model(v.unsqueeze(0)) for v in volumes])
                 else:
-                    predictions = self.model(volumes)
+                    if isinstance(self.model, list):
+                        predictions = [mmm(volumes) for mmm in self.model]
+                    else:
+                        predictions = self.model(volumes)
 
             # Compute loss
             loss = 0
@@ -359,13 +369,16 @@ class RunModel:
                 targets = predictions
 
             for criterion in self.criteria:
-                one_loss = criterion['criterion'](predictions, targets)
+                if isinstance(predictions, list):
+                    one_loss = criterion['criterion'](predictions[0], targets) #only the loss of the firts model ...
+                else:
+                    one_loss = criterion['criterion'](predictions, targets)
                 if isinstance(one_loss, tuple): #multiple task loss may return tuple to report each loss
                     one_loss = one_loss[0]
                 loss += criterion['weight'] * one_loss
 
             # Compute gradient and do SGD step
-            if self.model.training:
+            if is_model_training:
                 self.optimizer.zero_grad()
                 if self.apex_opt_level is not None:
                     with amp.scale_loss(loss, self.optimizer) as scaled_loss:
@@ -380,29 +393,42 @@ class RunModel:
                 predictions_dropout = [self.apply_post_transforms(pp, sample)[0] for pp in predictions_dropout]
                 predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
             else:
-                predictions, _ = self.apply_post_transforms(predictions, sample)
+                if isinstance(predictions, list):
+                    predictions = [ self.apply_post_transforms(pp, sample)[0] for pp in predictions]
+                else:
+                    predictions, _ = self.apply_post_transforms(predictions, sample)
+
             targets, new_affine = self.apply_post_transforms(targets, sample)
 
-            if self.save_predictions and not self.model.training:
+            if self.save_predictions and not is_model_training:
                 if eval_dropout:
                     predictions_std = torch.stack([self.activation(pp.cpu().detach()) for pp in predictions_dropout])
                     predictions_std = torch.std(predictions_std, axis=0) #arggg
-                for j, prediction in enumerate(predictions):
-                    n = i * self.batch_size + j
-                    self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine)
-                    if eval_dropout:
-                        volume_name = self.save_volume_name + "_std" or "Dp_std"
-                        aaa = self.save_bin
-                        self.save_bin = False
-                        self.prediction_saver(sample,  predictions_std[j].unsqueeze(0), n, j, volume_name=volume_name,
-                        apply_activation=False, affine=new_affine)
-                        self.save_bin = aaa
 
-            if self.save_labels and not self.model.training:
+                if isinstance(predictions, list):
+                    for nb_pred, ppp in enumerate(predictions):
+                        for j, prediction in enumerate(ppp):
+                            n = i * self.batch_size + j
+                            vname = f'{self.save_volume_name}_M{self.model_name[nb_pred]}'
+                            self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine,  volume_name=vname)
+
+                else:
+                    for j, prediction in enumerate(predictions):
+                        n = i * self.batch_size + j
+                        self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine)
+                        if eval_dropout:
+                            volume_name = self.save_volume_name + "_std" or "Dp_std"
+                            aaa = self.save_bin
+                            self.save_bin = False
+                            self.prediction_saver(sample,  predictions_std[j].unsqueeze(0), n, j, volume_name=volume_name,
+                            apply_activation=False, affine=new_affine)
+                            self.save_bin = aaa
+
+            if self.save_labels and not is_model_training:
                 for j, target in enumerate(targets):
                     n = i * self.batch_size + j
                     self.label_saver(sample, target.unsqueeze(0), n, j, volume_name='label', affine=new_affine, apply_activation=False,)
-            if self.save_data and not self.model.training:
+            if self.save_data and not is_model_training:
                 volumes, _ = self.apply_post_transforms(volumes, sample)
                 for j, volumes in enumerate(volumes):
                     n = i * self.batch_size + j
@@ -429,8 +455,13 @@ class RunModel:
                     df, reporting_time = self.batch_recorder(
                         df, sample, predictions_dropout[ii], targets, batch_time, write_csv_file, append_in_df=True)
             else:
-                df, reporting_time = self.batch_recorder(
-                    df, sample, predictions, targets, batch_time, write_csv_file)
+                if isinstance(predictions, list):
+                    for iii, ppp in enumerate(predictions):
+                        df, reporting_time = self.batch_recorder(
+                            df, sample, ppp, targets, batch_time, write_csv_file,  append_in_df=True, model_name=self.model_name[iii])
+                else:
+                    df, reporting_time = self.batch_recorder(
+                        df, sample, predictions, targets, batch_time, write_csv_file)
             if write_csv_file: self.log_peak_CPU_memory()
 
             reporting_time_sum += reporting_time
@@ -446,7 +477,7 @@ class RunModel:
                 self.log(to_log)
 
             # Run model on validation set every eval_frequency iteration
-            if self.model.training and \
+            if is_model_training and \
                     (i % self.eval_frequency == 0 or i == len(loader)):
                 with torch.no_grad():
                     self.model.eval()
@@ -464,7 +495,7 @@ class RunModel:
             start = time.time()
 
         # Save model after an evaluation on the whole validation set
-        if save_model and not self.model.training:
+        if save_model and not is_model_training:
             self.save_checkpoint(average_loss)
 
         return average_loss
@@ -720,7 +751,7 @@ class RunModel:
         return df, time_sum
 
     def record_segmentation_batch(self, df, sample, predictions, targets,
-                                  batch_time, save=False, csv_name='eval', append_in_df=False):
+                                  batch_time, save=False, csv_name='eval', append_in_df=False, model_name='model'):
         """
         Record information about the batches the model was trained or evaluated
         on during the segmentation task.
@@ -729,7 +760,8 @@ class RunModel:
         start = time.time()
 
         is_batch = not isinstance(sample, torchio.Subject)
-        if self.model.training:
+        is_model_training = self.model[0].training if isinstance(self.model, list) else self.model.training
+        if is_model_training:
             mode = 'Train'
         else:
             if self.eval_results_dir != self.results_dir and csv_name == 'eval' and append_in_df is False:
@@ -793,6 +825,8 @@ class RunModel:
             if location is not None:
                 info['location'] = to_numpy(location[idx])
 
+            info['model_name'] = model_name
+
             loss = 0
             for criterion in self.criteria:
                 one_loss = criterion['criterion'](predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
@@ -808,7 +842,7 @@ class RunModel:
 
             info['loss'] = to_numpy(loss)
 
-            if not self.model.training:
+            if not is_model_training:
                 for metric in self.metrics:
                     name = f'metric_{metric["name"]}'
 

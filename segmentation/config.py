@@ -85,6 +85,7 @@ class Config:
         self.model_structure = None
         self.run_structure = None
         self.viz_structure = None
+        self.model_name = None
     """
     suject_seed used only if subject_shufflie is not null
     batch_seed used if not None, (torch manual seed) used in init
@@ -1022,11 +1023,25 @@ class Config:
                 return return_model(model)
             file = max(files, key=os.path.getmtime)
         else:
-            file = struct['path']
-            if file is None or not Path(file).exists():
-                raise ValueError(
-                    f'Impossible to load model from {file}, '
-                    f'this file does not exist')
+            files = struct['path']
+            if not isinstance(files, list):
+                files = [files]
+            model, self.model_name = [], []
+            for file in files:
+                if file is None or not Path(file).exists():
+                    raise ValueError(
+                        f'Impossible to load model from {file}, '
+                        f'this file does not exist')
+                mmm, _ = model_class.load(file)
+                mmm, ddd = return_model(mmm, file)
+                model.append(mmm)
+                model_name = ''
+                for iii in range(3):
+                    file = os.path.dirname(file)
+                    model_name = f'{os.path.basename(file)}_{model_name}'
+                self.model_name.append(model_name)
+
+            return model, ddd
 
         if hasattr(model_class, 'load'):
             model, _ = model_class.load(file)
@@ -1125,7 +1140,7 @@ class Config:
                                     self.logger, self.debug_logger,
                                     self.results_dir, self.batch_size,
                                     self.patch_size, self.run_structure,
-                                    self.post_transforms)
+                                    self.post_transforms, self.model_name)
 
             if self.mode == 'train':
                 model_runner.train()
