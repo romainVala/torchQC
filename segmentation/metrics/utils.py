@@ -6,7 +6,7 @@ class MetricOverlay:
     def __init__(self, metric, channels=None, mask=None, mask_cut=(0.99, 1),
                  binarize_target=False, activation=None, binary_volumes=False,
                  binarize_prediction=False, band_width=None, use_far_mask=False,
-                 mixt_activation=0, additional_learned_param=None):
+                 mixt_activation=0, sigma_prediction=0, additional_learned_param=None):
         self.metric = metric
         self.channels = channels
         self.mask = mask
@@ -22,6 +22,7 @@ class MetricOverlay:
         self.band_width = band_width
         self.use_far_mask = use_far_mask
         self.mixt_activation = mixt_activation
+        self.sigma_prediction = sigma_prediction
         self.additional_learned_param = additional_learned_param
 
     @staticmethod
@@ -90,6 +91,11 @@ class MetricOverlay:
                 target = [target_seg, target_reg]
                 # torch.cat( (self.activation(pred_with_act), pred_no_act), dim=1)
                 #print(f'shape {pred_no_act.shape} and {pred_with_act.shape} and {prediction.shape}')
+            elif self.sigma_prediction>0:
+                prediction_seg = self.activation(prediction[:, :-self.sigma_prediction, ...])
+                prediction = [prediction_seg, prediction[:, -self.sigma_prediction:, ...]]
+                #print(f"shape pred i {prediction.shape}")
+
             else:
                 prediction = self.activation(prediction)
 
