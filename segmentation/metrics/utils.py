@@ -81,23 +81,23 @@ class MetricOverlay:
             target = F.one_hot(target[:, 0, ...].long()) \
                 .permute(0, 4, 1, 2, 3).float()
 
-        if self.activation is not None:
-            if self.mixt_activation:
-                pred_seg = self.activation(prediction[:,:-self.mixt_activation,...])
-                pred_reg = prediction[:,-self.mixt_activation:,...]
-                prediction = [pred_seg, pred_reg]
-                target_seg = target[:,:-self.mixt_activation,...]
-                target_reg = target[:,-self.mixt_activation:,...]
-                target = [target_seg, target_reg]
-                # torch.cat( (self.activation(pred_with_act), pred_no_act), dim=1)
-                #print(f'shape {pred_no_act.shape} and {pred_with_act.shape} and {prediction.shape}')
-            elif self.sigma_prediction>0:
-                prediction_seg = self.activation(prediction[:, :-self.sigma_prediction, ...])
-                prediction = [prediction_seg, prediction[:, -self.sigma_prediction:, ...]]
-                #print(f"shape pred i {prediction.shape}")
-
-            else:
-                prediction = self.activation(prediction)
+        # if self.activation is not None:
+        #     if self.mixt_activation:
+        #         pred_seg = self.activation(prediction[:,:-self.mixt_activation,...])
+        #         pred_reg = prediction[:,-self.mixt_activation:,...]
+        #         prediction = [pred_seg, pred_reg]
+        #         target_seg = target[:,:-self.mixt_activation,...]
+        #         target_reg = target[:,-self.mixt_activation:,...]
+        #         target = [target_seg, target_reg]
+        #         # torch.cat( (self.activation(pred_with_act), pred_no_act), dim=1)
+        #         #print(f'shape {pred_no_act.shape} and {pred_with_act.shape} and {prediction.shape}')
+        #     elif self.sigma_prediction>0:
+        #         prediction_seg = self.activation(prediction[:, :-self.sigma_prediction, ...])
+        #         prediction = [prediction_seg, prediction[:, -self.sigma_prediction:, ...]]
+        #         #print(f"shape pred i {prediction.shape}")
+        #
+        #     else:
+        #         prediction = self.activation(prediction)
 
         if self.binarize_target:
             target = self.binarize(target)

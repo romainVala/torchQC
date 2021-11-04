@@ -350,18 +350,19 @@ class RunModel:
             if eval_dropout:
                 self.model.enable_dropout()
                 if self.split_batch_gpu and self.batch_size > 1:
-                    predictions_dropout = [torch.cat([self.model(v.unsqueeze(0)) for v in volumes]) for ii in range(0, eval_dropout)]
+                    predictions_dropout = [torch.cat([self.activation(self.model(v.unsqueeze(0))) for v in volumes])
+                                           for ii in range(0, eval_dropout)]
                 else:
-                    predictions_dropout = [self.model(volumes) for ii in range(0, eval_dropout)]
+                    predictions_dropout = [self.activation(self.model(volumes)) for ii in range(0, eval_dropout)]
                 predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
             else:
                 if self.split_batch_gpu and self.batch_size > 1: #usefull, when using ListOf transform that pull sample in batch to avoid big full volume batch in gpu
-                    predictions = torch.cat([self.model(v.unsqueeze(0)) for v in volumes])
+                    predictions = torch.cat([self.activation(self.model(v.unsqueeze(0))) for v in volumes])
                 else:
                     if isinstance(self.model, list):
-                        predictions = [mmm(volumes) for mmm in self.model]
+                        predictions = [self.activation(mmm(volumes)) for mmm in self.model]
                     else:
-                        predictions = self.model(volumes)
+                        predictions = self.activation(self.model(volumes))
 
             # Compute loss
             loss = 0
@@ -402,7 +403,7 @@ class RunModel:
 
             if self.save_predictions and not is_model_training:
                 if eval_dropout:
-                    predictions_std = torch.stack([self.activation(pp.cpu().detach()) for pp in predictions_dropout])
+                    predictions_std = torch.stack([pp.cpu().detach() for pp in predictions_dropout])
                     predictions_std = torch.std(predictions_std, axis=0) #arggg
 
                 if isinstance(predictions, list):
@@ -421,18 +422,18 @@ class RunModel:
                             aaa = self.save_bin
                             self.save_bin = False
                             self.prediction_saver(sample,  predictions_std[j].unsqueeze(0), n, j, volume_name=volume_name,
-                            apply_activation=False, affine=new_affine)
+                            affine=new_affine)
                             self.save_bin = aaa
 
             if self.save_labels and not is_model_training:
                 for j, target in enumerate(targets):
                     n = i * self.batch_size + j
-                    self.label_saver(sample, target.unsqueeze(0), n, j, volume_name='label', affine=new_affine, apply_activation=False,)
+                    self.label_saver(sample, target.unsqueeze(0), n, j, volume_name='label', affine=new_affine)
             if self.save_data and not is_model_training:
                 volumes, _ = self.apply_post_transforms(volumes, sample)
                 for j, volumes in enumerate(volumes):
                     n = i * self.batch_size + j
-                    self.label_saver(sample, volumes.unsqueeze(0), n, j, volume_name='data', apply_activation=False, affine=new_affine)
+                    self.label_saver(sample, volumes.unsqueeze(0), n, j, volume_name='data', affine=new_affine)
 
             # Measure elapsed time
             batch_time = time.time() - start
@@ -581,7 +582,7 @@ class RunModel:
                     sample, None)
             else:
                 volume, _ = self.data_getter(sample)
-                predictions = self.model(volume.unsqueeze(0))[0]
+                predictions = self.activation( self.model(volume.unsqueeze(0))[0] )
 
             predictions, new_affine = self.apply_post_transforms(
                 predictions.unsqueeze(0), sample)
@@ -819,7 +820,7 @@ class RunModel:
                    targets[idx, channel].sum() * voxel_size
                 )
                 info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
-                    self.activation(predictions)[idx, channel].sum() * voxel_size
+                    predictions[idx, channel].sum() * voxel_size
                 )
 
             if location is not None:
@@ -944,7 +945,7 @@ class RunModel:
             locations = patches_batch[torchio.LOCATION]
 
             # Compute output
-            predictions = self.model(volumes)
+            predictions = self.activation(self.model(volumes))
             aggregator.add_batch(predictions, locations)
 
             if self.dense_patch_eval and targets is not None:
@@ -957,7 +958,7 @@ class RunModel:
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions, df
 
-    def save_volume(self, sample, volume, idx=0, batch_idx=0, affine=None, volume_name=None, apply_activation=True):
+    def save_volume(self, sample, volume, idx=0, batch_idx=0, affine=None, volume_name=None ):
         volume_name = volume_name or self.save_volume_name
         name = sample.get('name') or f'{idx:06d}'
         if affine is None:
@@ -966,13 +967,6 @@ class RunModel:
         if isinstance(name, list):
             name = name[batch_idx]
             name = name[0] if isinstance(name,list) else name
-        if apply_activation:
-            if self.criteria[0]['criterion'].mixt_activation: #softmax apply only on segmentation not regression
-                skip_vol = self.criteria[0]['criterion'].mixt_activation
-                vv= self.activation(volume[0,:-skip_vol,...].unsqueeze(0))
-                volume[0,:-skip_vol,...] = vv[0]
-            else:
-                volume = self.activation(volume)
 
         resdir = f'{self.eval_results_dir}/{name}/'
         if not os.path.isdir(resdir):
