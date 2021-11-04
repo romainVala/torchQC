@@ -10,7 +10,8 @@ class UniVarGaussianLogLkd(object):
         regression with a single variance for each voxel. The Dice loss is not used here since it is a global measure of
         similarity between 2 segmentation maps.
     """
-    def __init__(self, pb: str="regression", apply_exp=True, lamb=None, fake=False,  **kwargs):
+    def __init__(self, pb: str="regression", apply_exp=True, lamb=None, fake=False,
+                 sigma_prediction=1, **kwargs):
         """
         :param pb: "classif" or "regression"
         :param apply_exp: if True, assumes network output log(var**2)
@@ -19,6 +20,7 @@ class UniVarGaussianLogLkd(object):
 
         self.apply_exp = apply_exp
         self.fake = fake
+        self.sigma_prediction = sigma_prediction
         if pb == "classif":
             self.sup_loss = UniVarGaussianLogLkd.softXEntropy
             self.lamb = 0.5 if lamb is None else lamb
@@ -56,13 +58,10 @@ class UniVarGaussianLogLkd(object):
         :param target: true segmentation, assuming that soft-labels are available, shape [*, C, *]
         :return: log-likelihood for logistic regression (classif)/ridge regression (regression) with uncertainty
         """
-        #sigam2 is supposed to be the last predicted output
-        if isinstance(x, list):     #should happen just for regression, where sigma_prediction is used in metric (utils)
-            x, sigma2 = x[0], x[1]
-            # sima2 shape [*,1,*] or [*,C,*]
-        else:
-            sigma2 = x[:, -1, :] #withou (-1:) the dimension becomes batch,volume as classif loss
-            x = x[:, :-1, ::]
+        #sigam2 is supposed to be the n last predicted output (n = self.sigma_prediction
+        #sigma2 = x[:, -1, :] #withou (-1:) the dimension becomes batch,volume as classif loss
+        sigma2 = x[:, -self.sigma_prediction:, ...]
+        x = x[:, :-self.sigma_prediction, ...]
 
         if self.fake:
             if isinstance(self.sup_loss, torch.nn.MSELoss) :
@@ -73,6 +72,7 @@ class UniVarGaussianLogLkd(object):
 
         #print(f'lamb is {self.lamb} shape is {x.shape}')
         if self.apply_exp:
+            sigma2 = sigma2.squeeze(dim=1) #remove channel dim if only one sigma
             log_sigma2 = sigma2
             sigma2 = torch.exp(log_sigma2) + 1e-6
 
@@ -82,14 +82,12 @@ class UniVarGaussianLogLkd(object):
                 res_loss = ( 1./sigma2.squeeze(dim=1) * mse_loss  +
                              self.lamb * log_sigma2.squeeze(dim=1)).mean()
             else:
-                if x.isnan().any():
-                    qsdf
-
+                #if x.isnan().any():
+                #    qsdf
                 the_loss = self.sup_loss(x, target)
-                if the_loss.isnan().any():
-                    azer
+                #if the_loss.isnan().any():
+                #    azer
                 print(f'BCE/SIGMA min {the_loss.min():.4f} | {sigma2.min():.4f} max {the_loss.max():.4f} | {sigma2.max():.4f} mean {the_loss.mean():.4f} |  {sigma2.mean():.4f}')
-
                 res_loss = (1./sigma2 * the_loss + self.lamb * log_sigma2).mean()
 
         else:

@@ -6,7 +6,7 @@ class MetricOverlay:
     def __init__(self, metric, channels=None, mask=None, mask_cut=(0.99, 1),
                  binarize_target=False, activation=None, binary_volumes=False,
                  binarize_prediction=False, band_width=None, use_far_mask=False,
-                 mixt_activation=0, sigma_prediction=0, additional_learned_param=None):
+                 mixt_activation=0, additional_learned_param=None):
         self.metric = metric
         self.channels = channels
         self.mask = mask
@@ -22,7 +22,6 @@ class MetricOverlay:
         self.band_width = band_width
         self.use_far_mask = use_far_mask
         self.mixt_activation = mixt_activation
-        self.sigma_prediction = sigma_prediction
         self.additional_learned_param = additional_learned_param
 
     @staticmethod
