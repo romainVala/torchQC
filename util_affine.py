@@ -954,14 +954,14 @@ def spm_matrix(P,order=1):
 
     T = np.array([[1,0,0,P[0]],[0,1,0,P[1]],[0,0,1,P[2]],[0,0,0,1]])
     R1 =  np.array([[1,0,0,0],
-                    [0,np.cos(P[3]),np.sin(P[3]),0],#sing change compare to spm because neuro versus radio ?
+                    [0,np.cos(P[3]),np.sin(P[3]),0],
                     [0,-np.sin(P[3]),np.cos(P[3]),0],
                     [0,0,0,1]])
-    R2 =  np.array([[np.cos(P[4]),0,np.sin(P[4]),0],
+    R2 =  np.array([[np.cos(P[4]),0,-np.sin(P[4]),0],  #sing change compare to spm to match tio Affine
                     [0,1,0,0],
-                    [-np.sin(P[4]),0,np.cos(P[4]),0],
+                    [np.sin(P[4]),0,np.cos(P[4]),0],
                     [0,0,0,1]])
-    R3 =  np.array([[np.cos(P[5]),np.sin(P[5]),0,0],  #sing change compare to spm because neuro versus radio ?
+    R3 =  np.array([[np.cos(P[5]),np.sin(P[5]),0,0],
                     [-np.sin(P[5]),np.cos(P[5]),0,0],
                     [0,0,1,0],
                     [0,0,0,1]])
