@@ -42,7 +42,7 @@ class RunModel:
     def __init__(self, model, device, train_loader, val_loader, val_set,
                  test_set, image_key_name, label_key_name, labels,
                  logger, debug_logger, results_dir, batch_size,
-                 patch_size, struct, post_transforms, model_name):
+                 patch_size, struct, post_transforms, model_name=None):
         self.model = model
         self.device = device
 
