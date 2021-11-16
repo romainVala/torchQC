@@ -1,6 +1,7 @@
 from segmentation.metrics.utils import mean_metric
 import torch.nn as nn
 import torch
+from segmentation.utils import to_numpy
 
 class UniVarGaussianLogLkd(object):
     """
@@ -11,7 +12,7 @@ class UniVarGaussianLogLkd(object):
         similarity between 2 segmentation maps.
     """
     def __init__(self, pb: str="regression", apply_exp=True, lamb=None, fake=False,
-                 sigma_prediction=1, **kwargs):
+                 sigma_prediction=1, sigma_constrain=None, return_loss_dict=False, **kwargs):
         """
         :param pb: "classif" or "regression"
         :param apply_exp: if True, assumes network output log(var**2)
@@ -21,6 +22,9 @@ class UniVarGaussianLogLkd(object):
         self.apply_exp = apply_exp
         self.fake = fake
         self.sigma_prediction = sigma_prediction
+        self.return_loss_dict = return_loss_dict
+        self.sigma_constrain = sigma_constrain
+
         if pb == "classif":
             self.sup_loss = UniVarGaussianLogLkd.softXEntropy
             self.lamb = 0.5 if lamb is None else lamb
@@ -60,7 +64,10 @@ class UniVarGaussianLogLkd(object):
         """
         #sigam2 is supposed to be the n last predicted output (n = self.sigma_prediction
         #sigma2 = x[:, -1, :] #withou (-1:) the dimension becomes batch,volume as classif loss
-        sigma2 = x[:, -self.sigma_prediction:, ...]
+        if self.sigma_constrain == 'logsigmoid':
+            sigma2 = torch.nn.functional.logsigmoid( x[:, -self.sigma_prediction:, ...] )
+        else:
+            sigma2 = x[:, -self.sigma_prediction:, ...]
         x = x[:, :-self.sigma_prediction, ...]
 
         if self.fake:
@@ -85,17 +92,33 @@ class UniVarGaussianLogLkd(object):
                 #if x.isnan().any():
                 #    qsdf
                 the_loss = self.sup_loss(x, target)
-                #if the_loss.isnan().any():
-                #    azer
-                print(f'BCE/SIGMA min {the_loss.min():.4f} | {sigma2.min():.4f} max {the_loss.max():.4f} | {sigma2.max():.4f} mean {the_loss.mean():.4f} |  {sigma2.mean():.4f}')
                 res_loss = (1./sigma2 * the_loss + self.lamb * log_sigma2).mean()
 
         else:
             the_loss = self.sup_loss(x, target)
             print(
-                f'BCE/SIGMA min {the_loss.min():.4f} | {sigma2.min():.4f} max {the_loss.max():.4f} | {sigma2.max():.4f} mean {the_loss.mean():.4f} |  {sigma2.mean():.4f}')
+                f'BCE/SIGMA  max {the_loss.max():.4f} | {sigma2.max():.4f} mean {the_loss.mean():.4f} |  {sigma2.mean():.4f}')
             res_loss = (1./sigma2 * self.sup_loss(x, target) + self.lamb * torch.log(sigma2)).mean()
-        return res_loss
+
+        if (self.return_loss_dict) : #& (target.shape[0]==1) : #only need in record  batch for single iteration
+            #NOT required in the main train_loop for training (with batch >1)
+
+            shape_loss = the_loss.shape
+            lThnorm = torch.linalg.norm(
+                the_loss.reshape([shape_loss[0], shape_loss[1] * shape_loss[2] * shape_loss[3]]), ord=2, dim=1).mean()
+            lSnorm = torch.linalg.norm(sigma2.reshape([shape_loss[0], shape_loss[1] * shape_loss[2] * shape_loss[3]]),
+                                       ord=2, dim=1).mean()
+            dict_loss = {
+                'loss_kll_norm': to_numpy( lThnorm ),
+                'loss_sigma_norm': to_numpy(lSnorm),
+                'loss_kll_mean':  to_numpy(the_loss.mean()),
+                'loss_sigma_mean': to_numpy(sigma2.mean()),
+                'loss_kll_max':   to_numpy(the_loss.max()),
+                'loss_sigma_max':  to_numpy(sigma2.max())
+            }
+            return res_loss, dict_loss
+        else:
+            return res_loss
 
 
 class MultiVarGaussianLogLkd(object):

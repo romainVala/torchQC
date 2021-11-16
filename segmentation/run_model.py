@@ -828,17 +828,29 @@ class RunModel:
 
             info['model_name'] = model_name
 
-            loss = 0
+            loss = 0 ;
             for criterion in self.criteria:
-                one_loss = criterion['criterion'](predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+                if 'return_loss_dict' in criterion['criterion'].metric.__self__.__dict__: #check if class retunr_loss_dict in atribut
+                    criterion['criterion'].metric.__self__.return_loss_dict=True #call with extra info !
+                    one_loss = criterion['criterion'](predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+                    criterion['criterion'].metric.__self__.return_loss_dict=False #call with extra info !
+
+                else:
+                    one_loss = criterion['criterion'](predictions[idx].unsqueeze(0), targets[idx].unsqueeze(0))
+
                 if isinstance(one_loss, tuple): #multiple task loss may return tuple to report each loss
                     for i in range(1,len(one_loss)):
                         aaa = one_loss[i]
-                        if aaa.requires_grad:
-                            aaa = aaa.detach()
-                        info[f'loss_{i}'] = to_numpy(aaa)
+                        if not isinstance(aaa,dict):
+                            if aaa.requires_grad:
+                                aaa = aaa.detach()
+                            info[f'loss_{i}'] = to_numpy(aaa)
+                        else: # UniVarGaussianLogLkd return a dict of different loss_metric
+                            info = dict(info, **aaa)
 
                     one_loss = one_loss[0]
+                elif isinstance(one_loss, list):
+                    one_loss, loss_dict = one_loss[0], one_loss[1]
                 loss += criterion['weight'] * one_loss
 
             info['loss'] = to_numpy(loss)
