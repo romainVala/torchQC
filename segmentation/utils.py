@@ -11,10 +11,16 @@ from torchio import SubjectsDataset
 def identity_activation(x):
     return x
 
-def partial_softmax(x, nb_label):
+def partial_softmax(x, nb_label, extra_noPV = None):
 
     x[:, :nb_label, ...] = torch.nn.functional.softmax( x[:, :nb_label, ...] , dim=1)
     #print(f'applying softmax on the first {nb_label}')
+    if extra_noPV=="LogSigmoid_exp":
+        sigma2 = x[:, nb_label:, ...]
+        sigma2 = torch.nn.functional.logsigmoid( sigma2 )
+        sigma2 = torch.exp(sigma2) + 1e-6
+        x[:, nb_label:, ...] = sigma2
+
     return x
 
 
