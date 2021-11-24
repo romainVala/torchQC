@@ -926,7 +926,8 @@ def spm_imatrix(M, order=1):
     P = np.array([tx, ty, tz, rx, ry, rz, scalx, scaly, scalz, shearx, sheary, shearz])
     return P
 
-def spm_matrix(P,order=1):
+
+def spm_matrix(P, order=1, set_ZXY=False, rotation_center=None):
     """
     FORMAT [A] = spm_matrix(P )
     P(0)  - x translation
@@ -944,10 +945,6 @@ def spm_matrix(P,order=1):
 
     order - application order of transformations. if order (the Default): T*R*Z*S if order==0 S*Z*R*T
     """
-    convert_to_torch=False
-    if torch.is_tensor(P):
-        P = P.numpy()
-        convert_to_torch=True
 
     #[P[3], P[4], P[5]] = [P[3] * 180 / np.pi, P[4] * 180 / np.pi, P[5] * 180 / np.pi]  # degre to radian
     P[3], P[4], P[5] = P[3]*np.pi/180, P[4]*np.pi/180, P[5]*np.pi/180 #degre to radian
@@ -967,19 +964,37 @@ def spm_matrix(P,order=1):
                     [0,0,0,1]])
 
     #R = R3.dot(R2.dot(R1)) #fsl convention (with a sign difference)
-    R = (R1.dot(R2)).dot(R3)
+    if set_ZXY:
+        R = (R2.dot(R1)).dot(R3)
+    else:
+        R = (R1.dot(R2)).dot(R3)
 
     Z = np.array([[P[6],0,0,0],[0,P[7],0,0],[0,0,P[8],0],[0,0,0,1]])
     S = np.array([[1,P[9],P[10],0],[0,1,P[11],0],[0,0,1,0],[0,0,0,1]])
-    if order==0:
+    if order == 0:
         A = S.dot(Z.dot(R.dot(T)))
     else:
         A = T.dot(R.dot(Z.dot(S)))
 
-    if convert_to_torch:
-        A = torch.from_numpy(A).float()
+    if rotation_center is not None:
+        A = change_affine_rotation_center(A, rotation_center)
 
     return A
+
+def change_affine_rotation_center(A, new_center):
+    aff_center = np.eye(4);
+    aff_center[:3, 3] = np.array(new_center)
+    return np.dot(aff_center, np.dot(A, np.linalg.inv(aff_center)))
+
+
+def ras_to_lps_vector(triplet: np.ndarray):
+    return np.array((-1, -1, 1), dtype=float) * np.asarray(triplet)
+
+def ras_to_lps_affine(affine):
+    FLIPXY_44 = np.diag([-1, -1, 1, 1])
+    affine = np.dot(affine, FLIPXY_44)
+    affine = np.dot(FLIPXY_44, affine)
+    return affine
 
 
 def get_affine_from_rot_scale_trans(rot, scale, trans, inverse_affine=False):
