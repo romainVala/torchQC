@@ -7,6 +7,7 @@ from read_csv_results import ModelCSVResults
 from itertools import product
 from types import SimpleNamespace
 import torchio as tio
+import SimpleITK as sitk
 
 pi = torch.tensor(3.14159265358979323846)
 import numpy.linalg as npl
@@ -28,7 +29,7 @@ def product_dict(**kwargs):
 
 def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_info=dict(), param=dict(),
                  root_out_dir=None, suj_name='NotSet', suj_orig_name=None,
-                 fsl_coreg=True, return_motion=False, save_fitpars=False,
+                 do_coreg='Elastix', return_motion=False, save_fitpars=False,
                  compute_displacement=False):
 
     if 'displacement_shift_strategy' not in param: param['displacement_shift_strategy']=None
@@ -66,20 +67,7 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
                                 torch.zeros(1).unsqueeze(0), batch_time, save=False, extra_info=extra_info)
 
     clean_output = param["clean_output"] if "clean_output" in param else 0
-    if fsl_coreg:
-        import subprocess
-        import numpy.linalg as npl
-
-        # since (I guess motion do rotation relatif to volume center, shift the affine to have 0,0,0 at volume center)
-        notuse = False
-        if notuse:  # not necessary for fsl affine, (since independant of nifti header)
-            aff = sdata.t1.affine
-            dim = sdata.t1.data[0].shape
-            aff[:, 3] = [dim[0] // 2, dim[1] // 2, dim[2] // 2, 1]  # todo !! works becaus not rotation in nifti affinne
-            new_affine = npl.inv(aff)
-            sdata.t1.affine = new_affine
-            smot.t1.affine = new_affine
-            # arg when pure rotation I get the same fsl matrix even if I do not change the header origin
+    if do_coreg is not None:
 
         if root_out_dir is None: raise ('error outut path (root_out_dir) must be se ')
         if not os.path.isdir(root_out_dir): os.mkdir(root_out_dir)
@@ -88,9 +76,9 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         else:
             orig_vol_name = f'{suj_orig_name}.nii'
         # save orig data in the upper dir
-        #if not os.path.isfile(orig_vol):
+        # if not os.path.isfile(orig_vol):
         #    sdata.t1.save(orig_vol)
-        #bad idea with random contrast, since it can change with seeding ... and then wrong flirt
+        # bad idea with random contrast, since it can change with seeding ... and then wrong flirt
 
         out_dir = root_out_dir + '/' + suj_name
         if not os.path.isdir(out_dir): os.mkdir(out_dir)
@@ -99,57 +87,77 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
 
         out_vol = out_dir + '/vol_motion.nii'
         smot.t1.save(out_vol)
-        out_vol_nifti_reg = out_dir + '/r_vol_motion.nii'
         out_affine = out_dir + '/coreg_affine.txt'
 
-        if np.allclose(sdata.t1.affine, smot.t1.affine) is False:
-            print(f'WWWWWWWWWWhat the fuck Afine orig is {sdata.t1.affine} but after motion {smot.t1.affine} ')
-            qsdf
+        if do_coreg == 'Elastix':
+            out_aff, elastix_trf = ElastixRegister(sdata.t1, smot.t1)
+            trans_rot = get_euler_and_trans_from_matrix(out_aff)
 
-        # cmd = f'reg_aladin -rigOnly -ref {orig_vol} -flo {out_vol} -res {out_vol_nifti_reg} -aff {out_affine}'
-        # cmd = f'flirt -dof 6 -ref {out_vol} -in {orig_vol}  -out {out_vol_nifti_reg} -omat {out_affine}'
-        cmd = f'flirt -dof 6 -ref {out_vol} -in {orig_vol}  -omat {out_affine}'
-        outvalue = subprocess.run(cmd.split(' '))
-        if not outvalue == 0:
-            print(" ** Error  in " + cmd + " satus is  " + str(outvalue))
+        else:
+            import subprocess
+            import numpy.linalg as npl
+    
+            # since (I guess motion do rotation relatif to volume center, shift the affine to have 0,0,0 at volume center)
+            notuse = False
+            if notuse:  # not necessary for fsl affine, (since independant of nifti header)
+                aff = sdata.t1.affine
+                dim = sdata.t1.data[0].shape
+                aff[:, 3] = [dim[0] // 2, dim[1] // 2, dim[2] // 2, 1]  # todo !! works becaus not rotation in nifti affinne
+                new_affine = npl.inv(aff)
+                sdata.t1.affine = new_affine
+                smot.t1.affine = new_affine
+                # arg when pure rotation I get the same fsl matrix even if I do not change the header origin
+    
+            if np.allclose(sdata.t1.affine, smot.t1.affine) is False:
+                print(f'WWWWWWWWWWhat the fuck Afine orig is {sdata.t1.affine} but after motion {smot.t1.affine} ')
+                qsdf
 
-        if clean_output>0:
-            os.remove(out_vol)
-        #### reading and transforming FSL flirt Affine to retriev trans and rot set with spm_matrix(order=0) (as used torchio motion)
-        out_aff = np.loadtxt(out_affine)
-        affine = smot.t1.affine
-
-        # fsl flirt rotation center is first voxel (0,0,0) image corner
-        shape = sdata.t1.data[0].shape;
-        pixdim = [1]  #
-        center = np.array(shape) // 2
-        new_rotation_center = -center  # I do not fully understand, it should be +center, but well ...
-        T = spm_matrix([new_rotation_center[0], new_rotation_center[1], new_rotation_center[2], 0, 0, 0, 1, 1, 1, 0, 0, 0],
-                       order=4);
-        Ti = npl.inv(T)
-        out_aff = np.matmul(T, np.matmul(out_aff, Ti))
-
-        # convert to trans so that we get the same affine but from convention R*T
-        rot = out_aff.copy();
-        rot[:, 3] = [0, 0, 0, 1]
-        trans2 = out_aff.copy();
-        trans2[:3, :3] = np.eye(3)
-        trans1 = np.matmul(npl.inv(rot),
-                           np.matmul(trans2, rot))  # trans1 = np.matmul(rot, np.matmul(trans2,  npl.inv(rot)))
-        out_aff[:, 3] = trans1[:, 3]
-
-        if npl.det(affine) > 0:  # ie canonical, then flip, (because flirt affine convention is with -x
+            #out_vol_nifti_reg = out_dir + '/r_vol_motion.nii'
+            # cmd = f'reg_aladin -rigOnly -ref {orig_vol} -flo {out_vol} -res {out_vol_nifti_reg} -aff {out_affine}'
+            # cmd = f'flirt -dof 6 -ref {out_vol} -in {orig_vol}  -out {out_vol_nifti_reg} -omat {out_affine}'
+            cmd = f'flirt -dof 6 -ref {out_vol} -in {orig_vol}  -omat {out_affine}'
+            outvalue = subprocess.run(cmd.split(' '))
+            if not outvalue == 0:
+                print(" ** Error  in " + cmd + " satus is  " + str(outvalue))
+    
+            if clean_output>0:
+                os.remove(out_vol)
+            #### reading and transforming FSL flirt Affine to retriev trans and rot set with spm_matrix(order=0) (as used torchio motion)
+            out_aff = np.loadtxt(out_affine)
+            affine = smot.t1.affine
+    
+            # fsl flirt rotation center is first voxel (0,0,0) image corner
             shape = sdata.t1.data[0].shape;
             pixdim = [1]  #
-            x = (shape[0] - 1) * pixdim[0]
-            flip = np.eye(4);
-            flip[0, 0] = -1;
-            flip[0, 3] = 0  # x  not sure why not translation shift ... ?
-            out_aff = np.matmul(flip, out_aff)
-            # out_aff = np.matmul(out_aff,flip)
-        np.savetxt(out_dir + '/coreg_affine_MotConv.txt', out_aff)
+            center = np.array(shape) // 2
+            new_rotation_center = -center  # I do not fully understand, it should be +center, but well ...
+            T = spm_matrix([new_rotation_center[0], new_rotation_center[1], new_rotation_center[2], 0, 0, 0, 1, 1, 1, 0, 0, 0],
+                           order=4);
+            Ti = npl.inv(T)
+            out_aff = np.matmul(T, np.matmul(out_aff, Ti))
+    
+            # convert to trans so that we get the same affine but from convention R*T
+            rot = out_aff.copy();
+            rot[:, 3] = [0, 0, 0, 1]
+            trans2 = out_aff.copy();
+            trans2[:3, :3] = np.eye(3)
+            trans1 = np.matmul(npl.inv(rot),
+                               np.matmul(trans2, rot))  # trans1 = np.matmul(rot, np.matmul(trans2,  npl.inv(rot)))
+            out_aff[:, 3] = trans1[:, 3]
+    
+            if npl.det(affine) > 0:  # ie canonical, then flip, (because flirt affine convention is with -x
+                shape = sdata.t1.data[0].shape;
+                pixdim = [1]  #
+                x = (shape[0] - 1) * pixdim[0]
+                flip = np.eye(4);
+                flip[0, 0] = -1;
+                flip[0, 3] = 0  # x  not sure why not translation shift ... ?
+                out_aff = np.matmul(flip, out_aff)
+                # out_aff = np.matmul(out_aff,flip)
 
-        trans_rot = spm_imatrix(out_aff)[:6]
+            trans_rot = spm_imatrix(out_aff)[:6]
+
+        np.savetxt(out_dir + '/coreg_affine_MotConv.txt', out_aff)
         for i in range(6):
             fp[i, :] = fp[i, :] - trans_rot[i]
 
@@ -517,7 +525,7 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
             extra_info['out_dir'] = suj_name
 
             _ = apply_motion(ssynth, tmot, fp, config_runner, extra_info=extra_info, param=param,
-                 root_out_dir=out_path, suj_name=suj_name, fsl_coreg=True, save_fitpars=True)
+                 root_out_dir=out_path, suj_name=suj_name, do_coreg='Elastix', save_fitpars=True)
 
             i += 1
             total_time = time.time() - start
@@ -535,7 +543,7 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
 
 def create_motion_job(params, split_length, fjson, out_path, res_name, type='motion_loop',
                       mem=6000, cpus_per_task=2, walltime='12:00:00', job_pack=1,
-                      jobdir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/' ):
+                      jobdir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix/' ):
 
     nb_param = len(params)
     nb_job = int(np.ceil(nb_param / split_length))
@@ -612,7 +620,7 @@ def get_default_param(param=None):
 
     return params
 
-def perform_one_simulated_motion(params, fjson, root_out_dir=None, fsl_coreg=True, return_motion=False):
+def perform_one_simulated_motion(params, fjson, root_out_dir=None,do_coreg='Elastix', return_motion=False):
     df = pd.DataFrame()
     params  = get_default_param(params)
     for param in params:
@@ -654,7 +662,7 @@ def perform_one_simulated_motion(params, fjson, root_out_dir=None, fsl_coreg=Tru
 
             one_df = apply_motion(sdata, tmot, fp, config_runner, extra_info=extra_info, param=param,
                                   root_out_dir=root_out_dir, suj_name=suj_name,  suj_orig_name = suj_name0,
-                                  fsl_coreg=fsl_coreg, save_fitpars=True)
+                                  do_coreg=do_coreg, save_fitpars=True)
             if len(df)==0:
                 df = one_df
             else:
@@ -662,7 +670,7 @@ def perform_one_simulated_motion(params, fjson, root_out_dir=None, fsl_coreg=Tru
 
     return df
 
-def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None, fsl_coreg=True, return_motion=False):
+def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None,do_coreg='Elastix', return_motion=False):
     def get_sujname_from_path(ff):
         name = [];
         dn = os.path.dirname(ff)
@@ -691,10 +699,10 @@ def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None, fsl_coreg
         # apply motion transform
         if return_motion:
             one_df, smot = apply_motion(sdata, tmot, fp, config_runner, extra_info=extra_info, param=param,
-                     root_out_dir=root_out_dir, suj_name=suj_name, fsl_coreg=fsl_coreg, return_motion=return_motion)
+                     root_out_dir=root_out_dir, suj_name=suj_name, do_coreg=do_coreg, return_motion=return_motion)
         else:
             one_df = apply_motion(sdata, tmot, fp, config_runner, extra_info=extra_info, param=param,
-                                  root_out_dir=root_out_dir, suj_name=suj_name, fsl_coreg=fsl_coreg)
+                                  root_out_dir=root_out_dir, suj_name=suj_name, do_coreg=do_coreg)
 
         if len(df)==0:
             df = one_df
@@ -996,6 +1004,104 @@ def ras_to_lps_affine(affine):
     affine = np.dot(FLIPXY_44, affine)
     return affine
 
+
+def get_matrix_from_euler_and_trans(P, rot_order='yxz', rotation_center=None):
+    from transforms3d.euler import euler2mat
+
+    # default choosen as the same default as simpleitk
+    rot = np.deg2rad(P[3:6])
+    aff = np.eye(4)
+    aff[:3,3] = P[:3]  #translation
+    if rot_order=='xyz':
+        aff[:3,:3]  = euler2mat(rot[0], rot[1], rot[2], axes='sxyz')
+    elif rot_order=='yxz':
+        aff[:3,:3] = euler2mat(rot[1], rot[0], rot[2], axes='syxz') #strange simpleitk convention of euler ... ?
+    else:
+        raise(f'rotation order {rot_order} not implemented')
+
+    if rotation_center is not None:
+        aff = change_affine_rotation_center(aff, rotation_center)
+    return aff
+
+def get_euler_and_trans_from_matrix(aff, rot_order = 'yxz', rotation_center=None):
+    from transforms3d.euler import mat2euler
+
+    if rot_order=='xyz':
+        revers_angl = np.rad2deg(mat2euler(aff[:3, :3], axes='sxyz'))
+    elif rot_order=='yxz':
+        rrr = np.rad2deg(mat2euler(aff[:3, :3], axes='syxz'))
+        revers_angl = np.array([rrr[1], rrr[0], rrr[2]])
+    else:
+        raise(f'rotation order {rot_order} not implemented')
+
+    if rotation_center is not None:
+        aff = change_affine_rotation_center(aff, - rotation_center)
+    revers_tran = aff[:3,3]
+
+    return np.hstack([revers_tran, revers_angl])
+
+
+def itk_euler_to_affine(Euler_angle, Translation, v_center, degree_to_radian=True, make_RAS=False,
+                    set_ZYX=False):
+
+    if degree_to_radian:
+        Euler_angle = np.deg2rad(Euler_angle)
+    if make_RAS: #RAS to LPS   not very usefull here since, we invert it again of the affine at the end :
+        Euler_angle = ras_to_lps_vector(Euler_angle)
+        Translation = ras_to_lps_vector(Translation)
+        #v_center = ras_to_lps(v_center)  suppose to be given already in lps ... !
+
+    rigid_euler = sitk.Euler3DTransform(v_center,Euler_angle[0],Euler_angle[1],Euler_angle[2],Translation)
+    if set_ZYX:
+        rigid_euler.SetComputeZYX(True) #default is ZXY !!! arggg !!!!
+
+    A1 = np.asarray(rigid_euler.GetMatrix()).reshape(3,3)
+    c1 = np.asarray(rigid_euler.GetCenter())
+    t1 = np.asarray(rigid_euler.GetTranslation())
+    affine = np.eye(4)
+    affine[:3,:3] = A1
+    affine[:3,3] = t1+c1 - np.matmul( A1,c1)
+
+    """LPS to RAS"""
+    if make_RAS :
+        affine = ras_to_lps_affine(affine)
+    return affine
+
+def get_affine_from_Elastixtransfo(elastixImageFilter, do_print=False):
+    tp = elastixImageFilter.GetTransformParameterMap()[0]
+
+    v_center = np.array(np.double(tp['CenterOfRotationPoint'])) #* np.array((-1, -1, 1), dtype=float)
+
+    Euler_angle = np.array(np.double(tp['TransformParameters'][:3]))
+    Translation = np.array(np.double(tp['TransformParameters'][3:]))
+    affine = itk_euler_to_affine(Euler_angle, Translation, v_center,
+                             degree_to_radian=False, make_RAS=False)
+
+
+    affine = ras_to_lps_affine(affine)
+    affine = np.linalg.inv(affine)  #because itk store matrix for ref to src
+
+    if do_print:
+        print(f"Found Rot  {np.rad2deg(Euler_angle)} ")
+        print(f"Trans      {Translation}")
+        print(f"vcenter    {v_center}")
+
+    return affine
+
+def ElastixRegister(img_src, img_ref):
+
+    # inputs are tio Images
+    img1 = img_src.data # if img_src.data.shape[0] == 1 else no4C
+    img2 = img_ref.data # if img_ref.data.shape[0] == 1 else no4C
+
+    i1, i2 = tio.io.nib_to_sitk(img1, img_src.affine), tio.io.nib_to_sitk(img2.data, img_ref.affine)
+    elastixImageFilter = sitk.ElastixImageFilter()
+    elastixImageFilter.SetFixedImage(i2);
+    elastixImageFilter.SetMovingImage(i1)
+    elastixImageFilter.SetParameterMap(sitk.GetDefaultParameterMap("rigid"))
+    elastixImageFilter.LogToConsoleOff()
+    elastixImageFilter.Execute()
+    return get_affine_from_Elastixtransfo(elastixImageFilter), elastixImageFilter
 
 def get_affine_from_rot_scale_trans(rot, scale, trans, inverse_affine=False):
 
