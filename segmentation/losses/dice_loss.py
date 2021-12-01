@@ -66,6 +66,8 @@ class UniVarGaussianLogLkd(object):
         #sigma2 = x[:, -1, :] #withou (-1:) the dimension becomes batch,volume as classif loss
         if self.sigma_constrain == 'logsigmoid':
             sigma2 = torch.nn.functional.logsigmoid( x[:, -self.sigma_prediction:, ...] )
+        elif self.sigma_constrain == "softplus":
+            sigma2 = torch.nn.functional.softplus( x[:, -self.sigma_prediction:, ...] )
         else:
             sigma2 = x[:, -self.sigma_prediction:, ...]
         x = x[:, :-self.sigma_prediction, ...]
@@ -79,9 +81,13 @@ class UniVarGaussianLogLkd(object):
 
         #print(f'lamb is {self.lamb} shape is {x.shape}')
         if self.apply_exp:
-            sigma2 = sigma2.squeeze(dim=1) #remove channel dim if only one sigma
-            log_sigma2 = sigma2
-            sigma2 = torch.exp(log_sigma2) + 1e-6
+            if self.sigma_constrain == "softplus":  #well do not apply ex
+                sigma2 = sigma2.squeeze(dim=1) + 1e-6
+                log_sigma2 = torch.log(sigma2)
+            else:
+                sigma2 = sigma2.squeeze(dim=1) #remove channel dim if only one sigma
+                log_sigma2 = sigma2
+                sigma2 = torch.exp(log_sigma2) + 1e-3
 
             if isinstance(self.sup_loss, torch.nn.MSELoss) :
                 mse_loss = self.sup_loss(x, target).sum(dim=1)
