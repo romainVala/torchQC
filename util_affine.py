@@ -82,6 +82,7 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
 
         out_dir = root_out_dir + '/' + suj_name
         if not os.path.isdir(out_dir): os.mkdir(out_dir)
+        os.chdir(out_dir)
         orig_vol = f'{out_dir}/{orig_vol_name}'
         sdata.t1.save(orig_vol)
 
@@ -91,7 +92,7 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
 
         if do_coreg == 'Elastix':
             out_aff, elastix_trf = ElastixRegister(sdata.t1, smot.t1)
-            trans_rot = get_euler_and_trans_from_matrix(out_aff)
+            trans_rot = get_euler_and_trans_from_matrix(out_aff) # RAS from center (zero) same convention as the input euler to mat
 
         else:
             import subprocess
@@ -625,7 +626,7 @@ def perform_one_simulated_motion(params, fjson, root_out_dir=None,do_coreg='Elas
     params  = get_default_param(params)
     for param in params:
         # get the data
-        sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
+        sdata, tmot, config_runner = select_data(fjson, param, to_canonical=True)
         # load mvt fitpars
 
         suj_name0 = f'Suj_{sdata.name}_I{param["suj_index"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}_S{param["suj_seed"]}'
@@ -636,7 +637,7 @@ def perform_one_simulated_motion(params, fjson, root_out_dir=None,do_coreg='Elas
         for nbmot in range(param['nb_x0s']):
             if 'new_suj' in param:
                 if param['new_suj']:
-                    sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
+                    sdata, tmot, config_runner = select_data(fjson, param, to_canonical=True)
 
             cmd = '\n'.join(['python -c "', "from util_affine import perform_one_simulated_motion ",
                              f'params = {param}',
@@ -687,7 +688,7 @@ def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None,do_coreg='
 
     for fp_path in fp_paths:
         # get the data
-        sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
+        sdata, tmot, config_runner = select_data(fjson, param, to_canonical=True)
         # load mvt fitpars
         fp = np.loadtxt(fp_path)
 
