@@ -472,7 +472,7 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
         amplitude, sigma, sym, mvt_type, mvt_axe, nb_x0s, x0_min =  pp.amplitude, pp.sigma, pp.sym, pp.mvt_type, pp.mvt_axe, pp.nb_x0s, pp.x0_min
         xend_steps = pp.xend_steps #if 'xend_steps' in pp else None
 
-        ssynth, tmot, config_runner = select_data(json_file, param)
+        ssynth, tmot, config_runner = select_data(json_file, param, to_canonical=True)
 
         mvt_axe_str = ''
         for ii in mvt_axe: mvt_axe_str +=  mvt_axe_str_list[ii]
