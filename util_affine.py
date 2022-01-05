@@ -401,7 +401,7 @@ def apply_motion_old_with_shift(sin, tmot, fp, df, res_fitpar, res, extra_info, 
 
     return sout, df, res_fitpar, res
 
-def select_data(json_file, param=None, to_canonical=False):
+def select_data(json_file, param=None, to_canonical=True):
     result_dir= os.path.dirname(json_file) +'/rrr' #/data/romain/PVsynth/motion_on_synth_data/test1/rrr/'
     config = Config(json_file, result_dir, mode='eval', save_files=False) #since cluster read (and write) the same files, one need save_file false to avoid colusion
     config.init()
