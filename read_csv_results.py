@@ -6,7 +6,6 @@ import dash
 from dash import dcc
 from dash import html
 
-#import dash_html_components as html
 from dash.dependencies import Input, Output
 import os
 import pandas as pd
@@ -253,7 +252,8 @@ class ModelCSVResults(object):
         val_names = dict_vals[~pd.isna(dict_vals)].iloc[0].keys()
         for name in val_names:
             added_key_name = f"{suffix}_{name}" if suffix else f"{name}"
-            self.df_data[added_key_name] = dict_vals.apply(lambda x: x[name] if not(pd.isna(x)) else None)
+            #self.df_data[added_key_name] = dict_vals.apply(lambda x: x[name] if not(pd.isna(x)) else None)
+            self.df_data.loc[:, added_key_name] = dict_vals.apply(lambda x: x[name] if not(pd.isna(x)) else None)
         return self.df_data
 
 
