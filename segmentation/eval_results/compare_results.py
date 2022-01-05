@@ -226,7 +226,9 @@ def aggregate_csv_files(pattern, filename, fragment_position=-3, name_type=1):
                     SNR_level = float(f'{SNR_level}')/100
                 else:
                     SNR_level = float(f'{SNR_level}') / 10
-
+            elif name_type==0:
+                GM_level = 0
+                SNR_level = 0
             else:
                 GM_level = fragments[2]
                 GM_level = float(f'0.{GM_level[-1]}')
@@ -251,6 +253,8 @@ def aggregate_csv_files(pattern, filename, fragment_position=-3, name_type=1):
         print(f'parsing {name} with model {model_name}, GM {GM_level} SNR {SNR_level} mode {mode}')
 
     final_data_frame = pd.concat(data_frames)
+    final_data_frame.drop_duplicates(inplace=True) #because csv may contains several subject todo
+    print(f'writing dataframe with shape {final_data_frame.shape} with {len(final_data_frame.model_name.unique())} model_name')
     final_data_frame.to_csv(filename)
 
 def aggregate_all_csv(pattern, filename, parse_names=['Suj','model'],  fragment_position=-3):
