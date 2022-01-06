@@ -1038,7 +1038,9 @@ class Config:
                     model_name = f'{os.path.basename(file)}_{model_name}'
                     file = os.path.dirname(file)
                 self.model_name.append(model_name[:-1])
-
+            if len(model) == 1: #just do not use list
+                model = model[0]
+                
             return model, ddd
 
         if hasattr(model_class, 'load'):
