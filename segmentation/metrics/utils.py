@@ -6,7 +6,7 @@ class MetricOverlay:
     def __init__(self, metric, channels=None, mask=None, mask_cut=(0.99, 1),
                  binarize_target=False, activation=None, binary_volumes=False,
                  binarize_prediction=False, band_width=None, use_far_mask=False,
-                 mixt_activation=0, additional_learned_param=None):
+                 mixt_activation=0, additional_learned_param=None, mask_reduce=False):
         self.metric = metric
         self.channels = channels
         self.mask = mask
@@ -23,6 +23,7 @@ class MetricOverlay:
         self.use_far_mask = use_far_mask
         self.mixt_activation = mixt_activation
         self.additional_learned_param = additional_learned_param
+        self.mask_reduce = mask_reduce
 
     @staticmethod
     def binarize(tensor):
@@ -116,10 +117,14 @@ class MetricOverlay:
             min_cut, max_cut = self.mask_cut
             mask = (max_cut >= target[:, self.mask]) \
                 * (target[:, self.mask] >= min_cut)
-            prediction = prediction * mask
-            target = target * mask
+            if self.mask_reduce:
+                prediction = prediction[mask>0, self.mask].unsqueeze(0)
+                target = target[mask>0, self.mask].unsqueeze(0)
+            else:
+                prediction = prediction * mask
+                target = target * mask
 
-        if self.channels is not None:
+        if self.channels is not None and self.mask_reduce is False :
             prediction = prediction[:, self.channels, ...]
             target = target[:, self.channels, ...]
 
