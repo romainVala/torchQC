@@ -767,7 +767,7 @@ class Config:
                     image_attributes.update(
                         {'components': [c for c in components]})
                     #force nibable reader
-                    image_attributes.update({'reader': torchio.io._read_nibabel})
+                    #image_attributes.update({'reader': torchio.io._read_nibabel}) #argg does not work with 4D todo
                     if ref_images[img_name]['type'] == 'label':
                         img = torchio.LabelMap( path=[s[img_name][c] for c in components], **image_attributes)
                     elif ref_images[img_name]['type'] == 'label4D':
