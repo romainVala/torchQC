@@ -641,6 +641,7 @@ class Config:
         self.set_struct_value(struct['save'], 'save_channels')
         self.set_struct_value(struct['save'], 'save_threshold', 0)
         self.set_struct_value(struct['save'], 'save_volume_name', 'prediction')
+        self.set_struct_value(struct['save'], 'save_label_name', 'label')
 
         if isinstance(struct['data_getter'],
                       str):  # let some lazzy definition if no attribute

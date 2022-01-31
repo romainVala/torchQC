@@ -102,6 +102,7 @@ class RunModel:
         self.save_channels = struct['save']['save_channels']
         self.save_threshold = struct['save']['save_threshold']
         self.save_volume_name = struct['save']['save_volume_name']
+        self.save_label_name = struct['save']['save_label_name']
         self.apex_opt_level = struct['apex_opt_level']
 
         # Keep information to load optimizer and learning rate scheduler
@@ -210,8 +211,9 @@ class RunModel:
             os.path.join(self.results_dir, f'opt_ep{self.epoch - 1}*.pth.tar')
         )
         if len(opt_files) > 0:
-            self.log(f'loading optimizer from {opt_files[-1]}')
-            self.optimizer.load_state_dict(torch.load(opt_files[-1]))
+            self.log('RRR WARNING hard coded skip of optimize load')
+            #self.log(f'loading optimizer from {opt_files[-1]}')
+            #self.optimizer.load_state_dict(torch.load(opt_files[-1]))
 
         # Try to load scheduler state
         if self.lr_scheduler is not None and self.val_loader is None:
@@ -225,6 +227,11 @@ class RunModel:
             )
             if len(sch_files) > 0:
                 self.lr_scheduler.load_state_dict(torch.load(sch_files[-1]))
+                self.log(f'loading shedulder from {sch_files[-1]}')
+            else:
+                self.log(f'warning no shedulder file found to load from ... ')
+        else:
+            self.log('No shedulder load from file')
 
         # Try to load Apex
         if self.apex_opt_level is not None:
@@ -236,6 +243,9 @@ class RunModel:
             )
             if len(amp_files) > 0:
                 amp.load_state_dict(torch.load(amp_files[-1]))
+            self.log(f'working with Apex level {self.apex_opt_level}')
+        else:
+            self.log('No apex optim')
 
         for epoch in range(self.epoch, self.n_epochs + 1):
             self.epoch = epoch
@@ -428,7 +438,7 @@ class RunModel:
             if self.save_labels and not is_model_training:
                 for j, target in enumerate(targets):
                     n = i * self.batch_size + j
-                    self.label_saver(sample, target.unsqueeze(0), n, j, volume_name='label', affine=new_affine)
+                    self.label_saver(sample, target.unsqueeze(0), n, j, volume_name=self.save_label_name, affine=new_affine)
             if self.save_data and not is_model_training:
                 volumes, _ = self.apply_post_transforms(volumes, sample)
                 for j, volumes in enumerate(volumes):
