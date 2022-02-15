@@ -115,8 +115,9 @@ class RunModel:
         attributes = struct['data_getter']['attributes']
         self.data_getter = lambda sample: function_datagetter(
             sample, **attributes)
-
-        self.batch_recorder = getattr(self, struct['save']['batch_recorder'])
+        self.batch_recorder = struct['save']['batch_recorder']
+        if self.batch_recorder is not None:
+            self.batch_recorder = getattr(self, struct['save']['batch_recorder'])
         self.prediction_saver = getattr(
             self, struct['save']['prediction_saver'])
         self.label_saver = getattr(self, struct['save']['label_saver'])
@@ -452,6 +453,7 @@ class RunModel:
             loss_sum += loss
             average_loss = loss_sum / i
             average_time = time_sum / i
+            reporting_time = 0
 
             if max_loss is None or max_loss < loss:
                 max_loss = loss
@@ -459,24 +461,25 @@ class RunModel:
             # Update DataFrame and record it every record_frequency iterations
             write_csv_file = i % self.record_frequency == 0 or i == len(loader)
 
-            if eval_dropout:
-                if self.eval_results_dir != self.results_dir: #todo case where not csv_name == 'eval':
-                    df = pd.DataFrame()
-                for ii in range(0, eval_dropout):
-                    df, reporting_time = self.batch_recorder(
-                        df, sample, predictions_dropout[ii], targets, batch_time, write_csv_file, append_in_df=True)
-            else:
-                if isinstance(predictions, list):
-                    for iii, ppp in enumerate(predictions):
+            if self.batch_recorder is not None:
+                if eval_dropout:
+                    if self.eval_results_dir != self.results_dir: #todo case where not csv_name == 'eval':
+                        df = pd.DataFrame()
+                    for ii in range(0, eval_dropout):
                         df, reporting_time = self.batch_recorder(
-                            df, sample, ppp, targets, batch_time, write_csv_file,  append_in_df=True, model_name=self.model_name[iii])
+                            df, sample, predictions_dropout[ii], targets, batch_time, write_csv_file, append_in_df=True)
                 else:
-                    df, reporting_time = self.batch_recorder(
-                        df, sample, predictions, targets, batch_time, write_csv_file)
-            if write_csv_file: self.log_peak_CPU_memory()
+                    if isinstance(predictions, list):
+                        for iii, ppp in enumerate(predictions):
+                            df, reporting_time = self.batch_recorder(
+                                df, sample, ppp, targets, batch_time, write_csv_file,  append_in_df=True, model_name=self.model_name[iii])
+                    else:
+                        df, reporting_time = self.batch_recorder(
+                            df, sample, predictions, targets, batch_time, write_csv_file)
+                if write_csv_file: self.log_peak_CPU_memory()
 
-            reporting_time_sum += reporting_time
-            average_reporting_time = reporting_time_sum / i
+                reporting_time_sum += reporting_time
+                average_reporting_time = reporting_time_sum / i
             # Log training or validation information every
             # log_frequency iterations
             if i % self.log_frequency == 0:
@@ -637,7 +640,7 @@ class RunModel:
         transformed_tensors = []
         for i, tensor in enumerate(tensors):
             subject = torchio.Subject(
-                pred=torchio.ScalarImage(
+                pred=torchio.LabelMap(
                     tensor=to_var(tensor, 'cpu'),
                     affine=affine)
             )

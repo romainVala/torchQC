@@ -632,8 +632,7 @@ class Config:
 
         # Save
         self.check_mandatory_keys(struct['save'], SAVE_KEYS, 'SAVE')
-        self.set_struct_value(struct['save'], 'batch_recorder',
-                              'record_segmentation_batch')
+        self.set_struct_value(struct['save'], 'batch_recorder', None)
         self.set_struct_value(struct['save'], 'prediction_saver', 'save_volume')
         self.set_struct_value(struct['save'], 'label_saver', 'save_volume')
         self.set_struct_value(struct['save'], 'save_bin', False)
