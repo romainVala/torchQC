@@ -616,6 +616,7 @@ class PlotDataset:
         # Add sliders to set overlay display threshold
         if self.label_key_name is not None:
             axis = plt.axes([0.01, 0.05, 0.02, 0.9])
+            print('aaAAAAAAAAAAAAAAAAAAAAAAAAaaa')
             self.slider = NewSlider(
                 axis, 'Threshold', 0, 1, valinit=self.threshold,
                 valstep=0.01, orientation='vertical')
@@ -778,6 +779,8 @@ class NewSlider(Slider):
         ----------
         val : float
         """
+        bg_cache = self.ax.figure.canvas.copy_from_bbox(self.ax.bbox)
+
         xy = self.poly.xy
         if self.orientation == 'vertical':
             xy[1] = 0, val
@@ -792,7 +795,7 @@ class NewSlider(Slider):
         if self.drawon and self.ax.figure._cachedRenderer is None:
             self.ax.figure.canvas.draw_idle()
         elif self.drawon:
-            self.ax.figure.canvas.restore_region(self.bg_cache)
+            self.ax.figure.canvas.restore_region(bg_cache)
             self.ax.draw_artist(self.poly)
             self.ax.draw_artist(self.valtext)
             self.ax.figure.canvas.blit()
