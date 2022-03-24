@@ -47,7 +47,7 @@ def _draw_catplot(df, col, metric, order=None, ylim=None, hue='model',
         g.legend_.remove()
     else:
         fig = sns.catplot(x=col, y=metric, hue=hue, kind=kind, col='mode', data=df, showfliers=showfliers,
-                          order=order, hue_order=hue_order, palette=palette)
+                          order=order, hue_order=hue_order, palette=palette, col_wrap=3)
 
     if ylim is not None:
         plt.ylim(ylim)
@@ -408,11 +408,14 @@ def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None,
         >>> result_file = '/home/romain.valabregue/datal/PVsynth/jzay/eval/eval_cnn/res1mm_all.csv'
         >>> plot_metric_against_GM_level(result_file, 'metric_dice_loss_GM', ylim=(0, 0.1))
     """
-    if isinstance(result_file, list):
-        df_list = [ pd.read_csv(one_res, index_col=0) for one_res in result_file ]
-        df = pd.concat(df_list, sort=False).reindex()
+    if isinstance(result_file,pd.core.frame.DataFrame):
+        df = result_file
     else:
-        df = pd.read_csv(result_file, index_col=0)
+        if isinstance(result_file, list):
+            df_list = [ pd.read_csv(one_res, index_col=0) for one_res in result_file ]
+            df = pd.concat(df_list, sort=False).reindex()
+        else:
+            df = pd.read_csv(result_file, index_col=0)
 
     if filter:
         if isinstance(filter, dict):
@@ -427,13 +430,15 @@ def plot_metric_against_GM_level(result_file, metrics, ylim=None, save_fig=None,
         len(df['model_and_SNR'].unique()), len(df['SNR'].unique()))
 
     df.index = range(len(df))
-    from pathlib import PosixPath
-    if not isinstance(df['image_filename'][0],str):  #np.isnan(df['image_filename'][0]):
-        ff = [eval(fff)[0].parent.parent.parent.name for fff in df['label_filename'].values]
+    if 'suj_name' not in df:
+        from pathlib import PosixPath
+        if not isinstance(df['image_filename'][0],str):  #np.isnan(df['image_filename'][0]):
+            ff = [eval(fff)[0].parent.parent.parent.name for fff in df['label_filename'].values]
+        else:
+            ff = [eval(fff)[0].parent.name for fff in df['image_filename'].values]
+        df['suj_name'] = ff
     else:
-        ff = [eval(fff)[0].parent.name for fff in df['image_filename'].values]
-
-    df['suj_name'] = ff
+        ff = df['suj_name']
 
     for metric in metrics:
         dg = df[[metric, 'model_and_SNR']].groupby('model_and_SNR')
