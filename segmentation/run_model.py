@@ -827,14 +827,15 @@ class RunModel:
                 max_chanel = shape[1] - self.criteria[0]['criterion'].mixt_activation
             else:
                 max_chanel = shape[1]
-            for channel in list(range(max_chanel)):
-                suffix = self.labels[channel]
-                info[f'occupied_volume_{suffix}'] = to_numpy(
-                   targets[idx, channel].sum() * voxel_size
-                )
-                info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
-                    predictions[idx, channel].sum() * voxel_size
-                )
+            if self.labels is not None : #bad fix, just to make eval mode possible without target labels
+                for channel in list(range(max_chanel)):
+                    suffix = self.labels[channel]
+                    info[f'occupied_volume_{suffix}'] = to_numpy(
+                       targets[idx, channel].sum() * voxel_size
+                    )
+                    info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
+                        predictions[idx, channel].sum() * voxel_size
+                    )
 
             if location is not None:
                 info['location'] = to_numpy(location[idx])
