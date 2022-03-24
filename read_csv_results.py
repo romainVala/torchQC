@@ -3,8 +3,8 @@ import torch
 from torchio import Subject, LabelMap, ScalarImage
 import torchio
 import dash
-from dash import dcc
-from dash import html
+#from dash import dcc
+#from dash import html
 
 from dash.dependencies import Input, Output
 import os
@@ -244,9 +244,9 @@ class ModelCSVResults(object):
         if eval_func:
             dict_vals = self.df_data[col].apply(eval_func)
         #print(dict_vals[~pd.isna(dict_vals)])
-        if isinstance(dict_vals[0], list):
+        if isinstance(dict_vals.iloc[0], list):
             dict_vals = dict_vals.apply(lambda x: x[0]) #BAD what if more ...
-        if isinstance(dict_vals[0],tuple):  #tupe 0 is transfo name RamdomMotionFRomTimeCourse
+        if isinstance(dict_vals.iloc[0],tuple):  #tupe 0 is transfo name RamdomMotionFRomTimeCourse
             dict_vals = dict_vals.apply(lambda x: x[1])  # BAD what if more ...
 
         val_names = dict_vals[~pd.isna(dict_vals)].iloc[0].keys()
