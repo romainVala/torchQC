@@ -158,14 +158,14 @@ def l1_shfit(y1,y2,shifts, do_plot=True, fp=None, plot_diff=False):
         ax.plot(shifts, l1)
         print('displacement from L1 {}'.format(disp))
         ax.set_ylabel('L1 norm'), ax.set_xlabel('voxel displacement shift')
-        ax.set_title('max from L1 is {}'.format(disp))
+        ax.set_title('min L1 for a shift of {} voxels'.format(disp))
     return disp
 
 def l1_shfit_fft(y1,y2,shifts, do_plot=True, fp=None, loss='L1'):
     l1 = []
 
     resolution = y1.shape[0]
-    fi = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(y1)).astype(np.complex))
+    fi = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(y1)).astype(np.complex128))
     # fm =_translate_freq_domain(fi, fp)
     kx = np.arange(-1, 1 + 2 / resolution, 2 / (resolution - 1))
     for shift in shifts:
@@ -240,13 +240,13 @@ def plot_obj(fp, so, som, nb_subplot=2, plot_diff=False, axs=None, fig=None):
         fig, axs = plt.subplots(nb_subplot);
         plt.subplots_adjust(hspace=0.5)
 
-    fi = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex))
+    fi = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(so)).astype(np.complex128))
     axs[0].plot(abs(fi) * 10 / max(abs(fi)));
     #axs[0].plot(abs(fi) );
 
     #axs[0].set_xlim([220, 280]);
     #axs[0].set_ylim([0, 1]);
-    axs[0].set_ylabel('trans Y'); axs[0].set_xlabel('k-space'); axs[0].plot(fp); axs[0].legend(['fft','motion'])
+    axs[0].set_ylabel('trans Y'); axs[0].set_xlabel('k-space'); axs[0].plot(fp); axs[0].legend(['Object fft','motion'])
 
     axs[1].plot(so);
     axs[1].plot(som); #axs[1].plot(abs(som));
@@ -264,7 +264,7 @@ def plot_obj(fp, so, som, nb_subplot=2, plot_diff=False, axs=None, fig=None):
 
 def simu_motion(fp, so, return_abs=True):
     resolution = fp.shape[0]
-    if so.dtype==np.complex:
+    if so.dtype==np.complex128:
         #fi =  np.fft.fftn(np.fft.ifftshift(so))
         fi = np.fft.fftshift(np.fft.fftn(so))
     else:
@@ -491,8 +491,8 @@ def get_metrics(s1, s2, fp=None, scatt=None, shift=0):
     mdict_brain = get_metric(s1, s2, mask=s1, prefix='brain_')
     mdict = dict(mdict, ** mdict_brain)
 
-    tf_s1 = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(s1)).astype(np.complex))
-    tf_s2 = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(s2)).astype(np.complex))
+    tf_s1 = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(s1)).astype(np.complex128))
+    tf_s2 = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(s2)).astype(np.complex128))
 
     dict_allA = get_metric(np.abs(tf_s1), np.abs(tf_s2), prefix='tf_abs_')
     dict_allP = get_metric(np.angle(tf_s1), np.angle(tf_s2), prefix='tf_pha_')
@@ -502,7 +502,7 @@ def get_metrics(s1, s2, fp=None, scatt=None, shift=0):
     if fp is not None:
         s1dif = np.diff(s1, prepend=s1[0])
         s2dif = np.diff(s2, prepend=s2[0])
-        tf_diff = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(s1dif)).astype(np.complex))
+        tf_diff = np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(s1dif)).astype(np.complex128))
         dict_disp = get_metric_fp(fp, tf_s1, diff_tf=tf_diff, shift=shift)
         dict_all = dict(dict_all, ** dict_disp)
 
@@ -527,59 +527,67 @@ amplitudes, sigmas, x0s = [2,5,10,20], [2, 4, 10, 20, 40, 80, 120, 160, 200]  , 
 amplitudes, sigmas, x0s = [10, 10, 10, 10], [5, 10, 20, 40, 80, 120, 160, 200]  , np.hstack([np.linspace(10, 120, 10), np.linspace(130, 256, 30)])
 amplitudes, sigmas, x0s = [2,5,10,20], [50, 100, 150, 200]  ,np.linspace(10, 256, 20);amplitudes = np.tile(amplitudes,[10])
 amplitudes, sigmas, rampes, nb_x0s, x0_min, sym = [1,2,4,8], [2,4,8,16,32,64,128], [2,5,10,20], 1, 256, False
-sigmas = np.linspace(2,256, 64); rampes=[0,1,2,5]
+rampes = [0, 1, 2, 5]; sigmas = np.hstack((np.linspace(2,64,16),np.linspace(74,256,16))) # np.linspace(2,256, 64);
+nb_obj = 5;
 np.random.seed(12)
 #amplitudes, sigmas, rampes, sym, nb_x0s, x0_min = [10,10,10,10,10,10,10,10], [2,4,8,16,32,64], [2,5,10,20,2,5,10,20], True, 10, 20
 #amplitudes, sigmas, rampes, sym, nb_x0s, x0_min = [10,10,10,10,10,10,10,10], [2,4,8,16,32,64], [2,5,10,20,2,5,10,20], False, 10, 200
 
 df, dfmot = pd.DataFrame(), pd.DataFrame()
 for rampe in rampes:
-    for ind,a in enumerate(amplitudes):
-        #rampe = 5# rampes[ind] #np.random.randint(2, 30, 1)[0]
-        so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
-        # if rampe==2:
-        #     shape = [100,5, 25, 60]; amp = [0.5, 1]
-        # if rampe==5:
-        #     shape = [100,5, 50, 120]; amp = [0.5, 1]
-        # so, _, _, _ = get_random_2step(rampe=rampe, sym=True, norm=256, shape=shape, intensity=amp)
-        #plot_obj(fp,so,so,plot_diff=True)
-        #plt.plot(so)
-        for s in sigmas:  # np.linspace(2,200,10):
-            if sym:
-                xcenter = resolution // 2 - s // 2;
-                x0s = np.floor(np.linspace(xcenter - x0_min, xcenter, nb_x0s))
-            else:
-                xcenter = resolution // 2;
-                x0s = np.floor(np.linspace(x0_min, xcenter, nb_x0s))
-                x0s = x0s[x0s>=s//2] #remove first point to not reduce sigma
+    for nboj in range(nb_obj):
+        #so, _, _, _ = get_random_2step(rampe=rampe, sym=True, norm=256)
+        for ind,a in enumerate(amplitudes):
+            #rampe = 5# rampes[ind] #np.random.randint(2, 30, 1)[0]
+            # so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256) befor 11/2021 but confond object shape and amplitude ???
+            # if rampe==2:
+            #     shape = [100,5, 25, 60]; amp = [0.5, 1]
+            # if rampe==5:
+            #     shape = [100,5, 50, 120]; amp = [0.5, 1]
+            # so, _, _, _ = get_random_2step(rampe=rampe, sym=True, norm=256, shape=shape, intensity=amp)
+            #plot_obj(fp,so,so,plot_diff=True)
+            #plt.plot(so)
+            for s in sigmas:  # np.linspace(2,200,10):
+                if sym:
+                    xcenter = resolution // 2 - s // 2;
+                    x0s = np.floor(np.linspace(xcenter - x0_min, xcenter, nb_x0s))
+                else:
+                    xcenter = resolution // 2;
+                    x0s = np.floor(np.linspace(x0_min, xcenter, nb_x0s))
+                    x0s = x0s[x0s>=s//2] #remove first point to not reduce sigma
 
-            for x0 in x0s:
-                #so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
-                s=int(s); x0 = int(x0); xend = x0+s//2
-                print(f'Amplitude {a} sigma {s} X0 {x0} rampe {rampe}')
-                #fp = get_perlin(resolution, x0=x0, sigma=s, amplitude=a, center='zero')
-                fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zero', resolution=resolution, sym=True)
-                som = simu_motion(fp, so)
-                mydict_cor_before = get_metric(so, som, scattering=scattering, prefix='before')
-
-                disp_fft = coreg_fft(so, fp, shifts_fft)
-                print(disp_fft)
-                disp = l1_shfit(som,so,shifts, do_plot=False,fp=fp); Dzero = fp[resolution//2]
-                #mydict = {"sigma":s, "x0":x0, "amplitude": a, "rampe": rampe, "shift": -disp, "Dzero": Dzero }
-                #mydict_mot = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
-                #dfmot = dfmot.append(mydict_mot, ignore_index=True)
-                if np.abs(disp)>=0:
-                    fp = fp + disp
+                for x0 in x0s:
+                    so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=256)
+                    s=int(s); x0 = int(x0); xend = x0+s//2
+                    print(f'Amplitude {a} sigma {s} X0 {x0} rampe {rampe}')
+                    #fp = get_perlin(resolution, x0=x0, sigma=s, amplitude=a, center='zero')
+                    fp = corrupt_data(x0, sigma=s, amplitude=a, method='Ustep', mvt_axes=[1], center='zero', resolution=resolution, sym=True)
                     som = simu_motion(fp, so)
-                    disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=False, fp=fp, loss='L2')
-                    fp = fp + disp2;  som = simu_motion(fp, so);  disp+=disp2
-                mydict = {"sigma":s, "x0":x0, "xend":xend, "amplitude": a, "shift": -disp, "rampe": rampe,
-                          "Dzero": Dzero, 'disp_fft': disp_fft}
-                mydict_cor = dict(get_metrics(so,som,fp=fp, scatt=scattering, shift=disp) , **mydict)
-                mydict_cor = dict(mydict_cor, **mydict_cor_before)
-                df = df.append(mydict_cor, ignore_index=True)
-                if disp < 1 and  mydict_cor['meanDTFdifA2']>3:
-                    pass
+                    mydict_cor_before = get_metric(so, som, scattering=scattering, prefix='before')
+
+                    disp_fft = coreg_fft(so, fp, shifts_fft)
+                    print(disp_fft)
+                    disp = l1_shfit(som,so,shifts, do_plot=False,fp=fp); Dzero = fp[resolution//2]
+                    #mydict = {"sigma":s, "x0":x0, "amplitude": a, "rampe": rampe, "shift": -disp, "Dzero": Dzero }
+                    #mydict_mot = dict(get_metrics(so,som,fp=fp, scatt=scattering) , **mydict)
+                    #dfmot = dfmot.append(mydict_mot, ignore_index=True)
+                    if np.abs(disp)>=0:
+                        fp = fp + disp
+                        som = simu_motion(fp, so)
+                        disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=False, fp=fp, loss='L2')
+                        fp = fp + disp2;  som = simu_motion(fp, so);  disp+=disp2
+                    mydict = {"sigma":s, "x0":x0, "xend":xend, "amplitude": a, "num_obj": nboj, "shift": -disp, "rampe": rampe,
+                              "Dzero": Dzero, 'disp_fft': disp_fft}
+                    mydict_cor = dict(get_metrics(so,som,fp=fp, scatt=scattering, shift=disp) , **mydict)
+                    mydict_cor = dict(mydict_cor, **mydict_cor_before)
+                    df = df.append(mydict_cor, ignore_index=True)
+                    if disp < 1 and  mydict_cor['meanDTFdifA2']>3:
+                        pass
+
+keyn = ['shift', 'meanDisp','meanDispTFA','meanDispTFdiffA','meanDispTFdiffA2','rmseDisp','rmseDispTF','rmseDispTF2','rmseDispTFdiff','rmseDispTFdiff2']
+keyn += ['meanD', 'zeroD'  ,'meanDTFA' ,'meanDTFA2', 'meanDTFdifA2', 'diff_center']
+for k in keyn:
+    df[k] = df[k] / df.amplitude
 
 plt.figure();plt.plot(df['xend'],df['shift']);plt.plot(df['xend'],df['meanDTFA']);plt.plot(df['xend'],df['meanDTFdifA2']);
 plt.plot(df['xend'],df['r16']) ; plt.plot(df['xend'],df['TFzA']) ;plt.legend(['shif','tfa','difTFA2','r16','tfzA'])
@@ -599,25 +607,38 @@ sel_key=['L1', 'L2', 'ncc', 'ssim', 'dgrad', 'beforeL1', 'beforeL2', 'beforencc'
 #sel_key=['brain_L1', 'brain_L2', 'brain_ncc', 'brain_ssim'] #, 'structure', 'contrast','luminance']
 sel_key += ['meanDispTFA', 'rmseDispTF'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
 sel_key = ['meanDisp','meanDispTFA', 'meanDispTFdiffA', 'meanDispTFdiffA2'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
-sel_key = ['meanD'  ,'meanDTFA' ,'meanDTFdifA2', 'diff_center']
+sel_key = ['meanD', 'zeroD'  ,'meanDTFA' ,'meanDTFA2', 'meanDTFdifA2', 'diff_center']
+
 figres = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/figure/'
-figres = '/data/romain/PVsynth/figure/synth_motion/synth1D_fp_zero_center_sigma'
-prefix = ''
+figres = '/data/romain/PVsynth/figure/synth_motion/synth1D_fp_zero_center_sigma_new'
+prefix = 'object_random'#'object_by_rampe'
 #for k, dfsub in dfsub_dict.items():
 cmap = sns.color_palette("coolwarm", len(df.sigma.unique()))
-cmap = sns.color_palette("coolwarm", len(df.amplitude.unique()))
+cmap = sns.color_palette(n_colors= len(df.amplitude.unique()))
+#see  https://seaborn.pydata.org/tutorial/color_palettes.html
+before_after=True
 for ykey in sel_key:
     #fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind="line",palette=cmap, col='amplitude',col_wrap=2)
     #fig = sns.relplot(data=df, x="xend", y=ykey, hue="sigma", legend='full', kind="line",palette=cmap, col='rampe',col_wrap=2 )
     #fig = sns.relplot(data=df, x="shift", y=ykey, hue="sigma", legend='full', kind="scatter",palette=cmap, col='rampe',col_wrap=2 )
-    fig = sns.relplot(data=df, x="sigma", y=ykey, hue="amplitude", legend='full', palette=cmap, col='rampe', col_wrap=2, kind="line")
+    if before_after:
+        dfm = df.melt(id_vars=['sigma','amplitude','rampe',], value_vars=[ykey, f'before{ykey}'],
+                     var_name='coreg', value_name=ykey)
+
+        fig = sns.relplot(data=dfm, x="sigma", y=ykey, hue="amplitude", legend='full', palette=cmap,
+                          col='rampe', col_wrap=2, kind="line", style='coreg')
+    else:
+        fig = sns.relplot(data=df, x="sigma", y=ykey, hue="amplitude", legend='full', palette=cmap,
+                          col='rampe', col_wrap=2, kind="line")
     #for aa in fig.axes: aa.grid();aa.plot([0,10], [0,10])
     plt.text(0.8,0.3,ykey,transform=plt.gcf().transFigure,bbox={'facecolor': 'grey', 'alpha': 0.5, 'pad': 10})
     #plt.text(0.8,0.2,k,transform=plt.gcf().transFigure,bbox={'facecolor': 'grey', 'alpha': 0.5, 'pad': 10})
     figname = f'{prefix}_{ykey}.png'
     fig.savefig(figres+figname)
-    #plt.close()
+    plt.close()
 
+#againt but melt before and after coreg
+sel_key=['shift', 'meanDisp','meanDispTFA', 'meanDispTFdiffA',]
 
 freq_res = 1/512
 resolution=512
@@ -653,7 +674,7 @@ plt.figure();sns.scatterplot(data=df, x="meanDispTFA", y="structure", size="x0",
 sel_key=['tf_abs_L1', 'tf_abs_L2', 'tf_abs_ncc', 'tf_abs_ssim']
 sel_key=['tf_pha_L1', 'tf_pha_L2', 'tf_pha_ncc', 'tf_pha_ssim']
 sel_key=['L1', 'L2', 'ncc', 'ssim', 'scat1', 'scat2'] #, 'structure', 'contrast','luminance']
-sel_key=['L1', 'L2', 'ncc', 'ssim',  'scat1L2n','dgrad'] #, 'structure', 'contrast','luminance'] 'scat1L2',
+sel_key=['L1', 'L2', 'ncc', 'ssim', 'dgrad'] #,  'scat1L2n' 'structure', 'contrast','luminance'] 'scat1L2',
 sel_key=['brain_L1', 'brain_L2', 'brain_ncc', 'brain_ssim'] #, 'structure', 'contrast','luminance']
 sel_key += ['meanDispTFA', 'rmseDispTF'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
 sel_key += ['meanDispTFA', 'meanDispTFdiffA', 'meanDispTFdiffA2'] #,  'rmseDispTF2'['meanDispTFA', 'meanDispTFP', 'meanDispTFC', 'rmseDispTF']
@@ -670,11 +691,12 @@ dfall=df;
 df = dfall[dfall['rampe']<6]
 plt.figure()
 plt.scatter(df['shift'], df['meanDTFA']) #df['meanDTFA']-df['shift']
+plt.scatter(df['shift'], df['meanDTFA2']) #df['meanDTFA']-df['shift']
 plt.scatter(df['shift'], df['zeroD']) #df['meanDTFA']-df['shift']
 plt.scatter(df['shift'], df['diff_center'])
 #plt.scatter(df['shift'], df['meanDTFdifA2'])
 #plt.legend(['meanDTFA','meanDTFA2', 'meanDTFdiffA', 'meanDTFdiffA2'])
-plt.legend(['DwTF','Dzero', 'diff_center', 'DTFdiffA2'])
+plt.legend(['meanDTFA','meanDTFA2','Dzero', 'diff_center'])
 plt.plot([0,10],[0,10]);plt.xlabel('L1 shift');plt.ylabel('weighted mean dispalcement')
 
 sns.scatterplot(data=df, x='shift', y='meanDTFdifA2', hue='sigma')
@@ -695,9 +717,10 @@ rampe=2; a=10; s=1; x0=256; meth='step'; sym=False
 rampe=5; a=5; s=64; x0=210; meth='Ustep'; sym=True
 rampe=20; a=8; s=64; x0=256; meth='Ustep'; sym=True
 rampe=0; a=8; s=70; x0=256; meth='Ustep'; sym=False
+rampe=10; a=10; s=20; x0=256; meth='Ustep'; sym=False
 
 np.random.seed(12)
-so,_,_,_  = get_random_2step(rampe=rampe, sym=True, norm=10,intensity=[0.5, 1])
+so,_,_,_  = get_random_2step(rampe=rampe, sym=True, intensity=[0.5, 1])
 fp = corrupt_data(x0, sigma=s, amplitude=a, method=meth, mvt_axes=[1], center='none',
                   resolution=resolution, sym=sym)
 #fp=np.ones_like(fp)*3.3#fp = np.ones_like(fp)*10 # fp = fp - 2.61
@@ -705,7 +728,7 @@ som = simu_motion(fp, so)
 disp = l1_shfit(som, so, shifts, do_plot=True, fp=fp)
 disp_fft = coreg_fft(so,fp,shifts_fft)
 fp = fp + disp; som = simu_motion(fp, so)
-disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=True, fp=fp, loss='L2')
+disp2 = l1_shfit_fft(som, so, shifts_small, do_plot=True, fp=fp, loss='L1')
 fp = fp + disp2;disp += disp2
 som = simu_motion(fp, so);
 dd=get_metrics(so,som,fp=fp, scatt=scattering, shift=disp)

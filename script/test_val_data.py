@@ -415,3 +415,23 @@ dT1 = [os.path.dirname(ff) for ff in fT1  ]
 faff = gfile(dT1,'^aff.*txt')
 df100['affine_mni'] = faff
 df100.to_csv('/home/romain.valabregue/datal/QCcnn/CATI_datasets/CATI_QCall_100suj.csv')
+
+df = pd.read_csv('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/CATI_datasets/CATI_QCall_100suj.csv')
+
+ff = gfile(df.serie_path_proc.values+'/cat12/','^p1')
+df["vol_p1"] = ff
+ff = gfile(df.serie_path_proc.values+'/cat12/','^p2')
+df["vol_p2"] = ff
+ff = gfile(df.serie_path_proc.values+'/cat12/','^p3')
+df["vol_p3"] = ff
+ff = gfile(df.serie_path_proc.values+'/cat12/','^p4')
+df["vol_p4"] = ff
+ff = gfile(df.serie_path_proc.values+'/cat12/','^p5')
+df["vol_p5"] = ff
+df['sujname'] = df.concat + '_' + df.subject_Name_QualiCATI
+
+
+dfs = df[df.globalQualitative==0]
+dfs.to_csv('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/CATI_datasets/CATI_QCall_QC0.csv')
+dfs = df[df.globalQualitative==3]
+dfs.to_csv('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/QCcnn/CATI_datasets/CATI_QCall_QC3.csv')

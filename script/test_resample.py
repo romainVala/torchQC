@@ -1,24 +1,26 @@
 from segmentation.losses.dice_loss import Dice
-import pandas as pd
+import matplotlib.pyplot as plt, pandas as pd, seaborn as sns
 pd.set_option('display.max_columns', None)
-import torch
 import torchio as tio
-import torchio, torch, glob
+import torch, glob
 from pathlib import Path, PosixPath
 from nibabel.viewers import OrthoSlicer3D as ov
-torch.manual_seed(12)
+
 import copy
 
-dice = Dice()
+dice = Dice(); L1 = torch.nn.L1Loss()
 t = tio.RandomAffine(default_pad_value='minimum')
 t = tio.RandomAffine(default_pad_value=0)
 resample_to=True
 #t = tio.RandomElasticDeformation()
 #t = tio.RandomBlur() #not a good idea since intensity transform won't change the label
-def apply_inverse_transform(subject, list_transfo_index = 0):
-    trsfm_hist, seeds_hist = tio.compose_from_history(history=subject.history)
-    trsfm_hist[list_transfo_index].get_inverse = True
-    return trsfm_hist[0](subject, seed=seeds_hist[list_transfo_index])
+#def apply_inverse_transform(subject, list_transfo_index = 0):
+#    trsfm_hist, seeds_hist = tio.compose_from_history(history=subject.history)
+#    trsfm_hist[list_transfo_index].get_inverse = True
+#    return trsfm_hist[0](subject, seed=seeds_hist[list_transfo_index])
+def apply_inverse_transform(subject, list_transfo_index = -1):
+    trsfm_hist  = subject.history[list_transfo_index].inverse()
+    return trsfm_hist(subject)
 
 
 dr = '/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_07mm/'
@@ -33,8 +35,77 @@ label_list = ['GM', 'WM', 'CSF', 'cereb_GM',  'L_Accu', 'L_Caud', 'L_Pall', 'L_T
  'cereb_WM', 'L_Amyg', 'L_Hipp', 'L_Puta', 'R_Accu', 'R_Caud', 'R_Pall', 'R_Thal', 'skull', 'skin', 'background']
 
 label_list = ["backNOpv", "GM", "WM", "CSF", "both_R_Accu", "both_R_Amyg", "both_R_Caud", "both_R_Hipp", "both_R_Pall", "both_R_Puta", "both_R_Thal"]
+suj = tio.Subject(label=tio.ScalarImage(path=dr + '/GM.nii.gz'))
+dr_list = glob.glob('/network/lustre/dtlake01/opendata/data/HCP/raw_data/nii/727553/T1w/ROI_PVE_*')
+interpolation_list = ['linear', 'nearest', 'bspline'] # 'label_gaussian' not good as it binarize the inputs
+save_vol=False
 
-suj = tio.Subject(label=tio.Image(type=tio.LABEL, path=[dr + ll + '.nii.gz' for ll in label_list]))
+tcrop = tio.Crop((28, 28, 28, 28, 28, 28));
+tcrop07 = tio.Crop((40, 40, 40, 40, 40, 40));
+tcrop14 = tio.Crop((20, 20, 20, 20, 20, 20));
+tcrop28 = tio.Crop((10, 10, 10, 10, 10, 10))
+
+df = pd.DataFrame()
+
+for k in range(50):
+    taff = tio.RandomAffine()
+    sujtmp = taff(suj)
+    taff = sujtmp.history[0] #so we get the same affine
+    for dr in dr_list:
+        subject = Path(dr).parent.parent.name
+        resolution = Path(dr).name
+        res = 1.4 if '14mm' in resolution else 2.8 if '28mm' in resolution else 0.7 if '07mm' in resolution else 1
+        voxel_volume = res*res*res
+        print("Suj {} {}".format(subject,resolution))
+        #true volumes
+        sujdic = dict(subject=subject, resolution=resolution, res=res)
+
+        suj = tio.Subject(label=tio.ScalarImage( path=dr + '/GM.nii.gz'))
+        suj_orig_crop = tcrop07(suj) if res<0.9 else tcrop(suj) if res<1.1 else tcrop14(suj) if res < 2 else tcrop28(suj)
+        vol_orig = suj_orig_crop.label.data.sum().numpy()
+
+        if save_vol:
+            suj.label.save(f'GM_{res}_orig.nii')
+
+        for interp in interpolation_list:
+            taff.image_interpolation = interp # tio.RandomAffine(image_interpolation=interp)
+            suj_aff = taff(suj)
+            suj_back = apply_inverse_transform(suj_aff)
+            suj_back =  tcrop07(suj_back) if res<0.9 else  tcrop(suj_back) if res<1.1 else tcrop14(suj_back) if res < 2 else tcrop28(suj_back)
+
+            vol_back = suj_back.label.data.sum().numpy()
+            sujdic['vol_ration'] = vol_back/vol_orig * 100
+            sujdic['interp'] = interp
+            sujdic['dice'] = float(dice.dice_loss(suj_orig_crop.label.data, suj_back.label.data).numpy())*100
+            sujdic['L1'] = float(L1(suj_orig_crop.label.data, suj_back.label.data).numpy())
+
+            #same index
+            ind_mask =  suj_orig_crop.label.data>0.0001
+            data_orig = suj_orig_crop.label.data[ind_mask].unsqueeze(0)
+            data_back = suj_back.label.data[ind_mask].unsqueeze(0)
+
+            vol_orig = data_orig.sum().numpy()
+            vol_back = data_back.sum().numpy()
+            sujdic['vol_ration_mask'] = vol_back/vol_orig * 100
+            sujdic['dice_mask'] = float(dice.dice_loss(data_orig, data_back).numpy())*100
+            sujdic['L1_mask'] = float(L1(data_orig, data_back).numpy())
+
+            df = df.append(sujdic, ignore_index=True)
+
+            if save_vol:
+                suj_aff.label.save(f'GM_{res}_aff_{interp}.nii')
+                suj_back.label.save(f'GM_{res}_back_{interp}.nii')
+
+
+sns.catplot(data=df, x='interp', y='dice', kind='box', hue='res'); plt.grid()
+
+
+
+
+
+
+
+#first try ...
 if resample_to:
     suj_from = suj
     pv_from = suj_from.label.data
