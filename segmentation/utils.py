@@ -8,6 +8,16 @@ import os
 from torchio import SubjectsDataset
 
 
+from scipy.ndimage import label as scipy_label
+
+def get_largest_connected_component(mask, structure=None):
+    """Function to get the largest connected component for a given input.
+    :param mask: a 2d or 3d label map of boolean type.
+    :param structure: numpy array defining the connectivity.
+    """
+    components, n_components = scipy_label(mask, structure)
+    return components == np.argmax(np.bincount(components.flat)[1:]) + 1 if n_components > 0 else mask.copy()
+
 def identity_activation(x):
     return x
 
