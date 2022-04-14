@@ -7,13 +7,52 @@ import numpy as np
 import matplotlib.pyplot as plt
 from utils_file import get_parent_path
 
-def report_learning_curves(results_dirs, save=False):
+def smooth(y, box_pts):
+    box = np.ones(box_pts)/box_pts
+    y_smooth = np.convolve(y, box, mode='same')
+    return y_smooth
+
+def plot_df_column(df, col_name):
+    for col in col_name:
+        plt.figure()
+        plt.title(col)
+        y = df[col].values
+        plt.plot(y)
+        ys = smooth(y,20)
+        plt.plot(ys)
+
+def read_csv_in_data_frame(results_dir, pattern='Train*csv'):
+    df_all = pd.DataFrame()
+    files = glob.glob(results_dir +'/' + pattern)
+    files.sort()  # alpha numeric order
+
+    for file in files:
+        df = pd.read_csv(file, index_col=0)
+        df_all = pd.concat([df_all, df], axis=0, ignore_index=True)
+
+    return df_all
+
+def report_df_col(df, col_list, info_title=''):
+    for col in col_list:
+        plt.figure()
+        plt.title(f'{col}_{info_title}')
+        plt.ylabel(col)
+        aa = df[col]
+        plt.plot(aa)
+        aas = smooth(aa,20)
+        plt.plot(aas)
+
+
+def report_learning_curves(results_dirs, save=False, sort_time=False):
     """
     Plot error curves from record files and save plot to jpeg file.
     """
     def plot_losses(pattern, color, label):
         files = glob.glob(results_dir + pattern)
-        files.sort(key=os.path.getmtime)
+        if sort_time:
+            files.sort(key=os.path.getmtime)
+        else:
+            files.sort()  #alpha numeric order
         losses, ymean, qt05, qt95 = [], [], [], []
         nb_iter_list = []
         nb_iter_mem = -1
