@@ -15,7 +15,7 @@ import torchio as tio
 import resource
 import warnings
 from torch.utils.data import DataLoader
-from segmentation.utils import to_var, summary, save_checkpoint, to_numpy
+from segmentation.utils import to_var, summary, save_checkpoint, to_numpy, get_largest_connected_component
 from apex import amp
 from torch.utils.tensorboard import SummaryWriter
 
@@ -101,6 +101,7 @@ class RunModel:
         self.split_channels = struct['save']['split_channels']
         self.save_channels = struct['save']['save_channels']
         self.save_threshold = struct['save']['save_threshold']
+        self.save_biggest_comp = struct['save']['save_biggest_comp']
         self.save_volume_name = struct['save']['save_volume_name']
         self.save_label_name = struct['save']['save_label_name']
         self.apex_opt_level = struct['apex_opt_level']
@@ -422,18 +423,20 @@ class RunModel:
                         for j, prediction in enumerate(ppp):
                             n = i * self.batch_size + j
                             vname = f'{self.save_volume_name}_M{self.model_name[nb_pred]}'
-                            self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine,  volume_name=vname)
+                            self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine,
+                                                  volume_name=vname, save_biggest_comp=self.save_biggest_comp)
 
                 else:
                     for j, prediction in enumerate(predictions):
                         n = i * self.batch_size + j
-                        self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine)
+                        self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine,
+                                              save_biggest_comp=self.save_biggest_comp)
                         if eval_dropout:
                             volume_name = self.save_volume_name + "_std" or "Dp_std"
                             aaa = self.save_bin
                             self.save_bin = False
                             self.prediction_saver(sample,  predictions_std[j].unsqueeze(0), n, j, volume_name=volume_name,
-                            affine=new_affine)
+                            affine=new_affine, save_biggest_comp=self.save_biggest_comp)
                             self.save_bin = aaa
 
             if self.save_labels and not is_model_training:
@@ -984,7 +987,8 @@ class RunModel:
         predictions = to_var(aggregator.get_output_tensor(), self.device)
         return predictions, df
 
-    def save_volume(self, sample, volume, idx=0, batch_idx=0, affine=None, volume_name=None ):
+    def save_volume(self, sample, volume, idx=0, batch_idx=0, affine=None, volume_name=None,
+                    save_biggest_comp = None):
         volume_name = volume_name or self.save_volume_name
         name = sample.get('name') or f'{idx:06d}'
         if affine is None:
@@ -1009,6 +1013,18 @@ class RunModel:
 
         volume[volume < self.save_threshold] = 0.
 
+        if save_biggest_comp:
+            volume = to_numpy(volume)
+            #find label index
+            index_label=[ self.labels.index(nn) for nn in self.save_biggest_comp]
+            volume_mask = volume > 0.1 #billot use 0.25 ... why so big ?
+            for i_label in index_label:
+                tmp_mask = get_largest_connected_component(volume_mask[:, i_label, ...])
+                volume[:, i_label, ...] *= tmp_mask
+            #renomalize posteriors todo what if sum over proba is null after connected compo ... ?
+            # if np.sum() == 0
+            volume /= np.sum(volume, axis=1)[:,np.newaxis,...]
+
         if self.save_channels is not None:
             channels = [self.labels.index(c) for c in self.save_channels]
             channel_names = self.save_channels
@@ -1025,8 +1041,12 @@ class RunModel:
                 nib.save(v, f'{resdir}/{label}.nii.gz')
 
         else:
+            if isinstance(volume, np.ndarray):
+                volume = np.squeeze( np.transpose(volume, (0, 2, 3, 4, 1) ) )
+            else:
+                volume = volume.permute(0, 2, 3, 4, 1).squeeze()
             volume = nib.Nifti1Image(
-                to_numpy(volume.permute(0, 2, 3, 4, 1).squeeze()), affine
+                to_numpy(volume), affine
             )
             nib.save(volume, f'{resdir}/{volume_name}.nii.gz')
             self.debug('saving {}'.format(f'{resdir}/{volume_name}.nii.gz'))

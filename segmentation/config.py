@@ -338,7 +338,7 @@ class Config:
         self.set_struct_value(struct, 'subject_shuffle')
         self.set_struct_value(struct, 'subject_seed')
         self.set_struct_value(struct, 'repartition', [0.7, 0.15, 0.15])
-
+        self.set_struct_value(struct, 'duplicate_suj')
         self.set_struct_value(struct, 'num_workers', 0)
         self.set_struct_value(struct, 'queue')
         self.set_struct_value(struct, 'batch_shuffle')
@@ -639,6 +639,7 @@ class Config:
         self.set_struct_value(struct['save'], 'split_channels', False)
         self.set_struct_value(struct['save'], 'save_channels')
         self.set_struct_value(struct['save'], 'save_threshold', 0)
+        self.set_struct_value(struct['save'], 'save_biggest_comp', None)
         self.set_struct_value(struct['save'], 'save_volume_name', 'prediction')
         self.set_struct_value(struct['save'], 'save_label_name', 'label')
 
@@ -936,6 +937,11 @@ class Config:
             self.log('first 3 Val suj : {} {}  {} '.format(val_subjects[0]['name'], val_subjects[1]['name'], val_subjects[2]['name']))
         elif len(test_subjects) > 2:
             self.log('first 3 test suj : {} {}  {} '.format(test_subjects[0]['name'], test_subjects[1]['name'], test_subjects[2]['name']))
+        if data_struct['duplicate_suj']:
+            new_train_list= []
+            for k in range(data_struct['duplicate_suj']):
+                new_train_list += train_subjects
+            train_subjects = new_train_list
 
         train_set = create_dataset(train_subjects,
                                    transform_struct['train_transforms'],
