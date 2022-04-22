@@ -1038,14 +1038,21 @@ class Config:
                     raise ValueError(
                         f'Impossible to load model from {file}, '
                         f'this file does not exist')
-                mmm, _ = model_class.load(file)
-                mmm, ddd = return_model(mmm, file)
+                if hasattr(model_class, 'load'):
+                    mmm, _ = model_class.load(file)
+                    mmm, ddd = return_model(mmm, file)
+                else:
+                    mmm = struct['model']
+                    model_dict = torch.load(file)
+                    mmm.load_state_dict(model_dict)
+
                 model.append(mmm)
                 model_name = ''
                 for iii in range(3):
                     model_name = f'{os.path.basename(file)}_{model_name}'
                     file = os.path.dirname(file)
                 self.model_name.append(model_name[:-1])
+
             if len(model) == 1: #just do not use list
                 model = model[0]
                 
