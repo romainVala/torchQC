@@ -64,7 +64,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-    resource.setrlimit(resource.RLIMIT_NOFILE, (2048*8, rlimit[1]))
+    #resource.setrlimit(resource.RLIMIT_NOFILE, (2048*8, rlimit[1]))
 
     results_dir = args.results_dir
     file = args.file
