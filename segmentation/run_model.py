@@ -1077,7 +1077,13 @@ class RunModel:
         #default values for missing label
         labels = torch.cat([torch.ones(inputs.shape[0],1) * default_lab for default_lab in default_missing_label], dim=1)
         for target_idx, target in enumerate(targets):
-            if target == 'random_noise':
+            if target == "is_motion":
+                histo = data['history']
+                for batch_idx, hh in enumerate(histo): #length = batch size
+                    for hhh in hh : #length: number of transfo that lead history info
+                        if isinstance(hhh, tio.transforms.augmentation.intensity.random_motion_from_time_course.MotionFromTimeCourse)  :
+                            labels[batch_idx, 0] = 1 #; labels[batch_idx, 1] = 0
+            elif target == 'random_noise':
                 histo = data['history']
                 for batch_idx, hh in enumerate(histo): #length = batch size
                     for hhh in hh : #length: number of transfo that lead history info
