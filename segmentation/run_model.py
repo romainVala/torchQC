@@ -6,7 +6,7 @@ import time
 import pickle
 import logging
 import glob
-import os
+import os, tarfile
 import numpy as np
 import pandas as pd
 import nibabel as nib
@@ -724,12 +724,13 @@ class RunModel:
                 info['location'] = to_numpy(location[idx])
 
             loss = 0
-            for criterion in self.criteria:
-                loss += criterion['weight'] * criterion['criterion'](
-                    predictions[idx].unsqueeze(0),
-                    targets[idx].unsqueeze(0)
-                )
-            info['loss'] = to_numpy(loss)
+            if predictions is not None:
+                for criterion in self.criteria:
+                    loss += criterion['weight'] * criterion['criterion'](
+                        predictions[idx].unsqueeze(0),
+                        targets[idx].unsqueeze(0)
+                    )
+                info['loss'] = to_numpy(loss)
 
             if not self.model.training:
                 for metric in self.metrics:
@@ -1283,3 +1284,98 @@ class RunModel:
                 new_sample[k] = [e[k] for e in sample]
 
         return new_sample
+
+    def torch_save_suj(self, subject, result_dir, fname, CAST_TO=torch.float16):
+        #result_dir = result_dir + '/tio/'
+        #self.my_mkdir(result_dir)
+        if CAST_TO is not None:
+            for sujkey in subject.get_images_names():
+                subject[sujkey]['data'] = subject[sujkey]['data'].to(dtype=CAST_TO)
+                if self.save_threshold:
+                    volume = subject[sujkey]['data']
+                    volume[volume < self.save_threshold] = 0.
+                    subject[sujkey]['data'] = volume
+
+        start = time.time()
+
+        os.chdir(result_dir)
+        fname += '.pt'
+        torch.save(subject, fname)
+        #with tarfile.open(f'{fname}.tar.gz', 'w:gz') as tar:
+        #    tar.add(fname)
+
+        os.system(f'tar -czf {fname}.tar.gz {fname}')
+        os.system(f'rm -f {fname}')
+        end_time = time.time() - start
+        self.log(f'{fname}.tar.gz is saved in {end_time}')
+
+    def get_transfo_short_name(self, in_str):
+        ll = in_str.split('_')
+        name = ''
+        for sub in ll:
+            name += sub[:3]
+        return name
+
+    def do_plot_volume_tio(self, suj, img_key, result_dir, fname):
+        result_dir = result_dir + '/fig/'
+        try:  # on cluster, all job are doing the mkdir at the same time ...
+            if not os.path.isdir(resdir_fig): os.mkdir(resdir_fig)
+        except:
+            pass
+        if not isinstance(img_key, list): img_key = [img_key]
+        for ikey in img_key:
+            # hape = suj[img_key].data.shape[-3:]
+            # fig_size = [np.array(shape).max() + 40 , np.array(shape).sum()+40]
+            suj[ikey].plot(show=False, output_path=result_dir + fname + '_tio.png',
+                           xlabels=False, percentiles=(0, 100))  # , figsize=fig_size)
+
+    def save_nii_volume(self, suj, img_key, result_dir, fname):
+        outdir = result_dir + '/nii/'
+        try:  # on cluster, all job are doing the mkdir at the same time ...
+            if not os.path.isdir(outdir): os.mkdir(outdir)
+        except:
+            pass
+
+        if not isinstance(img_key, list): img_key = [img_key]
+
+        for ikey in img_key:
+            suj[ikey].save(outdir + ikey + '_' + fname + '.nii.gz')
+
+    def my_mkdir(self, result_dir):
+        try : #on cluster, all job are doing the mkdir at the same time ...
+            if not os.path.isdir(result_dir): os.mkdir(result_dir)
+        except:
+            pass
+
+    def save_sample(self, dataset):
+        main_result_dir = self.eval_results_dir + '/'
+
+        nb_sample = self.n_epochs
+        nb_suj = len(dataset)
+        for suj_num in range(0, nb_suj ):
+            for i_sample in range(0, nb_sample):
+                result_dir = main_result_dir + f'ep_{i_sample:03d}/'
+                self.my_mkdir(result_dir)
+
+                #i_sample += sample_num_offset
+                suj = dataset[suj_num] #same suj but new transform
+                df = pd.DataFrame(); #sample = dict()
+                df, reporting_time = self.record_simple(df, suj, None,suj[self.image_key_name],0, False)
+
+                transfo_name = self.get_transfo_short_name(df.transfo_order.values[0])
+                fname  = f'suj_{suj.name}_{transfo_name}_S{i_sample:03d}'
+
+                df = df.drop(columns=["history"])
+                if os.path.isfile(fname+'.csv'):
+                    raise(f'Error file {fname}.csv exist ... grrr ...')
+                df.to_csv(result_dir+fname+".csv")
+                plot_volume = False
+                save_tio = True
+                if plot_volume:
+                    plot_key = self.image_key_name
+                    self.do_plot_volume_tio(suj,plot_key,result_dir, fname)
+                if self.save_data:
+                    nii_key = [self.image_key_name, self.label_key_name]
+                    self.save_nii_volume(suj, nii_key, result_dir, fname)
+                if save_tio:
+                    self.torch_save_suj(suj, result_dir, fname, CAST_TO=torch.float16)
