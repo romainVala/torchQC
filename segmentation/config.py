@@ -1106,10 +1106,14 @@ class Config:
 
         # Construct paths
         paths = []
-        for subj in self.val_subjects:
-            paths.append(create_path(subj, 'val'))
-        for subj in self.test_subjects:
-            paths.append(create_path(subj, 'test'))
+        if self.mode=="save":
+            for subj in self.train_subjects:
+                paths.append(create_path(subj, 'train'))
+        else:
+            for subj in self.val_subjects:
+                paths.append(create_path(subj, 'val'))
+            for subj in self.test_subjects:
+                paths.append(create_path(subj, 'test'))
 
         # Create data and main structures
         main_files = []
@@ -1165,6 +1169,18 @@ class Config:
                     save_transformed_samples=self.save_transformed_samples)
             else:
                 model_runner.infer()
+        if self.mode == 'save':
+            dataset = self.train_set  # val_set
+            model = torch.nn.Identity()
+            device = torch.device('cpu')
+            # model_runner=self.get_runner() # load le modelh
+            model_runner = RunModel(model, device, self.train_loader, self.val_loader, self.val_set,
+                                    self.test_set, self.image_key_name, self.label_key_name, self.labels,
+                                    self.logger, self.debug_logger, self.results_dir, self.batch_size,
+                                    self.patch_size, self.run_structure, self.post_transforms)
+            dataset = self.train_set
+            model_runner.save_sample(dataset)
+
 
         # Other case would typically be visualization for example
         if self.mode == 'visualization':
