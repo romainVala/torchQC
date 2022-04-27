@@ -31,7 +31,7 @@ IMAGE_KEYS = ['type', 'components']
 PATTERN_KEYS = ['root', 'components']
 CSV_KEYS = ['root', 'components', 'name']
 PATH_KEYS = ['name', 'components']
-LOAD_FROM_DIR_KEYS = ['root', 'list_name']
+LOAD_FROM_DIR_KEYS = ['root', 'list_name','filereg']
 QUEUE_KEYS = ['sampler']
 SAMPLER_KEYS = ['name', 'module', 'attributes']
 SAMPLER_ATTRIBUTES_KEYS = ['patch_size']
@@ -810,8 +810,10 @@ class Config:
                 #   sample_dir['root']))
 
                 sample_files = glob.glob(
-                    os.path.join(sample_dir['root'], 'sample*pt'))
-                self.logger.log(logging.INFO,
+                    os.path.join(sample_dir['root'], sample_dir['filereg']))
+
+                #self.logger.log(logging.INFO,
+                self.log(
                                 f'{len(sample_files)} subjects in the '
                                 f'{sample_dir["list_name"]} set')
                 transform = torchio.transforms.Compose(
@@ -832,7 +834,8 @@ class Config:
                         'list_name attribute from load_from_dir must be '
                         'either train or val')
 
-            return train_set, val_set, test_set
+            return train_set, val_set, test_set, {}, {}, {}
+
 
         subjects, train_subjects, val_subjects, test_subjects = {}, {}, {}, {}
 
