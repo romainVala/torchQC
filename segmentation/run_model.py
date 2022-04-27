@@ -104,6 +104,7 @@ class RunModel:
         self.save_biggest_comp = struct['save']['save_biggest_comp']
         self.save_volume_name = struct['save']['save_volume_name']
         self.save_label_name = struct['save']['save_label_name']
+        self.save_struct = struct['save']
         self.apex_opt_level = struct['apex_opt_level']
 
         # Keep information to load optimizer and learning rate scheduler
@@ -508,6 +509,11 @@ class RunModel:
                 # Update scheduler at the end of the epoch
                 if i == len(loader) and self.lr_scheduler is not None:
                     self.lr_scheduler.step(validation_loss)
+
+                self.log('reinitialise loss / time ')
+                time_sum, loss_sum, reporting_time_sum = 0, 0, 0
+                average_loss, max_loss = None, None
+
 
             start = time.time()
 
@@ -1316,12 +1322,12 @@ class RunModel:
             name += sub[:3]
         return name
 
-    def do_plot_volume_tio(self, suj, img_key, result_dir, fname):
+    def do_plot_volume_tio(self, suj, img_key, result_dir, fname, fname_prefix):
         result_dir = result_dir + '/fig/'
-        try:  # on cluster, all job are doing the mkdir at the same time ...
-            if not os.path.isdir(resdir_fig): os.mkdir(resdir_fig)
-        except:
-            pass
+        self.my_mkdir(result_dir)
+        if fname_prefix:
+            fname = fname_prefix + fname
+            
         if not isinstance(img_key, list): img_key = [img_key]
         for ikey in img_key:
             # hape = suj[img_key].data.shape[-3:]
@@ -1329,17 +1335,39 @@ class RunModel:
             suj[ikey].plot(show=False, output_path=result_dir + fname + '_tio.png',
                            xlabels=False, percentiles=(0, 100))  # , figsize=fig_size)
 
+    def plot_motion(self, suj, result_dir, fname, key_prefix):
+        import matplotlib.pyplot as plt
+        result_dir = result_dir + '/fig/'
+        self.my_mkdir(result_dir)
+        fname_prefix = None
+
+        tmot = None
+        for hist in suj.history:
+            if isinstance(hist, tio.transforms.augmentation.intensity.random_motion_from_time_course.MotionFromTimeCourse):
+                tmot = hist
+        if tmot :
+            transfo_met = suj.transforms_metrics[0][1]
+            fitpar_dict = tmot.euler_motion_params
+            for key,fitpars in fitpar_dict.items():
+                image_metrics = int( transfo_met[key][key_prefix] * 100)
+                fname_prefix = f'{key_prefix}_0{image_metrics}'
+                #print(key)
+                #print(fitpar.shape)
+                plt.ioff()
+                fig = plt.figure()
+                plt.plot(fitpars.T)
+                plt.savefig(result_dir + fname_prefix + fname + '_mvt.png')
+                plt.close(fig)
+        return fname_prefix
+
     def save_nii_volume(self, suj, img_key, result_dir, fname):
-        outdir = result_dir + '/nii/'
-        try:  # on cluster, all job are doing the mkdir at the same time ...
-            if not os.path.isdir(outdir): os.mkdir(outdir)
-        except:
-            pass
+        #outdir = result_dir + '/nii/'
+        #self.my_mkdir(result_dir)
 
         if not isinstance(img_key, list): img_key = [img_key]
 
         for ikey in img_key:
-            suj[ikey].save(outdir + ikey + '_' + fname + '.nii.gz')
+            suj[ikey].save(result_dir + '/' + ikey + '_' + fname + '.nii.gz')
 
     def my_mkdir(self, result_dir):
         try : #on cluster, all job are doing the mkdir at the same time ...
@@ -1363,19 +1391,28 @@ class RunModel:
                 df, reporting_time = self.record_simple(df, suj, None,suj[self.image_key_name],0, False)
 
                 transfo_name = self.get_transfo_short_name(df.transfo_order.values[0])
-                fname  = f'suj_{suj.name}_{transfo_name}_S{i_sample:03d}'
+                sujname = suj.name.replace('/','_')
+                fname  = f'suj_{sujname}_{transfo_name}_S{i_sample:03d}'
 
                 df = df.drop(columns=["history"])
                 if os.path.isfile(fname+'.csv'):
                     raise(f'Error file {fname}.csv exist ... grrr ...')
                 df.to_csv(result_dir+fname+".csv")
-                plot_volume = False
-                save_tio = True
+                save_option = self.save_struct
+
+                plot_volume = True if "plot_volume" in save_option else False
+                plot_motion = True if "plot_motion" in save_option else False
+                save_tio = True if "save_tio" in save_option else False
+                fname_prefix = None
+                if plot_motion:
+                    fname_prefix = self.plot_motion(suj,result_dir,fname, save_option['plot_motion'])
+
                 if plot_volume:
-                    plot_key = self.image_key_name
-                    self.do_plot_volume_tio(suj,plot_key,result_dir, fname)
-                if self.save_data:
-                    nii_key = [self.image_key_name, self.label_key_name]
+                    plot_key = save_option['plot_volume']
+                    self.do_plot_volume_tio(suj,plot_key,result_dir, fname, fname_prefix)
+
+                if self.save_data :
+                    nii_key = self.save_data; #[self.image_key_name, self.label_key_name]
                     self.save_nii_volume(suj, nii_key, result_dir, fname)
                 if save_tio:
                     self.torch_save_suj(suj, result_dir, fname, CAST_TO=torch.float16)
