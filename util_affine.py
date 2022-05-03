@@ -49,13 +49,13 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         #     print('first motion is done with demean')
         #     #arg, may be not a good idea, for sigma motion
 
-        tmot.fitpars = fp
-
+        tmot.euler_motion_params = fp
+    
     smot = tmot(sdata)
     #update fp, since it may have change is displacement_shift_strategy is used
     for hh in smot.history:
         if isinstance(hh, tio.transforms.augmentation.intensity.random_motion_from_time_course.MotionFromTimeCourse):
-            fp = hh.fitpars['t1']  #fitpar is modifie in Motion transform not in tmot
+            fp = hh.euler_motion_params['t1']  #fitpar is modifie in Motion transform not in tmot
             print(f'max fp is {fp.max(axis=1)}')
 
     batch_time = time.time() - start;     start = time.time()
@@ -163,12 +163,12 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
             fp[i, :] = fp[i, :] - trans_rot[i]
 
         if isinstance(tmot, tio.transforms.augmentation.intensity.RandomMotionFromTimeCourse):
-            tmot.fitpars = fp
+            tmot.euler_motion_params = fp
             tmot.displacement_shift_strategy = None
         else: #MotionFromTimeCourse
             #argument are then in dict ... arg ...
-            for kkey in tmot.fitpars.keys():
-                tmot.fitpars[kkey] = fp
+            for kkey in tmot.euler_motion_params.keys():
+                tmot.euler_motion_params[kkey] = fp
                 if not isinstance(tmot.frequency_encoding_dim ,dict):
                     print('arggg')
                     tmot.frequency_encoding_dim = dict(t1=tmot.frequency_encoding_dim)
@@ -345,7 +345,7 @@ def apply_motion_old_with_shift(sin, tmot, fp, df, res_fitpar, res, extra_info, 
     start = time.time()
     tmot.nT = fp.shape[1]
     tmot.simulate_displacement = False
-    tmot.fitpars = fp
+    tmot.euler_motion_params = fp
     tmot.displacement_shift_strategy = displacement_shift_strategy
     sout = tmot(sin)
 
@@ -375,7 +375,7 @@ def apply_motion_old_with_shift(sin, tmot, fp, df, res_fitpar, res, extra_info, 
         if disp > 0:
             print(f' redoo motion disp is {disp}')
             fp[1, :] = fp[1, :] - disp
-            tmot.fitpars = fp
+            tmot.euler_motion_params = fp
             sout = tmot(sin)
 
     batch_time = time.time() - start
@@ -391,7 +391,7 @@ def apply_motion_old_with_shift(sin, tmot, fp, df, res_fitpar, res, extra_info, 
 
     # record fitpar
     res_extra_info = extra_info.copy()
-    fit_pars = tmot.fitpars  # - np.tile(tmot.to_substract[..., np.newaxis],(1,200))
+    fit_pars = tmot.euler_motion_params  # - np.tile(tmot.to_substract[..., np.newaxis],(1,200))
     dff = pd.DataFrame(fit_pars.T);
     dff.columns = ['x', 'trans_y', 'z', 'r1', 'r2', 'r3'];
     dff['nbt'] = range(0, tmot.nT)
@@ -433,6 +433,9 @@ def select_data(json_file, param=None, to_canonical=True):
     if contrast==1:
         tsynth.mean = [(0.6, 0.6), (0.1, 0.1), (1, 1), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6),
          (0.9, 0.9), (0.6, 0.6), (1, 1), (0.2, 0.2), (0.4, 0.4), (0, 0)]
+        tsynth.mean = [(1, 1), (0.6, 0.6), (0.1, 0.1),  (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6),
+                       (0.6, 0.6), (0.6, 0.6),
+                        (0.6, 0.6), (0.2, 0.2), (0.4, 0.4), (0, 0)]
     elif contrast ==2:
         tsynth.mean = [(0.5, 0.6), (0.1, 0.2), (0.9, 1), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6),
          (0.8, 0.9), (0.5, 0.6), (0.9, 1), (0.2, 0.3), (0.3, 0.4), (0, 0)]
@@ -542,7 +545,7 @@ def perform_motion_step_loop(json_file, params, out_path=None, out_name=None, re
 
     #return df1
 
-def create_motion_job(params, split_length, fjson, out_path, res_name, type='motion_loop',
+def create_motion_job(params, split_length, fjson, out_path, res_name, type='motion_loop', fp_paths=None,
                       mem=6000, cpus_per_task=2, walltime='12:00:00', job_pack=1,
                       jobdir = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix/' ):
 
@@ -567,16 +570,20 @@ def create_motion_job(params, split_length, fjson, out_path, res_name, type='mot
                              '_ = perform_motion_step_loop(json_file,params, out_path=out_path, out_name=out_name) "'])
             jobs.append(cmd)
     elif type=='one_motion':
+        nb_param = len(fp_paths)
+        nb_job = int(np.ceil(nb_param / split_length))
+
         cmd_init = '\n'.join(['python -c "', "from util_affine import perform_one_motion "])
         jobs = []
         for nj in range(nb_job):
             ind_start = nj * split_length;
             ind_end = np.min([(nj + 1) * split_length, nb_param])
 
-            cmd = '\n'.join([cmd_init, f'fp_path = {params[ind_start:ind_end]}',
+            cmd = '\n'.join([cmd_init, f'params = {params}',
+                             f'fp_path = {fp_paths[ind_start:ind_end]}',
                              f'out_path = \'{out_path}\'',
                              f'json_file = \'{fjson}\'',
-                             '_ = perform_one_motion(fp_path,json_file, root_out_dir=out_path) "'])
+                             '_ = perform_one_motion(fp_path,json_file, root_out_dir=out_path, param=params) "'])
             jobs.append(cmd)
     elif type=='one_motion_simulated':
         cmd_init = '\n'.join(['python -c "', "from util_affine import perform_one_simulated_motion "])
@@ -651,7 +658,7 @@ def perform_one_simulated_motion(params, fjson, root_out_dir=None,do_coreg='Elas
             amplitude = param['amplitude']
             tmot.maxGlobalDisp, tmot.maxGlobalRot = (amplitude, amplitude), (amplitude, amplitude)
             tmot._simulate_random_trajectory()
-            fp = tmot.fitpars
+            fp = tmot.euler_motion_params
             
             fp_name = f'_fp_Amp{amplitude}_N{nbmot:02d}'
             suj_name = suj_name0 + fp_name
@@ -681,7 +688,7 @@ def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None,do_coreg='
         return '_'.join(reversed(name))
 
     df = pd.DataFrame()
-    param  = get_default_param(param)
+    param  = get_default_param(param)[0]
 
     if isinstance(fp_paths, str):
         fp_paths = [fp_paths]
@@ -694,7 +701,7 @@ def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None,do_coreg='
 
         suj_name = get_sujname_from_path(fp_path)
 
-        extra_info = dict(fp= fp_path, suj_name_fp=suj_name, flirt_coreg=1)
+        extra_info = dict(fp= fp_path)
         extra_info = dict(param, **extra_info)
 
         # apply motion transform
