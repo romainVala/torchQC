@@ -250,28 +250,60 @@ class RunModel:
         else:
             self.log('No apex optim')
 
-        for epoch in range(self.epoch, self.n_epochs + 1):
-            self.epoch = epoch
-            self.log(f'******** Epoch [{self.epoch}/{self.n_epochs}]  ********')
+        if isinstance(self.train_loader, list):
+            dataloader_list = self.train_loader
+            starting_epoch = self.epoch
+            self.n_epochs = len(dataloader_list)
+            for epoch, train_loader in enumerate(dataloader_list):
+                self.epoch = epoch + starting_epoch
+                self.log(f'******** Epoch from dir [{self.epoch}/{self.n_epochs}]  ********')
+                train_loader.pin_memory=True
+                self.train_loader = train_loader
+                #qsdf
+                # Train for one epoch
+                self.model.train()
+                self.train_loop()
 
-            # Train for one epoch
-            self.model.train()
-            self.train_loop()
+                # Evaluate on whole images of the validation set
+                with torch.no_grad():
+                    self.model.eval()
+                    if self.patch_size is not None \
+                            and self.whole_image_inference_frequency is not None:
+                        if self.epoch % self.whole_image_inference_frequency == 0:
+                            self.log('Validation on whole images')
+                            self.whole_image_evaluation_loop()
 
-            # Evaluate on whole images of the validation set
-            with torch.no_grad():
-                self.model.eval()
-                if self.patch_size is not None \
-                        and self.whole_image_inference_frequency is not None:
-                    if self.epoch % self.whole_image_inference_frequency == 0:
-                        self.log('Validation on whole images')
-                        self.whole_image_evaluation_loop()
+                            # Save model after inference
+                            self.save_checkpoint()
 
-                        # Save model after inference
-                        self.save_checkpoint()
+                # Log memory consumption
+                self.log_peak_CPU_memory()
+                del train_loader
 
-            # Log memory consumption
-            self.log_peak_CPU_memory()
+        else:
+
+            for epoch in range(self.epoch, self.n_epochs + 1):
+                self.epoch = epoch
+                self.log(f'******** Epoch [{self.epoch}/{self.n_epochs}]  ********')
+
+                # Train for one epoch
+                self.model.train()
+                self.train_loop()
+
+                # Evaluate on whole images of the validation set
+                with torch.no_grad():
+                    self.model.eval()
+                    if self.patch_size is not None \
+                            and self.whole_image_inference_frequency is not None:
+                        if self.epoch % self.whole_image_inference_frequency == 0:
+                            self.log('Validation on whole images')
+                            self.whole_image_evaluation_loop()
+
+                            # Save model after inference
+                            self.save_checkpoint()
+
+                # Log memory consumption
+                self.log_peak_CPU_memory()
 
         # Save model at the end of training
         self.save_checkpoint()
@@ -1327,7 +1359,7 @@ class RunModel:
         self.my_mkdir(result_dir)
         if fname_prefix:
             fname = fname_prefix + fname
-            
+
         if not isinstance(img_key, list): img_key = [img_key]
         for ikey in img_key:
             # hape = suj[img_key].data.shape[-3:]

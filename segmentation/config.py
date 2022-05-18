@@ -808,23 +808,39 @@ class Config:
             for sample_dir in data_struct['load_sample_from_dir']:
                 # print('parsing sample dir addin {}'.format(
                 #   sample_dir['root']))
+                if "epochreg" in sample_dir:
+                    epoch_dir = sorted(glob.glob(sample_dir['root']+ sample_dir['epochreg']))
+                    dataset = []
+                    for one_epoch_dir in epoch_dir:
+                        sample_files = glob.glob( one_epoch_dir + '/' + sample_dir['filereg'])
+                        self.log( f'{len(sample_files)} subjects in the {sample_dir["list_name"]} set')
+                        transform = torchio.transforms.Compose(
+                            transform_struct[f'{sample_dir["list_name"]}_transforms'])
+                        dataset.append( torchio.SubjectsDataset(sample_files,
+                                                          load_from_dir=True,
+                                                          transform=transform,
+                                                          add_to_load=sample_dir[
+                                                              'add_to_load'],
+                                                          add_to_load_regexp=sample_dir[
+                                                              'add_to_load_regexp']) )
 
-                sample_files = glob.glob(
-                    os.path.join(sample_dir['root'], sample_dir['filereg']))
+                else :
+                    sample_files = glob.glob(
+                        os.path.join(sample_dir['root'], sample_dir['filereg']))
 
-                #self.logger.log(logging.INFO,
-                self.log(
-                                f'{len(sample_files)} subjects in the '
-                                f'{sample_dir["list_name"]} set')
-                transform = torchio.transforms.Compose(
-                    transform_struct[f'{sample_dir["list_name"]}_transforms'])
-                dataset = torchio.SubjectsDataset(sample_files,
-                                                  load_from_dir=True,
-                                                  transform=transform,
-                                                  add_to_load=sample_dir[
-                                                    'add_to_load'],
-                                                  add_to_load_regexp=sample_dir[
-                                                    'add_to_load_regexp'])
+                    #self.logger.log(logging.INFO,
+                    self.log(
+                                    f'{len(sample_files)} subjects in the '
+                                    f'{sample_dir["list_name"]} set')
+                    transform = torchio.transforms.Compose(
+                        transform_struct[f'{sample_dir["list_name"]}_transforms'])
+                    dataset = torchio.SubjectsDataset(sample_files,
+                                                      load_from_dir=True,
+                                                      transform=transform,
+                                                      add_to_load=sample_dir[
+                                                        'add_to_load'],
+                                                      add_to_load_regexp=sample_dir[
+                                                        'add_to_load_regexp'])
                 if sample_dir["list_name"] == 'train':
                     train_set = dataset
                 elif sample_dir["list_name"] == 'val':
@@ -969,10 +985,18 @@ class Config:
 
         if struct['queue'] is None:
             if len(self.train_set) > 0:
-                train_loader = DataLoader(self.train_set, self.batch_size,
-                                          shuffle=struct['batch_shuffle'],
-                                          num_workers=struct['num_workers'],
-                                          collate_fn=struct['collate_fn'])
+                if isinstance(self.train_set, list):
+                    train_loader = [DataLoader(trainset, self.batch_size,
+                                              shuffle=struct['batch_shuffle'],
+                                              num_workers=struct['num_workers'],
+                                              collate_fn=struct['collate_fn'])
+                    for trainset in self.train_set ]
+
+                else:
+                    train_loader = DataLoader(self.train_set, self.batch_size,
+                                              shuffle=struct['batch_shuffle'],
+                                              num_workers=struct['num_workers'],
+                                              collate_fn=struct['collate_fn'])
             if len(self.val_set) > 0:
                 val_loader = DataLoader(self.val_set, self.batch_size,
                                         shuffle=struct['batch_shuffle'],
@@ -982,9 +1006,18 @@ class Config:
             if True:
                 self.log('no PARA_QUEUE ')
                 self.log(struct['queue']['attributes'])
-                train_queue = torchio.Queue(self.train_set,
-                                            **struct['queue']['attributes'])
-                train_loader = DataLoader(train_queue, self.batch_size, collate_fn=struct['collate_fn'])
+                if isinstance(self.train_set, list):
+                    train_loader = []
+                    for train_set in self.train_set:
+                        print('NEW QUEUE')
+                        train_queue = torchio.Queue(train_set,  start_background=False, **struct['queue']['attributes'])
+                        train_loader.append(DataLoader(train_queue, self.batch_size,
+                                                       collate_fn=struct['collate_fn']))
+
+                else:
+                    train_queue = torchio.Queue(self.train_set,
+                                                **struct['queue']['attributes'])
+                    train_loader = DataLoader(train_queue, self.batch_size, collate_fn=struct['collate_fn'])
 
             else:
                 if len(self.train_set) > 0:
