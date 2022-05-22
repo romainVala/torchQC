@@ -254,12 +254,18 @@ class RunModel:
             dataloader_list = self.train_loader
             starting_epoch = self.epoch
             self.n_epochs = len(dataloader_list)
-            for epoch, train_loader in enumerate(dataloader_list):
-                self.epoch = epoch + starting_epoch
+            #for epoch, train_loader in enumerate(dataloader_list):
+            for ind_epoch in  range(starting_epoch-1, self.n_epochs):
+                self.epoch = ind_epoch + 1
                 self.log(f'******** Epoch from dir [{self.epoch}/{self.n_epochs}]  ********')
+                train_loader = dataloader_list[ind_epoch]
+                if isinstance(train_loader.dataset,tio.data.queue.Queue):
+                    self.log(f'first data is {train_loader.dataset.subjects_dataset._subjects[0]}')
+                else:
+                    self.log(f'first data is {train_loader.dataset._subjects[0]}')
+
                 train_loader.pin_memory=True
                 self.train_loader = train_loader
-                #qsdf
                 # Train for one epoch
                 self.model.train()
                 self.train_loop()
@@ -929,7 +935,7 @@ class RunModel:
 
             self.record_history(info, sample, idx)
 
-            df = df.append(info, ignore_index=True)
+            df = pd.concat([df, pd.DataFrame([info])], ignore_index=True)
 
         if self.log_on_tensorboard is True:
             save_frequency = 30  # Log on TB every (save_frequency / batch_size) iterations
