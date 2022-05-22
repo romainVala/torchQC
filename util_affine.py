@@ -50,7 +50,7 @@ def apply_motion(sdata, tmot, fp, config_runner=None, df=pd.DataFrame(), extra_i
         #     #arg, may be not a good idea, for sigma motion
 
         tmot.euler_motion_params = fp
-    
+
     smot = tmot(sdata)
     #update fp, since it may have change is displacement_shift_strategy is used
     for hh in smot.history:
@@ -422,10 +422,23 @@ def select_data(json_file, param=None, to_canonical=True):
     else:
         suj_ind, contrast, suj_deform, suj_noise = 0, 1, False, 0
 
+    transfo_list = config.train_transfo_list
+
+    if suj_ind<0:
+        tmot = transfo_list[1]
+        ssynth = tio.Subject({'t1':tio.Image(path='/network/lustre/iss02/opendata/data/HCP/raw_data/nii/100307/T1w/T1_1mm/T1w_1mm.nii.gz',type=tio.INTENSITY),
+                             'brain':tio.Image(path='/network/lustre/iss02/opendata/data/HCP/raw_data/nii/100307/T1w/T1_1mm/brain_T1w_1mm.nii.gz',type=tio.LabelMap)})
+        trescale = tio.RescaleIntensity(out_min_max= [0, 1], percentiles=[1, 99])
+        ssynth = trescale(ssynth)
+        if to_canonical:
+            tcano = tio.ToCanonical(p=1)
+            ssynth = tcano(ssynth)
+
+        return ssynth, tmot, mr
+
     s1 = config.train_subjects[suj_ind]
     print(f'loading suj {s1.name} with contrast {contrast} deform is {suj_deform} sujseed {suj_seed} suj_noise {suj_noise}')
 
-    transfo_list = config.train_transfo_list
 
     #same label, random motion
     tsynth = transfo_list[0]
@@ -695,11 +708,21 @@ def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None,do_coreg='
 
     for fp_path in fp_paths:
         # get the data
-        sdata, tmot, config_runner = select_data(fjson, param, to_canonical=True)
+        sdata, tmot, config_runner = select_data(fjson, param, to_canonical=True) #why does it matter ? (check  05 2022 with cati fp
         # load mvt fitpars
         fp = np.loadtxt(fp_path)
 
         suj_name = get_sujname_from_path(fp_path)
+
+        if 'amplitude' in param:
+            trans_diff = fp.T[:,None,:3] - fp.T[None,:,:3]  #numpy broadcating rule !
+            dd = np.linalg.norm(trans_diff, axis=2)
+            ddrot = np.linalg.norm(fp.T[:, None, 3:] - fp.T[None, :, 3:], axis=-1)
+            trans_max = dd.max()
+            rot_max = ddrot.max()
+            fp[:3,:] = fp[:3,:] / trans_max * param['amplitude']
+            fp[3:,:] = fp[3:,:] / rot_max * param['amplitude']
+            suj_name = f'{suj_name}_Amp{param["amplitude"]}'
 
         extra_info = dict(fp= fp_path)
         extra_info = dict(param, **extra_info)
