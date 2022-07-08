@@ -82,7 +82,8 @@ class UniVarGaussianLogLkd(object):
         #print(f'lamb is {self.lamb} shape is {x.shape}')
         if self.apply_exp:
             if self.sigma_constrain == "softplus":  #well do not apply ex
-                sigma2 = sigma2.squeeze(dim=1) + 1e-6
+                sigma2 = sigma2.squeeze(dim=1) + torch.tensor(1e-3)
+                #sigma2[sigma2< 1e-3] = torch.tensor(1e-3)
                 log_sigma2 = torch.log(sigma2)
             else:
                 sigma2 = sigma2.squeeze(dim=1) #remove channel dim if only one sigma
@@ -99,7 +100,9 @@ class UniVarGaussianLogLkd(object):
                 #    qsdf
                 the_loss = self.sup_loss(x, target)
                 res_loss = (1./sigma2 * the_loss + self.lamb * log_sigma2).mean()
-
+                if res_loss>1000:
+                    print(f'what the fuck so big loss {res_loss}, sigma2 {sigma2.mean()} log_sim');
+                    tttt
         else:
             the_loss = self.sup_loss(x, target)
             print(
