@@ -1096,6 +1096,17 @@ class Config:
 
         if hasattr(model_class, 'load'):
             model, _ = model_class.load(file)
+            hack_weigths = False
+            if hack_weigths:
+                #I take only the first 10 weight of the classifier of a unet
+                #todo, need to chage the model output argument ! for furture save to be correct
+                all_param = model.classifier.state_dict()
+                model_classifier = struct['model'].classifier
+                all_param['block.0.bias'] = all_param['block.0.bias'][:10]
+                all_param['block.0.weight'] = all_param['block.0.weight'][:10,...]
+                model_classifier.load_state_dict(all_param)
+                model.classifier = model_classifier
+                #qsdf
         else:
             model.load_state_dict(torch.load(file))
 
