@@ -409,6 +409,9 @@ def select_data(json_file, param=None, to_canonical=True):
 
     if param is not None:
         suj_ind = param['suj_index']
+        if suj_ind==9999:
+            suj_ind = np.random.randint(0, len(config.train_subjects) )
+
         if 'suj_seed' in param:
             suj_seed = param['suj_seed']
             if suj_seed is not None:
@@ -442,21 +445,25 @@ def select_data(json_file, param=None, to_canonical=True):
 
     #same label, random motion
     tsynth = transfo_list[0]
-
-    if contrast==1:
-        tsynth.mean = [(0.6, 0.6), (0.1, 0.1), (1, 1), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6),
-         (0.9, 0.9), (0.6, 0.6), (1, 1), (0.2, 0.2), (0.4, 0.4), (0, 0)]
-        tsynth.mean = [(1, 1), (0.6, 0.6), (0.1, 0.1),  (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6),
-                       (0.6, 0.6), (0.6, 0.6),
-                        (0.6, 0.6), (0.2, 0.2), (0.4, 0.4), (0, 0)]
-    elif contrast ==2:
-        tsynth.mean = [(0.5, 0.6), (0.1, 0.2), (0.9, 1), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6),
-         (0.8, 0.9), (0.5, 0.6), (0.9, 1), (0.2, 0.3), (0.3, 0.4), (0, 0)]
-    elif contrast ==3:
-        tsynth.mean = [(0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9),
-         (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0, 0)]
+    if contrast is None:
+        #first transfo is suposed to be rescale instensity
+        if isinstance(tsynth, tio.transforms.preprocessing.intensity.rescale.RescaleIntensity):
+            print(f'WARNING no contrast define and first transfo is {type(tsynth)}')
     else:
-        raise(f'error contrast not define {contrast}')
+        if contrast==1:
+            tsynth.mean = [(0.6, 0.6), (0.1, 0.1), (1, 1), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6),
+             (0.9, 0.9), (0.6, 0.6), (1, 1), (0.2, 0.2), (0.4, 0.4), (0, 0)]
+            tsynth.mean = [(1, 1), (0.6, 0.6), (0.1, 0.1),  (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6), (0.6, 0.6),
+                           (0.6, 0.6), (0.6, 0.6),
+                            (0.6, 0.6), (0.2, 0.2), (0.4, 0.4), (0, 0)]
+        elif contrast ==2:
+            tsynth.mean = [(0.5, 0.6), (0.1, 0.2), (0.9, 1), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6), (0.5, 0.6),
+             (0.8, 0.9), (0.5, 0.6), (0.9, 1), (0.2, 0.3), (0.3, 0.4), (0, 0)]
+        elif contrast ==3:
+            tsynth.mean = [(0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0.1, 0.9),
+             (0.1, 0.9), (0.1, 0.9), (0.1, 0.9), (0, 0)]
+        else:
+            raise(f'error contrast not define {contrast}')
 
     ssynth = tsynth(s1)
     if to_canonical:
@@ -722,7 +729,16 @@ def perform_one_motion(fp_paths, fjson, param=None, root_out_dir=None,do_coreg='
             rot_max = ddrot.max()
             fp[:3,:] = fp[:3,:] / trans_max * param['amplitude']
             fp[3:,:] = fp[3:,:] / rot_max * param['amplitude']
-            suj_name = f'{suj_name}_Amp{param["amplitude"]}'
+
+            #get a unique sujname to write resultt
+            suj_name = f'Suj_{suj_name}_I{param["suj_index"]}_A_{param["amplitude"]}_C{param["suj_contrast"]}_N_{int(param["suj_noise"] * 100)}_D{param["suj_deform"]:d}'
+            if 'displacement_shift_strategy' in param:
+                if param['displacement_shift_strategy'] is not None:
+                    suj_name += f'Disp_{param["displacement_shift_strategy"]}'
+            if 'freq_encoding_dim' in param:
+                suj_name += f'_F{param["freq_encoding_dim"]}'
+
+            suj_name = f'{suj_name}_S_{sdata.name}'
 
         extra_info = dict(fp= fp_path)
         extra_info = dict(param, **extra_info)
