@@ -1240,7 +1240,8 @@ class RunModel:
             if extra_info is not None:
                 info = dict(info, ** extra_info)
 
-            df = df.append(info, ignore_index=True)
+            df = pd.concat([df, pd.DataFrame([info])], ignore_index=True)
+            #df = df.append(info, ignore_index=True)
 
         if save:
             self.save_info(mode, df, sample)
