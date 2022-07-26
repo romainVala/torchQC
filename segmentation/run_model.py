@@ -16,7 +16,7 @@ import resource
 import warnings
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy, get_largest_connected_component
-from apex import amp
+#from apex import amp
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -396,6 +396,28 @@ class RunModel:
 
             # Take variables and make sure they are tensors on the right device
             volumes, targets = self.data_getter(sample)
+
+            hack_plot=False
+            if hack_plot:
+                import matplotlib.pyplot as plt
+                dv = volumes.cpu().numpy()
+                _, axs = plt.subplots(self.batch_size,3)
+                axs = axs.flatten()
+                nimg=-1
+                for ii, ax in enumerate(axs):
+                    axnum = ii%3
+                    if axnum==0 :
+                        nimg +=1
+                        slice = dv[nimg,0, 64, :, :]
+                    elif axnum == 1:
+                        slice = dv[nimg, 0, :, 64, :]
+                    elif axnum == 2:
+                        slice = dv[nimg,0, :, :, 64]
+                    ax.imshow(slice)
+                plt.savefig(f'{self.results_dir}/fig_it{i}.png' )
+                if i>10 :
+                    qsdfstop
+                continue
 
             # Compute output
             if eval_dropout:
