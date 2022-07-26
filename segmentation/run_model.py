@@ -437,6 +437,17 @@ class RunModel:
                     else:
                         predictions = self.activation(self.model(volumes))
 
+            if eval_dropout:
+                predictions_dropout = [self.apply_post_transforms(pp, sample)[0] for pp in predictions_dropout]
+                predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
+            else:
+                if isinstance(predictions, list):
+                    predictions = [ self.apply_post_transforms(pp, sample)[0] for pp in predictions]
+                else:
+                    predictions, _ = self.apply_post_transforms(predictions, sample)
+
+            targets, new_affine = self.apply_post_transforms(targets, sample)
+            
             # Compute loss
             loss = 0
             if targets is None:
@@ -462,17 +473,6 @@ class RunModel:
                 self.optimizer.step()
                 loss = float(loss)
                 predictions = predictions.detach()
-
-            if eval_dropout:
-                predictions_dropout = [self.apply_post_transforms(pp, sample)[0] for pp in predictions_dropout]
-                predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
-            else:
-                if isinstance(predictions, list):
-                    predictions = [ self.apply_post_transforms(pp, sample)[0] for pp in predictions]
-                else:
-                    predictions, _ = self.apply_post_transforms(predictions, sample)
-
-            targets, new_affine = self.apply_post_transforms(targets, sample)
 
             if self.save_predictions and not is_model_training:
                 if eval_dropout:
