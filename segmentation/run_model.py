@@ -401,7 +401,8 @@ class RunModel:
             if hack_plot:
                 import matplotlib.pyplot as plt
                 dv = volumes.cpu().numpy()
-                _, axs = plt.subplots(self.batch_size,3)
+                fig, axs = plt.subplots(self.batch_size,3)
+                fig.set_size_inches(4.8, 6.4) #batch size 4 (so 4.8 4.8*4/3)
                 axs = axs.flatten()
                 nimg=-1
                 for ii, ax in enumerate(axs):
@@ -413,7 +414,10 @@ class RunModel:
                         slice = dv[nimg, 0, :, 64, :]
                     elif axnum == 2:
                         slice = dv[nimg,0, :, :, 64]
-                    ax.imshow(slice)
+                    ax.imshow(slice.T, origin='lower' )
+                    ax.get_xaxis().set_visible(False)
+                    ax.get_yaxis().set_visible(False)
+                plt.tight_layout()
                 plt.savefig(f'{self.results_dir}/fig_it{i}.png' )
                 if i>10 :
                     qsdfstop
@@ -447,7 +451,7 @@ class RunModel:
                     predictions, _ = self.apply_post_transforms(predictions, sample)
 
             targets, new_affine = self.apply_post_transforms(targets, sample)
-            
+
             # Compute loss
             loss = 0
             if targets is None:
