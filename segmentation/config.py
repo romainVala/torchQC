@@ -959,8 +959,12 @@ class Config:
         if data_struct['duplicate_suj']:
             new_train_list= []
             for k in range(data_struct['duplicate_suj']):
-                new_train_list += train_subjects
+                for ssuj in train_subjects:
+                    nsuj = ssuj.copy()
+                    nsuj['name'] = f'{nsuj["name"]}_dup{k}'
+                    new_train_list.append(torchio.Subject(nsuj)) # += train_subjects
             train_subjects = new_train_list
+
 
         train_set = create_dataset(train_subjects,
                                    transform_struct['train_transforms'],
