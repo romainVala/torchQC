@@ -762,6 +762,19 @@ class Config:
                         f'at least {ref_images.keys()} were expected.'
                         f'Dropping subject {n}')
                     continue
+
+                image_exist = True
+                missing_file = []
+                for img_name in ref_images.keys():
+                    components = ref_images[img_name]['components']
+                    for c in components:
+                        if os.path.isfile(s[img_name][c]) is False:
+                            missing_file.append(s[img_name][c])
+                            image_exist = False
+                if image_exist is False:
+                    warnings.warn(f'An image is missing for subject {n}, {missing_file}')
+                    continue
+
                 for img_name in ref_images.keys():
                     components = ref_images[img_name]['components']
                     image_attributes = ref_images[img_name]['attributes']
@@ -895,8 +908,11 @@ class Config:
                 subject = relevant_dict.get(name) or {}
 
                 for component_name, component in pattern['components'].items():
-                    component_path = os.path.join(
-                        folder_path, component['path'])
+                    if len(component['path'])>0:
+                        component_path = os.path.join(folder_path, component['path'])
+                    else:
+                        component_path = folder_path #it may already be a path and avoid adding a / at the end
+
                     image_name = component['image']
                     update_subject(subject, data_struct['images'],
                                    component_name, component_path, image_name)
