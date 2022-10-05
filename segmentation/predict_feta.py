@@ -74,6 +74,8 @@ if __name__ == '__main__':
     volume = torchio.ScalarImage(path=T2wImagePath)
     tscale = torchio.RescaleIntensity(percentiles=(0,99))
     volume = tscale(volume)
+    tstd = torchio.ToCanonical()
+    volume = tstd(volume)
 
     if vol_crop_pad:
         tpad = torchio.CropOrPad(target_shape=vol_crop_pad)
@@ -116,19 +118,24 @@ if __name__ == '__main__':
                     "9": 2,
                 })
     tseg = torchio.OneHot(invert_transform=True)
-    postT = torchio.Compose([tfeta_label, tseg])
+    tresamp = torchio.Resample(target = T2wImagePath ) #because of the initial ToCanonical !
+    postT = torchio.Compose([tfeta_label, tseg, tresamp])
     affine = volume.affine
     prediction,affine = apply_post_transforms(prediction, affine=affine, post_transforms = postT)
 
     
     image = nib.Nifti1Image(
-        to_numpy(prediction[0].permute(1, 2, 3, 0)),
+        to_numpy(prediction[0][0]),
         affine
     )
+#   image = nib.Nifti1Image(
+#        to_numpy(prediction[0].permute(1, 2, 3, 0)),
+#        affine
+#    )
 
     sub = os.path.split(T2wImagePath)[1].split('_')[0]     # to split the input directory and to obtain the suject name                                      
-    
+
     
     fout = os.path.join(outputDir, sub +  args.filename)
     nib.save(image,fout)
-    
+
