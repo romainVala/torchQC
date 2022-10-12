@@ -429,8 +429,13 @@ def select_data(json_file, param=None, to_canonical=True):
 
     if suj_ind<0:
         tmot = transfo_list[1]
-        ssynth = tio.Subject({'t1':tio.Image(path='/network/lustre/iss02/opendata/data/HCP/raw_data/nii/100307/T1w/T1_1mm/T1w_1mm.nii.gz',type=tio.INTENSITY),
-                             'brain':tio.Image(path='/network/lustre/iss02/opendata/data/HCP/raw_data/nii/100307/T1w/T1_1mm/brain_T1w_1mm.nii.gz',type=tio.LabelMap)})
+        if suj_ind<-9:
+            suj_ind = np.random.randint(0, len(config.train_subjects))
+            ssynth = config.train_subjects[suj_ind]
+        else:
+            ssynth = tio.Subject({'t1':tio.Image(path='/network/lustre/iss02/opendata/data/HCP/raw_data/nii/100307/T1w/T1_1mm/T1w_1mm.nii.gz',type=tio.INTENSITY),
+                             'brain':tio.Image(path='/network/lustre/iss02/opendata/data/HCP/raw_data/nii/100307/T1w/T1_1mm/brain_T1w_1mm.nii.gz',type=tio.LabelMap),
+                              'name':'s100307'})
         trescale = tio.RescaleIntensity(out_min_max= [0, 1], percentiles=[1, 99])
         ssynth = trescale(ssynth)
         if to_canonical:
@@ -1135,7 +1140,7 @@ def get_affine_from_Elastixtransfo(elastixImageFilter, do_print=False):
 
     return affine
 
-def ElastixRegister(img_src, img_ref):
+def ElastixRegister(img_src, img_ref,type='rigid'):
 
     # inputs are tio Images
     img1 = img_src.data # if img_src.data.shape[0] == 1 else no4C
@@ -1145,7 +1150,7 @@ def ElastixRegister(img_src, img_ref):
     elastixImageFilter = sitk.ElastixImageFilter()
     elastixImageFilter.SetFixedImage(i2);
     elastixImageFilter.SetMovingImage(i1)
-    elastixImageFilter.SetParameterMap(sitk.GetDefaultParameterMap("rigid"))
+    elastixImageFilter.SetParameterMap(sitk.GetDefaultParameterMap(type))
     elastixImageFilter.LogToConsoleOff()
     elastixImageFilter.Execute()
     return get_affine_from_Elastixtransfo(elastixImageFilter), elastixImageFilter
