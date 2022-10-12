@@ -35,12 +35,20 @@ if __name__ == '__main__':
     vol_crop_pad = eval(args.CropOrPad)
 
     volume = torchio.ScalarImage(path=args.volume)
-    tscale = torchio.RescaleIntensity(percentiles=(0,99))
+    tscale = torchio.RescaleIntensity(out_min_max=(0,1), percentiles=(0,99))
     volume = tscale(volume)
 
     if vol_crop_pad:
         tpad = torchio.CropOrPad(target_shape=vol_crop_pad)
         volume = tpad(volume)
+        orig_shape = 0
+    else:
+        orig_shape = volume.shape[-3:]
+        treshape = torchio.EnsureShapeMultiple(2**4)
+        volume = treshape(volume)
+        tback = torchio.CropOrPad(target_shape=orig_shape)
+        print(f'suj new shape is {volume.shape} orig is {orig_shape}')
+
 
 
     model_struct = {
@@ -64,8 +72,18 @@ if __name__ == '__main__':
     else:
         prediction = F.softmax(prediction, dim=1)
 
-    image = nib.Nifti1Image(
-        to_numpy(prediction[0].permute(1, 2, 3, 0)),
-        volume.affine
-    )
-    nib.save(image, args.filename)
+    #image = nib.Nifti1Image(
+    #    to_numpy(prediction[0].permute(1, 2, 3, 0)),
+    #    volume.affine
+    #)
+    suj_pred = torchio.Subject(pred=torchio.ScalarImage(tensor=to_numpy(prediction[0]), affine=volume.affine) )
+
+    if orig_shape:
+        suj_pred = tback(suj_pred)
+
+    out_filename = args.filename
+    if ~(out_filename.endswith('.nii') | out_filename.endswith('.gz')):
+        out_filename += '.nii.gz'
+
+    suj_pred.pred.save(out_filename)
+    #nib.save(image, args.filename)
