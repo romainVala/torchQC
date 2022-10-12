@@ -11,6 +11,7 @@
 from subprocess import *
 import os,sys,re
 import tempfile
+from utils import remove_extension
 
 #import shutil
 # shutil: rmtree, copy, move: to simplify data management
@@ -364,7 +365,7 @@ def gdir(dirs,regex,verbose=False):
             
     return finaldirs
 
-def get_parent_path(fin,level=1):
+def get_parent_path(fin,level=1, remove_ext=False):
 
     return_string=False
     if isinstance(fin, str):
@@ -382,12 +383,16 @@ def get_parent_path(fin,level=1):
             ff=ff[:-1]
         dd = ff.split('/')
         ll = len(dd)
+        if remove_ext:
+            dd[-1] = remove_extension(dd[-1])
         if concat:
             ss='_'.join(dd[ll-level:])
+
             file_name.append(ss)
         else:
             file_name.append(dd[ll-level])
         path_name.append('/'.join(dd[:ll-level]))
+
 
     if return_string:
         return path_name[0], file_name[0]
