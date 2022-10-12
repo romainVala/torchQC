@@ -142,3 +142,14 @@ def mean_metric(prediction, target, metric):
 
     return res / len(channels)
 
+def all_metric(prediction, target, metric):
+    """
+    Compute a given metric on every channel and return the list.
+    """
+    channels = list(range(target.shape[1]))
+    res = []
+    for channel in channels:
+        res.append( metric(prediction[:, channel, ...], target[:, channel, ...]) )
+
+    return res
+
