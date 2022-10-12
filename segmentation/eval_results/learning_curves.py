@@ -75,7 +75,7 @@ def report_learning_curves(results_dirs, save=False, sort_time=False):
         #plt.plot(np.quantile(losses, 0.05, axis=1), '--', color=color)
         plt.plot(ymean, color=color, label=label)
         plt.plot(qt95, '--', color=color)
-        plt.plot(qt05, '--', color=color)
+        plt.plot(qt05, '--', color=color, label='0.05 and 0.95 quantile')
 
         return [np.max(nb_iter_list), np.min(nb_iter_list), ymean]
 
@@ -90,7 +90,7 @@ def report_learning_curves(results_dirs, save=False, sort_time=False):
         resname_list.append(resname)
         plt.figure(resname)
 
-        iter_max, iter_min, ymeans = plot_losses('/Train_ep*.csv', 'blue', 'train mean loss')
+        iter_max, iter_min, ymeans = plot_losses('/Train_ep*.csv', 'blue', 'average over the epochs')
         train_loss.append(ymeans)
 
         #plot_losses('/Val_ep*.csv', 'green', 'val mean loss')
@@ -100,7 +100,9 @@ def report_learning_curves(results_dirs, save=False, sort_time=False):
         else:
             plt.xlabel('epoch ( {} iter {})'.format(iter_max, iter_min))
         plt.legend()
-        plt.title('Training and validation error curves')
+        #plt.title('Training and validation error curves')
+        plt.title('per epoch Training loss')
+        plt.ylabel("Mean Dice Loss")
         plt.show()
 
         if save:
