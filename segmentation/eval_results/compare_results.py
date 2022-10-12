@@ -249,6 +249,8 @@ def aggregate_csv_files(pattern, filename, fragment_position=-3, name_type=1):
         data_frames[i]['GM'] = GM_level
         data_frames[i]['SNR'] = SNR_level
         data_frames[i]['mode'] = mode
+        data_frames[i]['full_name'] = name
+
 
         print(f'parsing {name} with model {model_name}, GM {GM_level} SNR {SNR_level} mode {mode}')
 
