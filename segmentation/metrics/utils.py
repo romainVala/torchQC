@@ -26,14 +26,20 @@ class MetricOverlay:
         self.mask_reduce = mask_reduce
 
     @staticmethod
-    def binarize(tensor):
+    def binarize(tensor, add_extra_to_class=None):
+        num_class = tensor.shape[1]
         unlabeled_volume = tensor.sum(dim=1) < 0.5
         val, indices = torch.max(tensor, dim=1)
         extra_class = indices.max() + 1
         indices[val == 0] = extra_class
         indices[unlabeled_volume] = extra_class
-        tensor = F.one_hot(indices)
+        if indices.max()==extra_class:
+            #print(f'WARNING addin an extra class value {extra_class}')
+            num_class += 1
+        tensor = F.one_hot(indices, num_classes= num_class)   #to avoid changing dim if missing class
         if (val == 0).sum() or unlabeled_volume.sum():
+            if add_extra_to_class is not None:  #add extra value to background
+                tensor[...,add_extra_to_class] = tensor[..., add_extra_to_class] + tensor[..., -1]
             tensor = tensor[..., :-1]
         tensor = tensor.permute(0, 4, 1, 2, 3).float()
         return tensor
@@ -45,7 +51,7 @@ class MetricOverlay:
         distance_range = torch.arange(
             -(self.band_width // 2), self.band_width // 2 + 1
         )
-        distance_grid = torch.meshgrid([distance_range for _ in range(dim)])
+        distance_grid = torch.meshgrid([distance_range for _ in range(dim)], indexing='ij')
         distance_map = sum(
             [distance_grid[i].flatten() ** 2 for i in range(dim)]
         ).float().sqrt().reshape(*kernel_shape)
@@ -69,6 +75,12 @@ class MetricOverlay:
         inner_mask = self.get_outer_band_mask(tensor)
         far_mask = far_mask - inner_mask - (tensor >= self.mask_cut[0]).float()
         return far_mask
+
+    def get_border_and_far_mask(self, tensor):
+        far_mask = torch.ones_like(tensor)
+        inner_mask = self.get_outer_band_mask(tensor)
+        far_mask = far_mask - inner_mask - (tensor >= self.mask_cut[0]).float()
+        return inner_mask, far_mask
 
     def __call__(self, prediction, target):
         #if (prediction.shape[1] - target.shape[1]) == 1:
