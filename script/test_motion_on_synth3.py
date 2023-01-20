@@ -69,6 +69,18 @@ def show_x0(df1):
               f'{max(dfs.x0.unique())}]  Xend [{min(dfs.xend.unique())} {max(dfs.xend.unique())}]')
 
     #return rout, rout_unique
+
+def parse_string_location(ss):
+    ss=ss.replace('[','')
+    ss=ss.replace(']','')
+    ss = ss.replace('  ', ' ')
+    ss = ss.replace('  ', ' ')
+    dd = ss.split(' ')
+    dl=[]
+    for ddd in dd:
+        if len(ddd)>0:
+            dl.append(int(ddd))
+    return np.array(dl)
 def parse_string_array(ss):
     ss=ss.replace('[','')
     ss=ss.replace(']','')

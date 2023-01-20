@@ -9,10 +9,10 @@ from util_affine import perform_motion_step_loop, product_dict, create_motion_jo
 import nibabel as nib
 from read_csv_results import ModelCSVResults
 from types import SimpleNamespace
-from kymatio import HarmonicScattering3D
+#from kymatio import HarmonicScattering3D
 from types import SimpleNamespace
 sns.set_style("darkgrid")
-from test_motion_on_synth3 import *
+#from test_motion_on_synth3 import *
 
 disp_str_list = ['no_shift', 'center_zero', 'demean', 'demean_half' ] # [None 'center_zero', 'demean']
 disp_str = disp_str_list[0];
@@ -36,12 +36,12 @@ all_params = dict(
     mvt_type= ['Ustep'],
     mvt_axe = mvt_axe_all, #[[0],[2]],#[[0,1,2], [3,4,5]], #, [7] ],#[[1], [4]], #[[0,1,2], ], #[[5],[6]],  #[[0,1,2]], # [[4],[1]] ,
     cor_disp = [True,], #no more used
-    suj_index = [475,500], #[475, 500], #[ 475,  478, 492, 497, 499, 500], #[474, 475, 477, 478, 485, 492, 497, 499, 500, 510],
+    suj_index = [ 475,  478, 492, 497, 499, 500], #[475,500], #[475, 500], #, #[474, 475, 477, 478, 485, 492, 497, 499, 500, 510],
     suj_seed = [None],# [0, 1, 2, 3, 5], #[0,1,2,4,5,6,7,8,9],  [0,2,4,7,9]
-    suj_contrast = [1,3], #[1, 3],
-    suj_deform = [ True],
+    suj_contrast = [None], #[1,3], #[1, 3],
+    suj_deform = [ False],
     suj_noise = [0], #[0.01 ],
-    displacement_shift_strategy = ['nodisp', '1D_wTF','1D_wTF2'], #['nodisp'], #
+    displacement_shift_strategy = [None], #['nodisp', '1D_wTF','1D_wTF2'],
     #freq_encoding_dim = [0,1,2]
 )
 #all_params['suj_index'] = [0]
@@ -54,11 +54,12 @@ params = product_dict(**all_params)
 nb_x0s = all_params['nb_x0s']; nb_sim = len(params) * nb_x0s[0]
 print(f'performing loop of {nb_sim} iter 10s per iter is {nb_sim*10/60/60} Hours {nb_sim*10/60} mn ')
 print(f'{nb_x0s[0]} nb x0 and {len(params)} params')
-resolution=218; #512
+resolution=512
 
 #df1, res, res_fitpar = perform_motion_step_loop(params)
 
-file = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/test1/main.json'
+file = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/test1/main.json'
+file = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/test1/main_hcpT1.json'
 res_name = 'transX_ustep_sym_nosym';res_name = 'transX_ustep_sym_10suj'
 res_name = 'transX_ustep_65X0_5suj_10seed_3contrast_2deform'
 res_name = 'noise_transX_ustep_65X0_1suj_5seed_3contrast_2deform'
@@ -79,10 +80,11 @@ res_name = 'fsl_coreg_along_xend_rotXYZ_oy2_suj_0_def_con'
 res_name = 'fsl_coreg_along_xend_trans_FreAxe2'
 res_name = 'fsl_coreg_along_xend_transZ_disp_shift'
 res_name = 'fsl_coreg_along_xend_all_3_trans_3_shift_2c'
+res_name = 'suj_hcpT1_3trans'
 
-out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix/' + res_name
+out_path = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix/' + res_name
 
-create_motion_job(params,10,file,out_path,res_name, type='motion_loop')
+create_motion_job(params,1,file,out_path,res_name, type='motion_loop',jobdir = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix/' )
 
 
 #read results
@@ -174,7 +176,7 @@ dfsub = df1[((df1.mvt_axe=='oy2') | (df1.mvt_axe=='rotXrotYrotZ') )& (df1.mvt_ty
 dfsub = df1[(df1.displacement_shift_strategy=='nodisp') & ((df1.amplitude==1) |(df1.amplitude==8)) &
             ((df1.mvt_axe=='transX')|(df1.mvt_axe=='transZ')) & (df1.suj_contrast==1) ]
 
-dfsub=compute_disp(dfsub.copy(), normalize_amplitude=True)
+dfsub.direction.replace('transZ','Z',inplace=True)
 
 cmap = sns.color_palette(n_colors=len(dfsub.sigma.unique()))
 col_order = np.sort(dfsub.amp_mvt.unique())
@@ -196,12 +198,15 @@ fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind
 #or direction with style ...
 style_order = np.sort(dfsub.direction.unique())
 fig = sns.relplot(data=dfsub, x="xend", y=ykey, hue="sigma", legend='full', kind="line", palette=cmap,
-                  style='direction', ci=100, col='amplitude',col_wrap=2, style_order=style_order)#, marker='*')
-#dfsub['ind'] =  dfsub.suj_index+dfsub.suj_contrast
- # units='ind', estimator=None
-dfsub.direction.replace('transZ','Z',inplace=True)
-fig.set_ylabels('Displacement / Amplitude'); fig.axes[1].set(ylim=[-0.05 , 1.05])
+                  style='direction', ci=100, col='amplitude',col_wrap=4, style_order=style_order)#, dashes = [(4,0), (1,10) ])#, marker='*')
 
+sns.set(font_scale=1)
+
+fig.set_ylabels('Displacement / Amplitude'); fig.axes[1].set(ylim=[-0.05 , 1.05])
+amp_val, title =[1,2,4,8], ['i','j','k','l'] #['e','f','g','h']
+for ii,aa in enumerate(fig.axes):
+    aa.text(130,0.9,f'Amplitude = {amp_val[ii]}', bbox=dict(boxstyle="round", fc=(0.8, 0.8, 0.8),ec=(0,0,0)),fontsize='large')
+    aa.set_title(title[ii], fontdict=dict(fontsize='x-large'))
 
 #wTF metrics
 dfsub = df1[(df1.mvt_type=='Ustep_sym')& (df1.mvt_axe=='rotXrotYrotZ') ]
@@ -209,13 +214,20 @@ mixt_variable=['no_shift_wSH_rotN',  'no_shift_wSH2_rotN',  'no_shift_center_rot
 mixt_variable=['no_shift_wSH_transN',  'no_shift_wSH2_transN',  'no_shift_center_transN',  'no_shift_mean_transN']
 dfm = dfsub.melt(id_vars=['sigma', 'amplitude','direction', 'xend', 'mvt_type'], value_vars=mixt_variable,
                  var_name='predicted_shift', value_name=value_name)
-dfm['predicted_shift'].replace('no_shift_wSH_transN', 'wTF', inplace=True);
-dfm['predicted_shift'].replace('no_shift_wSH2_transN', 'wTF2', inplace=True);
+dfm['predicted_shift'].replace('no_shift_wSH_transN', 'wFT', inplace=True);
+dfm['predicted_shift'].replace('no_shift_wSH2_transN', 'wFT2', inplace=True);
 dfm['predicted_shift'].replace('no_shift_center_transN', 'center', inplace=True);
 dfm['predicted_shift'].replace('no_shift_mean_transN', 'mean', inplace=True);
 
+col_order=['mean', 'wFT', 'wFT2', 'center']
 fig = sns.relplot(data=dfm, x="xend", y=value_name, hue="sigma", legend='full', kind="line", palette=cmap,
-                  col='predicted_shift',col_wrap=3 ,   ci=100)
+                  col='predicted_shift',col_wrap=4 ,   ci=100, col_order=col_order)
+
+fig.set_ylabels('Displacement / Amplitude'); fig.axes[1].set(ylim=[-0.05 , 1.05])
+amp_val, title =['mean','wFT','wFT2','center'], ['a','b','c','d'] #['e','f','g','h']
+for ii,aa in enumerate(fig.axes):
+    aa.text(130,0.9,amp_val[ii], bbox=dict(boxstyle="round", fc=(0.8, 0.8, 0.8),ec=(0,0,0)),fontsize='x-large')
+    aa.set_title(title[ii], fontdict=dict(fontsize='x-large'))
 
 #wTF and fsl shift
 mixt_variable = ['shift_transN', 'no_shift_wSH2_transN']
@@ -301,12 +313,70 @@ fig = sns.relplot(data=dfm, x="xend", hue="sigma", col="Displacement", y=ykey, l
 #scatter plot for random motion
 dfa = pd.concat([df1, df2])
 dfa['predicted shift']=dfa.displacement_shift_strategy
-dfa['predicted shift'].replace('1D_wTF', 'wTF', inplace=True);
-cmap = sns.color_palette(n_colors=len(dfsub.amplitude.unique()))
-fig = sns.relplot(data=dfa, x='m_L1_map_brain', hue="amplitude", col="predicted shift", y='no_shift_L1_map_brain',
-                  legend='full',kind='scatter', palette=cmap,  ci=100, col_wrap=2)
+dfa['predicted shift'].replace('1D_wFT', 'wFT', inplace=True);
+cmap = sns.color_palette(n_colors=len(dfa.amplitude.unique()))
+ref_key='m_L1_map_brain'
+fig = sns.relplot(data=dfa, x=ref_key, hue="amplitude", col="predicted shift", y='no_shift_L1_map_brain',
+                  legend='full',kind='scatter', palette=cmap,  ci=100, col_wrap=2,s=6)
+ymin = dfa[ref_key].min(); ymax = dfa[ref_key].max()
 for ax in fig.axes:
-    ax.plot([0,10],[0,10],'k--')
+    ax.plot([ymin,ymax],[ymin, ymax],'k--')
+
+metrics = ['L1_map_brain', 'nRMSE', 'PSNR_brain', 'NCC_brain', 'ssim_SSIM']
+for key in metrics:
+    #fig = sns.relplot(data=dfa, x=f'm_{key}', col="predicted shift", y=f'no_shift_{key}',legend='full',kind='scatter', col_wrap=2)
+    fig = sns.relplot(data=dfa, x=f'm_{key}', hue="predicted shift", y=f'no_shift_{key}',legend='full',kind='scatter',s=8)
+    ref_key=f'm_{key}'
+    ymin = dfa[ref_key].min(); ymax = dfa[ref_key].max()
+    for ax in fig.axes:
+        ax[0].plot([ymin,ymax],[ymin, ymax],'k--')
+        ax[0].grid()
+
+aaa=fig.axes[1]
+aaa.set_ylabel('L1 wFT2',bbox=dict(boxstyle="round", fc=(0.8, 0.8, 0.8),ec=(0,0,0)),fontsize='x-large')
+aaa.tick_params(axis='both', which='major', labelsize=14)
+
+key1, key2 =  f'm_{key}', f'no_shift_{key}'
+#coreg get worth !
+dfas = dfa.assign(difff = - dfa[key1] + dfa[key2]).sort_values('difff') #.drop('difff', axis=1)
+#coreg improbv
+dfas = dfa.assign(difff = dfa[key1] - dfa[key2]).sort_values('difff') #.drop('f', axis=1)
+for i in range(0,15):
+    hist_file = dfas['history'].values[i]
+    h = pd.read_pickle(hist_file); hh = h.history
+    fitpar = hh[0][2].euler_motion_params['t1']
+    fig, axs = plt.subplots(1,2,figsize=(12, 5),)
+    axs[0].plot(fitpar.T); #axs[0].legend(['Tx','Ty','Tz','Rx','Ry','Rz'])
+    print(f' cd {os.path.dirname(hist_file)}')
+    print(f'diff {dfas.difff.values[i]} {key1} = {dfas[key1].values[i]:.3} {key2} {dfas[key2].values[i]:.3}')
+    #axs[0].set_title(f'{key1} = {dfas[key1].values[i]:.3} nocoreg {dfas[key2].values[i]:.3}')
+    axs[0].set_title(f' L1 wFT  {dfas[key2].values[i]:.3} L1 shift coreg = {dfas[key1].values[i]:.3}')
+
+    ind_close = np.argmin(np.abs( dfas[key1] - dfas[key2].values[i]  ))
+    #ind_close = np.argmin(np.abs( dfas[key2] - dfas[key2].values[i]  ))
+    dfatmp = dfa.assign(f= np.abs( dfas[key2] - dfas[key2].values[i] ) ).sort_values('f')
+    ind_close = np.argmax(dfatmp[key1].values[:20])
+
+    print(f'compare to  {key1} = {dfatmp[key1].values[ind_close]:.3} {key2} {dfatmp[key2].values[ind_close]:.3}')
+    hist_file2 = dfatmp['history'].values[ind_close]
+    h = pd.read_pickle(hist_file2); hh = h.history
+    fitpar = hh[0][2].euler_motion_params['t1']
+    axs[1].plot(fitpar.T); axs[0].legend(['Tx','Ty','Tz','Rx','Ry','Rz'])
+    #axs[1].set_title(f' {key1} = {dfas[key1].values[ind_close]:.3} nocoreg {dfas[key2].values[ind_close]:.3}')
+    axs[1].set_title(f' L1 wFT {dfatmp[key2].values[ind_close]:.3}  L1 shift coreg = {dfatmp[key1].values[ind_close]:.3} ')
+    print(f'mrviewv  {os.path.dirname(hist_file)}/vol_motion_no_shift.nii {os.path.dirname(hist_file2)}/vol_motion_no_shift.nii ')
+
+    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+#remove extrem
+dfa = dfa[dfa.m_L1_map_brain<8]
+
+from util_affine import get_euler_and_trans_from_matrix
+shift = [h.wSH_Disp_0.values[0], h.wSH_Disp_1.values[0], h.wSH_Disp_2.values[0], h.wSH_Disp_3.values[0], h.wSH_Disp_4.values[0], h.wSH_Disp_5.values[0],]
+vol = nb.load('/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix_bug_fix/fit_parmCATI_raw_wTF2_sujSynth_Amp/Suj_Lille_207056CUA_M00_I-1_A_4_C1_N_1_D0Disp_1D_wFT2_S_s100307/vol_orig_I-1_C1_N_1_D0.nii').get_fdata()
+original_image_fft = np.fft.fftshift(np.fft.fftn(vol))
+coef_shaw = np.abs( np.sqrt(np.sum( original_image_fft * np.conjugate(original_image_fft),axis=(0,2))))
+
 
 aa = dfsub['m_L1_map_brain']-dfsub['no_shift_L1_map_brain']
 index_bad=dfsub[aa>1].index
@@ -350,6 +420,9 @@ for k in df1.keys():
     if 'm_t1_lab_' in  k: ykeys.append(k)
 ykeys = ykeys[1:6]
 
+ykeys=['m_L1_map_brain', 'm_nRMSE_brain', 'm_ssim_SSIM_brain',  'mean_DispJ', 'meanDispJ_wSH', "meanDispJ_wSH2", 'amplitude']
+ykeys=['m_nRMSE', 'm_PSNR', 'm_NCC', 'm_ssim_SSIM']
+
 figres = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/figure/roty_center_sigma/'
 prefix = 'abs_noise' #'sigma_x256' #'abs_noise_colAmp' # 'contrast_'
 for k, dfsub in dfsub_dict.items():
@@ -372,6 +445,31 @@ for k, dfsub in dfsub_dict.items():
 
 ykeys = ['L1','nL2','NCC','MI','PSNR','SSIM', 'grad_ratio', 'm_t1_grad_EGratio']#,'auto_cor_ratio']
 sns.pairplot(df1[ykeys], kind="scatter", corner=True)
+'', '', '', 'm_ssim_SSIM_brain
+df = df.rename({'m_L1_map_brain':'L1', 'm_NCC_brain':'NCC', 'm_PSNR_brain':'PSNR','m_ssim_SSIM_brain':'SSIM'},  axis='columns')
+df = df.rename({'no_shift_nRMSE_brain':'MSE'},  axis='columns')
+sel_key = ['MSE', 'PSNR', 'NCC', 'SSIM']
+sns.pairplot(df[df.suj_contrast==3], vars=sel_key, kind="scatter", corner=True, hue='amplitude', palette=cmap,plot_kws={"s": 3},)
+
+dfc1=df1[df1.suj_contrast==1]
+dfs = dfc1[ykeys]
+cmap = sns.color_palette(n_colors=len(dfc1.amplitude.unique()))
+g= sns.pairplot(dfs, kind="scatter", corner=True,plot_kws={"s": 3}, hue='amplitude', palette=cmap)
+#g.map_lower(corrfunc,corner=True,)
+from scipy.stats import pearsonr
+import matplotlib
+
+res=dfs.corr(method='spearman')
+res=dfs.corr(method='kendall')
+for a in g.axes:
+    for aa in a:
+        if aa is not None:
+            xl, yl = aa.get_xlabel(), aa.get_ylabel()
+            if (xl != '') and  xl is not None and (yl != ''):
+                print(f' cor {res.loc[xl,yl]} for {xl} / {yl}')
+                res_cor = res.loc[xl,yl]
+                aa.annotate(f'ρ = {res_cor:.2f}', xy=(.1, .9), xycoords=aa.transAxes)
+
 
 
 plt.figure();plt.scatter(df1.L1,df1.nL2); plt.xlabel('L1'); plt.ylabel('nL2')

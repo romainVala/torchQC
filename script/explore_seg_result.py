@@ -35,6 +35,7 @@ import seaborn as sns
 import pandas as pd
 import json
 sns.set_style("darkgrid")
+from pathlib import PosixPath; from utils_file import get_parent_path
 
 results_dirs = glob.glob('/home/fabien.girka/data/segmentation_tasks/RES_1.4mm/eval_models_with_more_metrics/data_t*')
 results_dirs += glob.glob('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_samseg/eval-14mm*')
@@ -73,6 +74,9 @@ res = ['/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/
        '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/jzay/training/RES1mm_prob/pve_synth_mod3_P128_aniso_LogLkd_classif/results_cluster',
        ]
 res = ['/home/romain.valabregue/datal/PVsynth/jzay/training/RES1mm_prob/pve_synth_mod3_P128/results_cluster/']
+res = gdir('/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/jzay/training/RES1mm_prob',['SN_cl','resul'])
+res.append('/data/romain/PVsynth/training/RES1mm_prob/pve_synth_mod3_P128_SN_clean_mot/result')
+res = ['/home/romain.valabregue/datal/PVsynth/jzay/training/baby/bin_dseg9_5suj/results_cluster']
 report_learning_curves(res)
 
 
@@ -136,6 +140,9 @@ res = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/e
 res = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/RES_prob_tissue/RES14mm_tissu_16_14_mask_reduce/*/*/*csv'
 res = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/RES_prob_tissue/RES28mm_tissu_16_14_mask_reduce/*/*/*csv'
 
+res = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/RES_prob_tissue/RES1mm_SNclean_synthseg/*/*/*csv'
+file ='/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/RES_prob_tissue/res1mm_SNclean_all.csv'
+
 aggregate_csv_files(res, file, fragment_position=-3)
 aggregate_csv_files(res, file, fragment_position=-3, name_type=0) #for HCP
 aggregate_csv_files(res, file1, fragment_position=-2, name_type=2)
@@ -166,6 +173,10 @@ metrics = ['metric_dice_loss_GM','metric_bin_dice_loss_GM',
            'metric_l1_loss_GM','metric_l1_loss_GM_mask_GM_all']
 
 #metrics += ['metric_l1_loss_on_band_GM','metric_l1_loss_on_band_GM_far']
+df = pd.read_csv(file)
+dfs = df[~( (df.model=='model_pveSNep60') | (df.model=='model_pveSNep90'))]
+dfs = df[~( (df.model=='model_SynthSeg') | (df.model=='model_pve1Suj'))]
+dfs = dfs[~(dfs.GM==0.1)]
 
 filter = dict(col='model', str='mRes')
 filter = dict(col='model', str='M40')
@@ -176,8 +187,8 @@ filter = dict(col='model', str='(pve.*128$)|(low$)|(3$)|(mot$)' )
 filter=None
 filter = dict(col='model', str='RES14' ) #dict(col='model', str='(rZ3)|(128)' )
 filter = [dict(col='model', str='ep90'), dict(col='mode', str='t1')]
-plot_metric_against_GM_level(df, metrics=metrics, filter=filter, remove_max=False, add_strip=False,
-                             save_fig='/home/romain.valabregue/datal/PVsynth/figure/new5/tissue_1mm_modProb_aug_bias',
+plot_metric_against_GM_level(dfs, metrics=metrics, filter=filter, remove_max=False, add_strip=False,
+                             save_fig='/home/romain.valabregue/datal/PVsynth/figure/new5/tissue_SNclean_epoch',
                              kind='box', enlarge=True, showfliers=False,)
 
 
@@ -449,3 +460,42 @@ def get_sujname_from_label_filename(ligne, col_name):
 
 df1['sujname'] = df1.apply(lambda s: get_sujname_from_label_filename(s, 'label_filename'), axis=1)
 df1['resolution'] = df1.apply(lambda s: get_target_from_hist_resample(s, 'T_Resample'), axis=1)
+
+f1 = '/home/romain.valabregue/datal/PVsynth/jzay/training/baby/bin_dseg9_feta_bg_midaMotion/results_cluster_augBias/Train_ep002.csv'
+dfa = pd.read_csv(f1)
+df = dfa[dfa.loss > 0.5]
+df = dfa[dfa.loss < 0.05]
+
+ffarg = [str(eval(fff)[0]) for fff in df['label_filename'].values]
+ff = str(ffarg[0])
+ff = ff.replace('/gpfswork/rech/ezy/urd29wg/data/devHCP/','/data/romain/baby/devHCP/')
+import torchio as tio
+suj = tio.Subject({"label": tio.LabelMap(ff)})
+
+t1_par = json.loads(df.T_LabelsToImage.values[0])
+t1 = tio.LabelsToImage(**t1_par)
+t_aff = tio.Affine(**json.loads(df.T_Affine.values[0]))
+t_bias = tio.BiasField(**json.loads(df.T_BiasField.values[0]))
+t_nois = tio.Noise(**json.loads(df.T_Noise.values[0]))
+t_mot_par  = json.loads(df.T_MotionFromTimeCourse.values[0])
+for k,v in t_mot_par.items():
+    t_mot_par[k] = v['t1']
+t_mot_par['euler_motion_params'] = np.array(t_mot_par['euler_motion_params'])
+t_mot = tio.transforms.augmentation.intensity.MotionFromTimeCourse(**t_mot_par)
+
+tall = tio.Compose([t1, t_aff,t_bias, t_mot, t_nois])
+sujt=tall(suj)
+
+kk = []
+for key in df.keys():
+    if key.startswith('occu'):
+        kk.append(key)
+for k in kk:
+    vol_rat = df[f'{k}'].values[0] / df[f'predicted_{k}'].values[0]
+    print(f' {k} rat {vol_rat:.2} ')
+
+#look biad coeff
+for bc  in  df['T_BiasField'].values:
+    bc = np.max(np.abs(np.array(json.loads(bc)['coefficients']['t1'])))
+    print(bc)
+    qsdf

@@ -11,10 +11,9 @@ from util_affine import *
 import nibabel as nib
 from read_csv_results import ModelCSVResults
 from types import SimpleNamespace
-from kymatio import HarmonicScattering3D
+#from kymatio import HarmonicScattering3D
 from types import SimpleNamespace
 from script.create_jobs import create_jobs
-from torchio.transforms.augmentation.intensity.random_motion_from_time_course import _interpolate_space_timing, _tile_params_to_volume_dims
 import subprocess
 from dual_quaternions import DualQuaternion
 #np.set_printoptions(precision=2)
@@ -56,13 +55,18 @@ out_path = '/data/romain/PVsynth//motion_on_synth_data/fit_parmCATI_raw/'
 out_path = '/data/romain/PVsynth/motion_on_synth_data/fsl_coreg_rot_trans_sigma_2-256_x0_256_suj_0'
 out_path = '/data/romain/PVsynth/motion_on_synth_data/fsl_coreg_along_x0_rot_origY_suj_0'#fsl_coreg_along_x0_transXYZ_suj_0'
 
-dircati = '/network/lustre/iss01/cenir/analyse/irm/users/ghiles.reguig/These/Dataset/cati_full/delivery_new/'
-fjson = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/test1/main.json'
+dircati = '/network/lustre/iss02/cenir/analyse/irm/users/ghiles.reguig/These/Dataset/cati_full/delivery_new/'
+fjson = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/test1/main.json'
+fjson = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/test1/main_hcpT1.json'
+
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fit_parmCATI_raw/'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fit_parmCATI_raw_new/'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fsl_coreg_rot_trans_sigma_2-256_x0_256_suj_0/'
 out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fsl_coreg_along_x0_transXYZ_suj_0'
-out_path = '/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion/fit_parmCATI_raw_demean/'
+out_path = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix/fit_parmCATI_raw_wTF2_noCano/'
+resname = 'fit_parmCATI_raw_wTF2_sujT1_Amp'
+resname = 'fit_parmCATI_raw_wTF_sujSynth_Amp_multiSuj'
+out_path = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix_bug_fix/' + resname
 
 import dill
 #dill.dump_session('globalsave.pkl')
@@ -71,17 +75,27 @@ import dill
 """ run motion """
 allfitpars_preproc = glob.glob(dircati+'/*/*/*/*/fitpars_preproc.txt')
 allfitpars_raw = glob.glob(dircati+'/*/*/*/*/fitpars.txt')
-fp_paths = allfitpars_raw
+fp_paths = allfitpars_raw  #fp_paths = dfsub.fp.values
+dfsub = pd.read_csv('/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix/cati_fitpar_max_2_10.csv'); fp_paths = dfsub.fp.values
 
 fjson = '/data/romain/PVsynth/motion_on_synth_data/test1/main.json'
-param = dict();param['suj_contrast'] = 1;param['suj_noise'] = 0.01;param['suj_index'] = 0;param['suj_deform'] = 0;param['displacement_shift_strategy']=None
+param = dict();param['suj_contrast'] = 1;param['suj_noise'] = 0.01;param['suj_index'] = 0;param['suj_deform'] = 0;
+param['displacement_shift_strategy']=None
 sdata, tmot, config_runner = select_data(fjson, param, to_canonical=False)
 image = sdata.t1.data[0]; brain_mask = sdata.brain.data[0]
 fi = (np.fft.fftshift(np.fft.fftn(np.fft.ifftshift(image)))).astype(np.complex128)
 
 ### ###### run motion on all fitpar
-split_length = 10
-create_motion_job(fp_paths, split_length, fjson, out_path, res_name='fit_parmCATI_raw', type='one_motion',job_pack=10)
+split_length = 1
+#param = dict();param['suj_contrast'] = [1, 3];param['suj_noise'] = [0.01];param['suj_index'] = [9999]; param['suj_deform'] = [0];
+param = dict();param['suj_contrast'] = [1];param['suj_noise'] = [0.01];param['suj_index'] = [-10]; param['suj_deform'] = [0];
+param['amplitude'] = [1,2,4,8];param['displacement_shift_strategy']=['1D_wFT']
+params = product_dict(**param)
+for ind, param in enumerate(params):
+    res_name = f'{resname}_Param_{ind}'
+    create_motion_job(param, split_length, fjson, out_path,fp_paths=fp_paths, res_name=res_name, type='one_motion',job_pack=10,
+                      jobdir='/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/job/motion_elastix_bug_fix/')
+
 ##############"
 
 #read results
@@ -152,7 +166,10 @@ for ii, fp_path in enumerate(df_coreg.fp.values):
         fitpar_list.append(fitpar_rmax)
         dq_list.append(dq)
 
-isel= (df_coreg.trans_max>1) | (df_coreg.rot_max>1)
+isel= ( (df_coreg.trans_max>2) & (df_coreg.trans_max<10) ) | ( (df_coreg.rot_max>2) & (df_coreg.rot_max<10))
+dfsub = df_coreg[isel]
+dfsub.to_csv('cati_fitpar_max_2_10.csv')
+
 
 plt.figure()
 plt.hist(df_coreg.trans_max[df_coreg.trans_max<10],bins=100)
