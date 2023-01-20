@@ -86,6 +86,7 @@ def report_learning_curves(results_dirs, save=False, sort_time=False):
     for results_dir in results_dirs:
 
         resname = get_parent_path(results_dir, level=2)[1]
+        resname = get_parent_path(results_dir, level=1)[1]
         print(resname)
         resname_list.append(resname)
         plt.figure(resname)
