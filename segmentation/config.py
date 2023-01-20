@@ -453,6 +453,10 @@ class Config:
             return m_dict
 
         def parse_transform(t):
+            if isinstance(t, list):
+                transfo_list = [parse_transform(tt) for tt in t]
+                return torchio.Compose(transfo_list)
+            
             attributes = t.get('attributes') or {}
             if attributes.get('metrics'):
                 t_metrics = parse_transform_metrics(attributes['metrics'])
