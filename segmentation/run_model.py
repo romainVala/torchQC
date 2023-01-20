@@ -866,7 +866,7 @@ class RunModel:
         affine = self.get_affine(sample)
         # M is the product between a scaling and a rotation
         M = affine[:3, :3]
-        voxel_size = np.diagonal(np.sqrt(M @ M.T)).prod()
+        voxel_size = np.sqrt( np.diagonal(M @ M.T).prod()) #np.diagonal(np.sqrt(M @ M.T)).prod()
 
         batch_size = shape[0]
 
