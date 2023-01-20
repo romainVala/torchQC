@@ -365,6 +365,15 @@ def gdir(dirs,regex,verbose=False):
             
     return finaldirs
 
+def addprefixtofilenames(file_names,prefix):
+    fout = []
+    for ff in file_names:
+        basdir = os.path.dirname(ff)
+        fn = os.path.basename(ff)
+        fout.append(basdir + '/' + prefix + fn)
+    return fout
+
+
 def get_parent_path(fin,level=1, remove_ext=False):
 
     return_string=False
