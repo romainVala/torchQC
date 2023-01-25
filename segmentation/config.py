@@ -456,7 +456,7 @@ class Config:
             if isinstance(t, list):
                 transfo_list = [parse_transform(tt) for tt in t]
                 return torchio.Compose(transfo_list)
-            
+
             attributes = t.get('attributes') or {}
             if attributes.get('metrics'):
                 t_metrics = parse_transform_metrics(attributes['metrics'])
@@ -1121,16 +1121,25 @@ class Config:
         if hasattr(model_class, 'load'):
             model, _ = model_class.load(file)
             hack_weigths = False
+            nb_out_wanted, nb_out_load = self.model_structure['attributes']['out_classes'] , model.net_parameters['out_classes']
+            if nb_out_wanted != nb_out_load:
+                hack_weigths = True
+                print(f'WARNING load model with {nb_out_load} nb output ')
+                print(f' But ask for {nb_out_wanted} nb output')
+                print(' CUTTING the HEAD')
+
             if hack_weigths:
                 #I take only the first 10 weight of the classifier of a unet
                 #todo, need to chage the model output argument ! for furture save to be correct
                 all_param = model.classifier.state_dict()
                 model_classifier = struct['model'].classifier
-                all_param['block.0.bias'] = all_param['block.0.bias'][:10]
-                all_param['block.0.weight'] = all_param['block.0.weight'][:10,...]
+                all_param['block.0.bias'] = all_param['block.0.bias'][:nb_out_wanted]
+                all_param['block.0.weight'] = all_param['block.0.weight'][:nb_out_wanted,...]
+                torch.nn.init.xavier_uniform(all_param['block.0.weight'] )
                 model_classifier.load_state_dict(all_param)
                 model.classifier = model_classifier
-                #qsdf
+                model.net_parameters['out_classes'] = nb_out_wanted
+
         else:
             model.load_state_dict(torch.load(file))
 
