@@ -221,7 +221,8 @@ def get_tio_data_loader(fsuj_csv, tio_transform, replicate=1, get_dataset=False,
         print('12 numworker')
         return DataLoader(tio_ds, 1, shuffle=False,num_workers=12, collate_fn=history_collate)
 
-def predic_segmentation(suj, model,  df, res_dict, device,  labels_name, selected_label=None, out_dir=None, save_data=True):
+def predic_segmentation(suj, model,  df, res_dict, device,  labels_name,
+                        selected_label=None, out_dir=None, save_data=True, resample_back=False):
 
     if out_dir is not None:
         model_name, sujname = res_dict['model_name'], res_dict['sujname']
@@ -262,6 +263,25 @@ def predic_segmentation(suj, model,  df, res_dict, device,  labels_name, selecte
             sujtio = tio.Subject(dict(t1=tio.ScalarImage(tensor=to_numpy(suj["t1"]["data"][0]), affine=to_numpy(suj["t1"]['affine'][0])),
                                       label=tio.LabelMap(tensor=to_numpy(suj["label"]["data"][0]), affine=to_numpy(suj["t1"]['affine'][0])),
                                       pred=tio.LabelMap(tensor=to_numpy(prediction[0]), affine=to_numpy(suj["t1"]['affine'][0]))))
+        if resample_back:
+            tresamp = tio.Resample(target= sujtio.t1.path, label_interpolation='bspline')
+            sujtio = tresamp(sujtio)
+            thot = tio.OneHot()
+            label_orig = thot(tio.LabelMap(sujtio.label.path))
+            if False:
+                res_dict.update(computes_all_metric(sujtio.pred.data.unsqueeze(0), sujtio.label.data.unsqueeze(0).contiguous(),
+                                                    labels_name, selected_label=selected_label))
+                #res_dict = record_history(res_dict, suj)
+                df_one2 = pd.DataFrame([res_dict])
+                df_one = pd.concat([df_one, df_one2], ignore_index=True)
+                df = pd.concat([df, df_one2], ignore_index=True)
+            res_dict.update(computes_all_metric(sujtio.pred.data.unsqueeze(0), label_orig.data.unsqueeze(0),
+                                                labels_name, selected_label=selected_label))
+            #res_dict = record_history(res_dict, suj)
+            df_one2 = pd.DataFrame([res_dict])
+            df_one = pd.concat([df_one, df_one2], ignore_index=True)
+            df = pd.concat([df, df_one2], ignore_index=True)
+
         if save_data:
             #out_name = out_dir + '/data_' + res_dict['sujname'] + '.nii.gz'
             out_name = out_dir +  '/data.nii.gz'
