@@ -1126,11 +1126,9 @@ class Config:
                 hack_weigths = True
                 print(f'WARNING load model with {nb_out_load} nb output ')
                 print(f' But ask for {nb_out_wanted} nb output')
-                print(' CUTTING the HEAD')
+                print(' CUTTING the HEAD and init weigths')
 
             if hack_weigths:
-                #I take only the first 10 weight of the classifier of a unet
-                #todo, need to chage the model output argument ! for furture save to be correct
                 all_param = model.classifier.state_dict()
                 model_classifier = struct['model'].classifier
                 all_param['block.0.bias'] = all_param['block.0.bias'][:nb_out_wanted]
