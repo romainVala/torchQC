@@ -367,6 +367,8 @@ def gdir(dirs,regex,verbose=False):
 
 def addprefixtofilenames(file_names,prefix):
     fout = []
+    if isinstance(file_names, str):
+        file_names = [file_names]
     for ff in file_names:
         basdir = os.path.dirname(ff)
         fn = os.path.basename(ff)
