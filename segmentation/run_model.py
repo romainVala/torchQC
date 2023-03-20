@@ -16,7 +16,7 @@ import resource
 import warnings
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy, get_largest_connected_component
-#from apex import amp
+from apex import amp
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -106,6 +106,7 @@ class RunModel:
         self.save_label_name = struct['save']['save_label_name']
         self.save_struct = struct['save']
         self.apex_opt_level = struct['apex_opt_level']
+        self.no_blocking = struct['no_blocking']
 
         # Keep information to load optimizer and learning rate scheduler
         self.optimizer, self.lr_scheduler = None, None
@@ -167,28 +168,32 @@ class RunModel:
                 **optimizer_dict['lr_scheduler']['attributes']
             )
 
+        #in nn unet they use
+            # self.optimizer = torch.optim.SGD(self.network.parameters(), self.initial_lr, weight_decay=self.weight_decay,
+              #                           momentum=0.99, nesterov=True)
+
         return optimizer, scheduler
 
     def get_segmentation_data(self, sample):
         volumes = sample[self.image_key_name]
-        volumes = to_var(volumes[torchio.DATA].float(), self.device)
+        volumes = to_var(volumes[torchio.DATA].float(), self.device, self.no_blocking)
 
         targets = None
         if self.label_key_name in sample:
             targets = sample[self.label_key_name]
-            targets = to_var(targets[torchio.DATA].float(), self.device)
+            targets = to_var(targets[torchio.DATA].float(), self.device, self.no_blocking)
         return volumes, targets
 
     def get_segmentation_data_and_regress_key(self, sample, regress_key):
         volumes = sample[self.image_key_name]
-        volumes = to_var(volumes[torchio.DATA].float(), self.device)
+        volumes = to_var(volumes[torchio.DATA].float(), self.device, self.no_blocking)
 
         targets = None
         if self.label_key_name in sample:
             targets = sample[self.label_key_name]
-            targets = to_var(targets[torchio.DATA].float(), self.device)
+            targets = to_var(targets[torchio.DATA].float(), self.device, self.no_blocking)
         if regress_key in sample:
-            targets_to_regress = to_var(sample[regress_key][torchio.DATA].float(), self.device)
+            targets_to_regress = to_var(sample[regress_key][torchio.DATA].float(), self.device, self.no_blocking)
             targets = torch.cat((targets, targets_to_regress), dim=1)
         return volumes, targets
 
@@ -255,16 +260,23 @@ class RunModel:
             starting_epoch = self.epoch
             self.n_epochs = len(dataloader_list)
             #for epoch, train_loader in enumerate(dataloader_list):
+            for i in range(0, starting_epoch-1):
+                self.log(f'droping ep {i+1}')
+                dataloader_list.pop(0)
             for ind_epoch in  range(starting_epoch-1, self.n_epochs):
                 self.epoch = ind_epoch + 1
                 self.log(f'******** Epoch from dir [{self.epoch}/{self.n_epochs}]  ********')
-                train_loader = dataloader_list[ind_epoch]
+
+                #train_loader = dataloader_list[ind_epoch]
+                train_loader = dataloader_list[0]
+
                 if isinstance(train_loader.dataset,tio.data.queue.Queue):
                     self.log(f'first data is {train_loader.dataset.subjects_dataset._subjects[0]}')
                 else:
                     self.log(f'first data is {train_loader.dataset._subjects[0]}')
 
-                train_loader.pin_memory=True
+                #not sure if need to set here because it is the "main' loader optim are whihtin queue dataloader
+                # train_loader.pin_memory=True
                 self.train_loader = train_loader
                 # Train for one epoch
                 self.model.train()
@@ -285,6 +297,7 @@ class RunModel:
                 # Log memory consumption
                 self.log_peak_CPU_memory()
                 del train_loader
+                dataloader_list.pop(0)
 
         else:
 
@@ -477,7 +490,6 @@ class RunModel:
                 self.optimizer.step()
                 loss = float(loss)
                 predictions = predictions.detach()
-
             if self.save_predictions and not is_model_training:
                 if eval_dropout:
                     predictions_std = torch.stack([pp.cpu().detach() for pp in predictions_dropout])
@@ -722,7 +734,7 @@ class RunModel:
             transformed_tensors.append(tensor)
         new_affine = transformed['pred']['affine']
         transformed_tensors = torch.stack(transformed_tensors)
-        return to_var(transformed_tensors, self.device), new_affine
+        return to_var(transformed_tensors, self.device, self.no_blocking), new_affine
 
     def save_checkpoint(self, loss=None):
         optimizer_dict = None
@@ -1055,7 +1067,7 @@ class RunModel:
                 )
 
         # Aggregate predictions for the whole image
-        predictions = to_var(aggregator.get_output_tensor(), self.device)
+        predictions = to_var(aggregator.get_output_tensor(), self.device, self.no_blocking)
         return predictions, df
 
     def save_volume(self, sample, volume, idx=0, batch_idx=0, affine=None, volume_name=None,
@@ -1168,8 +1180,8 @@ class RunModel:
                         labels[batch_idx, target_idx] = dict_metrics[target] * scale_label[target_idx]
 
         #print(f'label ar {labels}')
-        inputs = to_var(inputs.float(), self.device)
-        labels = to_var(labels.float(), self.device)
+        inputs = to_var(inputs.float(), self.device, self.no_blocking)
+        labels = to_var(labels.float(), self.device, self.no_blocking)
 
         return inputs, labels
 
@@ -1480,4 +1492,7 @@ class RunModel:
                     nii_key = self.save_data; #[self.image_key_name, self.label_key_name]
                     self.save_nii_volume(suj, nii_key, result_dir, fname)
                 if save_tio:
+                    #if 'label_synth' in suj:
+                    #    suj.remove_image('label_synth')
                     self.torch_save_suj(suj, result_dir, fname, CAST_TO=torch.float16)
+

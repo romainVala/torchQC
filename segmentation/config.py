@@ -345,6 +345,8 @@ class Config:
         self.set_struct_value(struct, 'collate_fn')
         self.set_struct_value(struct, 'batch_seed')
         self.set_struct_value(struct, 'epoch_length')
+        self.set_struct_value(struct, 'pin_memory', False)
+        self.set_struct_value(struct, 'persistent_workers', False)
 
         total = sum(struct['repartition'])
         struct['repartition'] = list(
@@ -415,7 +417,10 @@ class Config:
             sampler, _ = parse_object_import(struct['queue']['sampler'])
             struct['queue']['sampler'] = sampler
             struct['queue']['attributes'].update(
-                {'num_workers': struct['num_workers'], 'sampler': sampler})
+                {'num_workers': struct['num_workers'],
+                 'pin_memory': struct['pin_memory'],
+                 'persistent_workers': struct['persistent_workers'],
+                 'sampler': sampler})
         return struct, struct['labels'], patch_size, sampler
 
     def parse_transform_file(self, file, return_string=False):
@@ -519,6 +524,7 @@ class Config:
         self.set_struct_value(struct, 'last_one', True)
         self.set_struct_value(struct, 'path')
         self.set_struct_value(struct, 'device', 'cuda')
+        self.set_struct_value(struct, 'channels_last', False)
         self.set_struct_value(struct, 'input_shape')
         self.set_struct_value(struct, 'eval_csv_basename')
 
@@ -600,6 +606,7 @@ class Config:
         self.set_struct_value(struct, 'current_epoch')
         self.set_struct_value(struct, 'log_frequency', 10)
         self.set_struct_value(struct, 'log_on_tensorboard', False)
+        self.set_struct_value(struct, 'no_blocking', False)
         self.set_struct_value(
             struct,
             'activation',
@@ -1013,19 +1020,25 @@ class Config:
                     train_loader = [DataLoader(trainset, self.batch_size,
                                               shuffle=struct['batch_shuffle'],
                                               num_workers=struct['num_workers'],
-                                              collate_fn=struct['collate_fn'])
+                                              collate_fn=struct['collate_fn'],
+                                              pin_memory=struct['pin_memory'],
+                                              persistent_workers=struct['persistent_workers'] )
                     for trainset in self.train_set ]
 
                 else:
                     train_loader = DataLoader(self.train_set, self.batch_size,
                                               shuffle=struct['batch_shuffle'],
                                               num_workers=struct['num_workers'],
-                                              collate_fn=struct['collate_fn'])
+                                              collate_fn=struct['collate_fn'],
+                                              pin_memory=struct['pin_memory'],
+                                              persistent_workers=struct['persistent_workers'] )
             if len(self.val_set) > 0:
                 val_loader = DataLoader(self.val_set, self.batch_size,
                                         shuffle=struct['batch_shuffle'],
                                         num_workers=struct['num_workers'],
-                                        collate_fn=struct['collate_fn'])
+                                        collate_fn=struct['collate_fn'],
+                                        pin_memory=struct['pin_memory'],
+                                        persistent_workers=struct['persistent_workers'])
         else:
             if True:
                 self.log('no PARA_QUEUE ')
@@ -1033,10 +1046,11 @@ class Config:
                 if isinstance(self.train_set, list):
                     train_loader = []
                     for train_set in self.train_set:
-                        print('NEW QUEUE')
-                        train_queue = torchio.Queue(train_set,  start_background=False, **struct['queue']['attributes'])
+                        print('NEW QUEUE bg true ! ')
+                        train_queue = torchio.Queue(train_set,  start_background=True, **struct['queue']['attributes'])
                         train_loader.append(DataLoader(train_queue, self.batch_size,
-                                                       collate_fn=struct['collate_fn']))
+                                                       collate_fn=struct['collate_fn'],
+                                                       num_workers=0))
 
                 else:
                     train_queue = torchio.Queue(self.train_set,
@@ -1067,8 +1081,11 @@ class Config:
             device = struct['device']
             self.debug('Model description:')
             self.debug(model)
-
-            m.to(device)
+            if struct['channels_last']:
+                m.to(device, memory_format=torch.channels_last)
+                self.log('model with channels_last')
+            else:
+                m.to(device)
 
             input_shape = self.patch_size or struct['input_shape']
             if input_shape is not None:
@@ -1076,6 +1093,23 @@ class Config:
                                             self.batch_size, device)
                 self.log('Model summary:')
                 self.log(summary)
+
+                try:
+                    import hiddenlayer as hl
+                    if device.type=='cuda': #torch.cuda.is_available():
+                        g = hl.build_graph(model,
+                                           torch.rand((1, 1, *input_shape)).cuda(),
+                                           transforms=None)
+                    else:
+                        g = hl.build_graph(model, torch.rand((1, 1, *input_shape)),
+                                           transforms=None)
+                    #g.save(join(self.output_folder, "network_architecture.pdf"))
+                    g.save( "network_architecture.pdf")
+                    del g
+                except Exception as e:
+                    self.log("Unable to plot network architecture:")
+                    self.log(e)
+
             return m, device
 
         self.log('******** Model  ********')
