@@ -90,14 +90,17 @@ def generate_json_document(filename, **kwargs):
         json.dump(kwargs, file, indent=4, sort_keys=True)
 
 
-def to_var(x, device):
+def to_var(x, device, no_blocking=False):
     """
     Applied to a NumPy array or a Torch tensor, it returns a Torch tensor
     on the given device.
     """
     if isinstance(x, np.ndarray):
         x = torch.from_numpy(x)
-    x = x.to(device)
+    if no_blocking:
+        x = x.to(device, non_blocking=True)
+    else:
+        x = x.to(device)
     return x
 
 
