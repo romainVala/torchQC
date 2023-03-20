@@ -88,10 +88,12 @@ class MetricOverlay:
         #                       dim=1)
 
         if self.binary_volumes:
-            prediction = F.one_hot(prediction[:, 0, ...].long()) \
-                .permute(0, 4, 1, 2, 3).float()
-            target = F.one_hot(target[:, 0, ...].long()) \
-                .permute(0, 4, 1, 2, 3).float()
+            if prediction.shape[1]==1:
+                prediction = F.one_hot(prediction[:, 0, ...].long()) \
+                    .permute(0, 4, 1, 2, 3).float()
+            if target.shape[1]==1:
+                target = F.one_hot(target[:, 0, ...].long()) \
+                    .permute(0, 4, 1, 2, 3).float()
 
         # if self.activation is not None:
         #     if self.mixt_activation:
