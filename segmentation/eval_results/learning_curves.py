@@ -53,6 +53,18 @@ def report_learning_curves(results_dirs, save=False, sort_time=False):
             files.sort(key=os.path.getmtime)
         else:
             files.sort()  #alpha numeric order
+
+        dirpass = glob.glob(results_dir+'/pas*')
+        dirpass.sort()
+        if len(dirpass)>0:
+            files_all = []
+            for dirp in dirpass:
+                print(f'including resdir {dirpass[0]}')
+                files_more = glob.glob(dirp + pattern)
+                files_more.sort()  # alpha numeric order
+                files_all += files_more
+            files = files_all + files
+
         losses, ymean, qt05, qt95 = [], [], [], []
         nb_iter_list = []
         nb_iter_mem = -1
@@ -104,12 +116,12 @@ def report_learning_curves(results_dirs, save=False, sort_time=False):
         #plt.title('Training and validation error curves')
         plt.title('per epoch Training loss')
         plt.ylabel("Mean Dice Loss")
-        plt.show()
+         #plt.show()
 
         if save:
             plt.savefig(results_dir + '/{}loss_curves.jpeg'.format(resname))
 
-    plt.figure('all')
+    plt.figure('allres')
     for tt in train_loss:
         plt.plot(tt)
     plt.legend(resname_list)
