@@ -165,10 +165,13 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
     if distance_metric:
         #prediction = prediction.cpu()
         #buggy discrete values 1 ???
-        dd = compute_hausdorff_distance(prediction_bin, target, percentile=95, include_background=True)
-        res_dict.update( {f'haus_{k}':float(v) for k,v in zip(labels_name, dd[0])} )
-        dd = compute_average_surface_distance(prediction_bin, target, include_background=True)
-        res_dict.update( {f'Sdis_{k}':float(v) for k,v in zip(labels_name, dd[0])} )
+        try:
+            dd = compute_average_surface_distance(prediction_bin, target, include_background=True)
+            res_dict.update( {f'Sdis_{k}':float(v) for k,v in zip(labels_name, dd[0])} )
+            dd = compute_hausdorff_distance(prediction_bin, target, percentile=95, include_background=True)
+            res_dict.update( {f'haus_{k}':float(v) for k,v in zip(labels_name, dd[0])} )
+        except:
+            print('distand failed')
 
     resConfu = get_confusion_matrix(prediction_bin, target)
     for ii,mmm in enumerate(confu_met):
