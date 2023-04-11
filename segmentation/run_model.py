@@ -1500,6 +1500,8 @@ class RunModel:
                 plot_volume = True if "plot_volume" in save_option else False
                 plot_motion = True if "plot_motion" in save_option else False
                 save_tio = True if "save_tio" in save_option else False
+                save_data = True if "save_img_key" in save_option else False
+
                 fname_prefix = None
                 if plot_motion:
                     fname_prefix = self.plot_motion(suj,result_dir,fname, save_option['plot_motion'])
@@ -1508,8 +1510,8 @@ class RunModel:
                     plot_key = save_option['plot_volume']
                     self.do_plot_volume_tio(suj,plot_key,result_dir, fname, fname_prefix)
 
-                if self.save_data :
-                    nii_key = self.save_data; #[self.image_key_name, self.label_key_name]
+                if save_data :
+                    nii_key = save_option['save_img_key']
                     self.save_nii_volume(suj, nii_key, result_dir, fname)
                 if save_tio:
                     #if 'label_synth' in suj:
