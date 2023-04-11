@@ -198,6 +198,22 @@ class RunModel:
         return volumes, targets
 
     def train(self):
+        def get_loader_from_arg(arg_dict):
+            #add for data set with a lot of files, (previously list of dataloader ... with load_from_dir)
+            sample_files = eval(arg_dict['subjects'])
+            train_set =  torchio.SubjectsDataset(sample_files,
+                                              load_from_dir=arg_dict['load_from_dir'],
+                                              transform=arg_dict['transform'],
+                                              add_to_load=arg_dict['add_to_load'],
+                                              add_to_load_regexp=arg_dict['add_to_load_regexp'])
+
+            train_queue = torchio.Queue(train_set,  start_background=True,
+                                        **arg_dict['queue_param'] )
+
+            dataloader = DataLoader(train_queue, self.batch_size, num_workers=0,
+                                           collate_fn=arg_dict['collate_fn'])
+
+            return dataloader
         """ Train the model on the training set and evaluate it on
         the validation set. """
         # Set seed for reproducibility
@@ -259,16 +275,20 @@ class RunModel:
             dataloader_list = self.train_loader
             starting_epoch = self.epoch
             self.n_epochs = len(dataloader_list)
+
             #for epoch, train_loader in enumerate(dataloader_list):
-            for i in range(0, starting_epoch-1):
+            for i in range(0, starting_epoch-1):  #first tentative to remove memory but not enoug
+                # no more usefull since now the dataloader is build for the current epoch
+
                 self.log(f'droping ep {i+1}')
                 dataloader_list.pop(0)
+
             for ind_epoch in  range(starting_epoch-1, self.n_epochs):
                 self.epoch = ind_epoch + 1
                 self.log(f'******** Epoch from dir [{self.epoch}/{self.n_epochs}]  ********')
 
                 #train_loader = dataloader_list[ind_epoch]
-                train_loader = dataloader_list[0]
+                train_loader = get_loader_from_arg(dataloader_list[0])
 
                 if isinstance(train_loader.dataset,tio.data.queue.Queue):
                     self.log(f'first data is {train_loader.dataset.subjects_dataset._subjects[0]}')
@@ -1494,5 +1514,6 @@ class RunModel:
                 if save_tio:
                     #if 'label_synth' in suj:
                     #    suj.remove_image('label_synth')
+                    suj.clear_history()
                     self.torch_save_suj(suj, result_dir, fname, CAST_TO=torch.float16)
 

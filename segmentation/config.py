@@ -838,15 +838,22 @@ class Config:
                     for one_epoch_dir in epoch_dir:
                         sample_files = glob.glob( one_epoch_dir + '/' + sample_dir['filereg'])
                         self.log( f'{len(sample_files)} subjects in the {sample_dir["list_name"]} set')
+                        del(sample_files)
                         transform = torchio.transforms.Compose(
                             transform_struct[f'{sample_dir["list_name"]}_transforms'])
-                        dataset.append( torchio.SubjectsDataset(sample_files,
-                                                          load_from_dir=True,
-                                                          transform=transform,
-                                                          add_to_load=sample_dir[
-                                                              'add_to_load'],
-                                                          add_to_load_regexp=sample_dir[
-                                                              'add_to_load_regexp']) )
+                        data_set_args = {
+                            'subjects' : f' glob.glob("{one_epoch_dir}/{sample_dir["filereg"]}")',
+                            'load_from_dir' : True,
+                            'transform' : transform,
+                            'add_to_load' : sample_dir['add_to_load'],
+                            'add_to_load_regexp' : sample_dir['add_to_load_regexp']
+                        }
+                        dataset.append(data_set_args)
+#                        dataset.append( torchio.SubjectsDataset(sample_files,
+#                                                          load_from_dir=True,
+#                                                          transform=transform,
+#                                                          add_to_load=sample_dir['add_to_load'],
+#                                                          add_to_load_regexp=sample_dir['add_to_load_regexp']) )
 
                 else :
                     sample_files = glob.glob(
@@ -1044,13 +1051,14 @@ class Config:
                 self.log('no PARA_QUEUE ')
                 self.log(struct['queue']['attributes'])
                 if isinstance(self.train_set, list):
-                    train_loader = []
+                    train_loader = [ ]
                     for train_set in self.train_set:
-                        print('NEW QUEUE bg true ! ')
-                        train_queue = torchio.Queue(train_set,  start_background=True, **struct['queue']['attributes'])
-                        train_loader.append(DataLoader(train_queue, self.batch_size,
-                                                       collate_fn=struct['collate_fn'],
-                                                       num_workers=0))
+                        train_set['queue_param'] = struct['queue']['attributes']
+                        train_set['collate_fn'] = struct['collate_fn']
+                        train_loader.append(train_set)
+                        #print('NEW QUEUE bg true ! ')
+                        #train_queue = torchio.Queue(train_set,  start_background=True, **struct['queue']['attributes'])
+                        #train_loader.append(DataLoader(train_queue, self.batch_size,collate_fn=struct['collate_fn'],num_workers=0))
 
                 else:
                     train_queue = torchio.Queue(self.train_set,
@@ -1149,7 +1157,7 @@ class Config:
 
             if len(model) == 1: #just do not use list
                 model = model[0]
-                
+
             return model, ddd
 
         if hasattr(model_class, 'load'):
