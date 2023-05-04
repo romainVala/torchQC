@@ -1,9 +1,10 @@
 import re
 import torch
 import numpy as np
-from torch._six import string_classes
+#from torch._six import string_classes
 import collections.abc as container_abcs
 int_classes = int
+string_classes = str
 
 np_str_obj_array_pattern = re.compile(r'[SaUO]')
 default_collate_err_msg_format = (
