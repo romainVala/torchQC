@@ -472,6 +472,7 @@ class RunModel:
                     if isinstance(self.model, list):
                         predictions = [self.activation(mmm(volumes)) for mmm in self.model]
                     else:
+                        azer
                         predictions = self.activation(self.model(volumes))
 
             if eval_dropout:
@@ -1500,7 +1501,7 @@ class RunModel:
                 plot_volume = True if "plot_volume" in save_option else False
                 plot_motion = True if "plot_motion" in save_option else False
                 save_tio = True if "save_tio" in save_option else False
-                save_data = True if "save_img_key" in save_option else False
+                save_data = True if "save_nii_img_key" in save_option else False
 
                 fname_prefix = None
                 if plot_motion:
@@ -1511,11 +1512,13 @@ class RunModel:
                     self.do_plot_volume_tio(suj,plot_key,result_dir, fname, fname_prefix)
 
                 if save_data :
-                    nii_key = save_option['save_img_key']
+                    nii_key = save_option['save_nii_img_key']
                     self.save_nii_volume(suj, nii_key, result_dir, fname)
                 if save_tio:
-                    #if 'label_synth' in suj:
-                    #    suj.remove_image('label_synth')
+                    if 'save_tio_drop_key' in save_option:
+                        for dkey in  save_option['save_tio_drop_key']:
+                            suj.remove_image(dkey)
+
                     suj.clear_history()
                     self.torch_save_suj(suj, result_dir, fname, CAST_TO=torch.float16)
 
