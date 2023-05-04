@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from segmentation.config import Config
 from segmentation.utils import to_numpy
 import nibabel as nib
-
+import os
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -76,7 +76,7 @@ if __name__ == '__main__':
     #    to_numpy(prediction[0].permute(1, 2, 3, 0)),
     #    volume.affine
     #)
-    suj_pred = torchio.Subject(pred=torchio.ScalarImage(tensor=to_numpy(prediction[0]), affine=volume.affine) )
+    suj_pred = torchio.Subject(pred=torchio.LabelMap(tensor=to_numpy(prediction[0]), affine=volume.affine) )
 
     if orig_shape:
         suj_pred = tback(suj_pred)
@@ -87,3 +87,9 @@ if __name__ == '__main__':
 
     suj_pred.pred.save(out_filename)
     #nib.save(image, args.filename)
+
+    tseg_bin = torchio.OneHot(invert_transform=True)
+    suj_pred = tseg_bin(suj_pred)
+    new_out_file = os.path.dirname(out_filename) + '/bin_' + os.path.basename(out_filename)
+    suj_pred.pred.save(new_out_file)
+
