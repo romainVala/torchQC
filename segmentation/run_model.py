@@ -30,6 +30,8 @@ class ArrayTensorJSONEncoder(json.JSONEncoder):
             return o.tolist()
         elif isinstance(o, float):
             return str(o)
+        elif isinstance(o, np.floating):
+            return str(o)
         else:
             return json.JSONEncoder.default(self, o)
 
@@ -472,7 +474,6 @@ class RunModel:
                     if isinstance(self.model, list):
                         predictions = [self.activation(mmm(volumes)) for mmm in self.model]
                     else:
-                        azer
                         predictions = self.activation(self.model(volumes))
 
             if eval_dropout:
@@ -805,6 +806,7 @@ class RunModel:
         sample_time = batch_time / batch_size
 
         time_sum = 0
+        info_list=[]
 
         for idx in range(batch_size):
             if is_batch:
@@ -864,7 +866,9 @@ class RunModel:
 
             self.record_history(info, sample, idx)
 
-            df = df.append(info, ignore_index=True)
+            info_list.append(info)
+
+        df = pd.concat([df, pd.DataFrame(info_list)]) #df.append(info, ignore_index=True)
 
         if save:
             self.save_info(mode, df, sample)
