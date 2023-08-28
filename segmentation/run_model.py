@@ -96,6 +96,7 @@ class RunModel:
         self.eval_dropout = struct['validation']['eval_dropout']
         self.split_batch_gpu = struct['validation']['split_batch_gpu']
         self.eval_repeate =  struct['validation']['repeate_eval']
+        self.eval_script = struct['validation']['eval_script']
         self.n_epochs = struct['n_epochs']
         self.seed = struct['seed']
         self.activation = struct['activation']
@@ -528,7 +529,7 @@ class RunModel:
                 else:
                     for j, prediction in enumerate(predictions):
                         n = i * self.batch_size + j
-                        self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine,
+                        file_prediction = self.prediction_saver(sample, prediction.unsqueeze(0), n, j, affine=new_affine,
                                               save_biggest_comp=self.save_biggest_comp)
                         if eval_dropout:
                             volume_name = self.save_volume_name + "_std" or "Dp_std"
@@ -541,12 +542,28 @@ class RunModel:
             if self.save_labels and not is_model_training:
                 for j, target in enumerate(targets):
                     n = i * self.batch_size + j
-                    self.label_saver(sample, target.unsqueeze(0), n, j, volume_name=self.save_label_name, affine=new_affine)
+                    file_label = self.label_saver(sample, target.unsqueeze(0), n, j, volume_name=self.save_label_name, affine=new_affine)
             if self.save_data and not is_model_training:
                 volumes, _ = self.apply_post_transforms(volumes, sample)
                 for j, volumes in enumerate(volumes):
                     n = i * self.batch_size + j
-                    self.label_saver(sample, volumes.unsqueeze(0), n, j, volume_name='data', affine=new_affine)
+                    file_data = self.label_saver(sample, volumes.unsqueeze(0), n, j, volume_name='data', affine=new_affine)
+
+            if self.eval_script is not None and not is_model_training and self.save_data  and self.save_labels and  self.save_predictions:
+                res_dir = os.path.dirname(file_data[0])
+                dir_prog = os.path.dirname(__file__)
+                import sys
+                cmd = [sys.executable]
+                cmd.append(f"{dir_prog}/../script/{self.eval_script}")
+
+                cmd = cmd + ["-s", f"{sample['name'][0]}" ]
+                cmd = cmd + ["-r", f"{os.path.basename(os.path.dirname(res_dir))}"]
+                cmd = cmd + ["-i",  f"{file_data[1]}"]
+                cmd = cmd + ["-p",  f"{file_label[0]}"]
+                cmd = cmd + ["-l",  f"{file_prediction[0]}"]
+                cmd = cmd + ["-c",  f"{res_dir}/metrics_all.csv"]
+                import subprocess
+                rrr = subprocess.run(cmd, capture_output=True, text=True)
 
             # Measure elapsed time
             batch_time = time.time() - start
@@ -1097,6 +1114,7 @@ class RunModel:
 
     def save_volume(self, sample, volume, idx=0, batch_idx=0, affine=None, volume_name=None,
                     save_biggest_comp = None):
+        out_filename = []
         volume_name = volume_name or self.save_volume_name
         name = sample.get('name') or f'{idx:06d}'
         if affine is None:
@@ -1118,6 +1136,7 @@ class RunModel:
                 to_numpy(bin_volume[0]).astype(np.uint8), affine
             )
             nib.save(bin_volume, f'{resdir}/bin_{volume_name}.nii.gz')
+            out_filename.append(f'{resdir}/bin_{volume_name}.nii.gz')
 
         volume[volume < self.save_threshold] = 0.
 
@@ -1158,7 +1177,10 @@ class RunModel:
             )
             nib.save(volume, f'{resdir}/{volume_name}.nii.gz')
             self.debug('saving {}'.format(f'{resdir}/{volume_name}.nii.gz'))
+            out_filename.append(f'{resdir}/{volume_name}.nii.gz')
 
+
+        return out_filename
 
     def get_regression_data(self, data, target=None, scale_label=[1], default_missing_label = 0 ):
 
