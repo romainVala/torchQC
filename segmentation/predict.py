@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from segmentation.config import Config
 from segmentation.utils import to_numpy
 import nibabel as nib
-import os
+import os, json
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -21,6 +21,11 @@ if __name__ == '__main__':
     parser.add_argument('-mn', '--model_name', type=str, default='UNet',
                         help='Name of the model used to make prediction,'
                              'default is "UNet"')
+    
+    parser.add_argument('-mj', '--model_json', type=str, default='',
+                        help='path to model json file,'
+                             'default is ""')
+    
     parser.add_argument('-f', '--filename', type=str,
                         default='prediction.nii.gz',
                         help='Filename used to save the prediction,'
@@ -29,14 +34,28 @@ if __name__ == '__main__':
                         help='nb volume to exclude (from the end) from the softmax activation')
     parser.add_argument('-c','--CropOrPad', type=str, default='None',
                         help='tuple of target dim')
+    parser.add_argument('-p','--PatchSize', type=int, default=0,
+                        help='patch size to process the image (default 0 -> full input size)')
+    parser.add_argument('-po','--PatchOverlap', type=int, default=0,
+                        help='patch overlap  ')
+    parser.add_argument('-bs','--Patch_batch_size', type=int, default=4,
+                        help='batch size for the patch loader ')
+    parser.add_argument('-sp', '--save_4D', type=bool, default=False, help='If True, generate 4D pred ')
+
 
     args = parser.parse_args()
     nb_vol_exclude = int(args.exlcude_to_softmax)
     vol_crop_pad = eval(args.CropOrPad)
+    patch_size = args.PatchSize
+    patch_overlap = args.PatchOverlap
+    batch_size = args.Patch_batch_size
+    save_4D = args.save_4D
 
     volume = torchio.ScalarImage(path=args.volume)
     tscale = torchio.RescaleIntensity(out_min_max=(0,1), percentiles=(0,99))
     volume = tscale(volume)
+    tcan = torchio.ToCanonical()
+    volume = tcan(volume)
 
     if vol_crop_pad:
         tpad = torchio.CropOrPad(target_shape=vol_crop_pad)
@@ -44,33 +63,67 @@ if __name__ == '__main__':
         orig_shape = 0
     else:
         orig_shape = volume.shape[-3:]
-        treshape = torchio.EnsureShapeMultiple(2**4)
+        treshape = torchio.EnsureShapeMultiple(2**5)
         volume = treshape(volume)
         tback = torchio.CropOrPad(target_shape=orig_shape)
         print(f'suj new shape is {volume.shape} orig is {orig_shape}')
-
-
 
     model_struct = {
         'module': args.model_module,
         'name': args.model_name,
         'last_one': False,
         'path': args.model,
-        'device': args.device
-    }
+        'device': args.device,
+        }
+
+    if os.path.isfile(args.model_json):
+        with open(args.model_json) as f:
+            model_struct =  json.load(f)
+            
+        model_struct['path'] = args.model
+        model_struct['last_one'] = False
+        model_struct['device'] = args.device
+
+
     config = Config(None, None, save_files=False)
     model_struct = config.parse_model_file(model_struct)
     model, device = config.load_model(model_struct)
+    #device = args.device
+    device =  model_struct['device']
+
+
     model.eval()
 
-    with torch.no_grad():
-        prediction = model(volume.data.unsqueeze(0).float().to(device))
+    if patch_size==0:
+        with torch.no_grad():
+            print(device)
+            prediction = model(volume.data.unsqueeze(0).float().to(device))
+        if nb_vol_exclude > 0:
+            pp = F.softmax(prediction[0, :-nb_vol_exclude, ...].unsqueeze(0), dim=1)
+            prediction[0, :-nb_vol_exclude, ...] = pp[0]
+        else:
+            prediction = F.softmax(prediction, dim=1)
 
-    if nb_vol_exclude>0:
-        pp = F.softmax(prediction[0,:-nb_vol_exclude,...].unsqueeze(0), dim=1)
-        prediction[0,:-nb_vol_exclude,...] = pp[0]
     else:
-        prediction = F.softmax(prediction, dim=1)
+        suj = torchio.Subject({'t1': volume})
+        grid_sampler = torchio.inference.GridSampler(
+            suj, patch_size, patch_overlap, padding_mode='reflect'
+        )
+        patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=batch_size)
+        aggregator = torchio.inference.GridAggregator(grid_sampler, overlap_mode='hann')
+        print(f' preparing {len(patch_loader)} patches with batch size {batch_size}')
+        for ii, one_patch in enumerate(patch_loader):
+            #print(f'patch {ii}')
+            with torch.no_grad():
+                predictions = model(one_patch['t1']['data'].float().to(device))
+            predictions = F.softmax(predictions, dim=1)
+            locations = one_patch[torchio.LOCATION]
+            aggregator.add_batch(predictions.to('cpu'), locations)  #if keept on gpu I do not uderstand memory goes up
+
+        prediction = aggregator.get_output_tensor().unsqueeze(0)
+        print('model estimation done')
+
+
 
     #image = nib.Nifti1Image(
     #    to_numpy(prediction[0].permute(1, 2, 3, 0)),
@@ -85,11 +138,16 @@ if __name__ == '__main__':
     if ~(out_filename.endswith('.nii') | out_filename.endswith('.gz')):
         out_filename += '.nii.gz'
 
-    suj_pred.pred.save(out_filename)
-    #nib.save(image, args.filename)
+    if save_4D:
+        print(f'saving {out_filename}')
+        suj_pred.pred.save(out_filename)
+        #nib.save(image, args.filename)
 
     tseg_bin = torchio.OneHot(invert_transform=True)
     suj_pred = tseg_bin(suj_pred)
-    new_out_file = os.path.dirname(out_filename) + '/bin_' + os.path.basename(out_filename)
+
+    outdir =  os.path.dirname(out_filename)+'/' if os.path.dirname(out_filename) else "./"
+    new_out_file = outdir + 'bin_' + os.path.basename(out_filename)
+    print('saving bin version')
     suj_pred.pred.save(new_out_file)
 
