@@ -13,7 +13,7 @@ from segmentation.collate_functions import history_collate
 from segmentation.utils import to_numpy
 
 from monai.metrics import compute_hausdorff_distance, compute_average_surface_distance #warning cpu metrics
-from monai.metrics import compute_confusion_matrix_metric, get_confusion_matrix
+from monai.metrics import compute_confusion_matrix_metric, get_confusion_matrix, compute_meandice, compute_generalized_dice
 
 from skimage.measure import euler_number, label
 
@@ -32,6 +32,175 @@ met_overlay = MetricOverlay(metric_dice, band_width=5) #, channels=[2])
 confu_met=["false discovery rate", "miss rate", "balanced accuracy", "f1 score"]
 confu_met_names=['fdr', 'miss', 'bAcc', 'f1' ]
 
+
+import torch.nn as nn
+import torch.nn.functional as F
+from scipy.ndimage.morphology import distance_transform_edt
+
+#from pykeops.torch import LazyTensor
+#from scipy.ndimage.morphology import distance_transform_edt
+
+
+def erode3D(mask):
+    return -F.max_pool3d(-mask, (3, 3, 3), (1, 1, 1), (1, 1, 1))
+
+def dilate3D(mask):
+    return F.max_pool3d(mask, (3, 3, 3), (1, 1, 1), (1, 1, 1))
+
+#def erode2D(mask):
+#    return -F.max_pool2d(-mask, (3, 3), (1, 1), (1, 1))
+
+#def dilate2D(mask):
+#    return F.max_pool2d(mask, (3, 3), (1, 1), (1, 1))
+
+def dilate(mask):
+    if mask.dim() == 5:
+        return dilate3D(mask)
+    elif mask.dim() == 4:
+        return dilate2D(mask)
+    else:
+        raise ValueError("Tensor must be 2D or 3D")
+
+def erode(mask):
+    if mask.dim() == 5:
+        return erode3D(mask)
+    elif mask.dim() == 4:
+        return erode2D(mask)
+    else:
+        raise ValueError("Tensor must be 2D or 3D")
+
+def get_edges(mask):
+    if mask.dim() == 5:
+        ero = erode3D(mask)
+    elif mask.dim() == 4:
+        ero = erode2D(mask)
+    else:
+        raise ValueError("Tensor must be 2D or 3D")
+    contour = torch.logical_xor(ero > 0.5, mask > 0.5)
+    return contour
+
+
+def soft_erode(img):
+    if len(img.shape) == 4:
+        p1 = -F.max_pool2d(-img, (3, 1), (1, 1), (1, 0))
+        p2 = -F.max_pool2d(-img, (1, 3), (1, 1), (0, 1))
+        return torch.min(p1, p2)
+    if len(img.shape) == 5:
+        p1 = -F.max_pool3d(-img, (3, 1, 1), (1, 1, 1), (1, 0, 0))
+        p2 = -F.max_pool3d(-img, (1, 3, 1), (1, 1, 1), (0, 1, 0))
+        p3 = -F.max_pool3d(-img, (1, 1, 3), (1, 1, 1), (0, 0, 1))
+        return torch.min(torch.min(p1, p2), p3)
+    else:
+        raise ValueError("Can only process 3D images")
+
+def soft_dilate(img):
+    if len(img.shape) == 4:
+        return F.max_pool2d(img, (3, 3), (1, 1), (1, 1))
+    elif len(img.shape) == 5:
+        return F.max_pool3d(img, (3, 3, 3), (1, 1, 1), (1, 1, 1))
+
+def soft_open(img):
+    return soft_dilate(soft_erode(img))
+
+def hard_open(img):
+    return dilate(erode(img))
+
+def soft_skel(img, max_iter=100):
+    skel = F.relu(img - soft_open(img))
+    iteration = 0
+    with torch.no_grad():
+        while True and iteration < max_iter:
+            iteration += 1
+            img = soft_erode(img)
+            # img = erode(img)
+            delta = F.relu(img - soft_open(img))
+            # delta = F.relu(img - hard_open(img))
+            to_add = F.relu(delta - skel * delta)
+            if not to_add.sum():
+                break
+            skel = skel + F.relu(delta - skel * delta)
+    return skel
+
+
+def soft_cldice(y_trueAll, y_predAll, iter_=100, smooth=10e-7):
+    B = y_trueAll.shape[0]
+    C = y_trueAll.shape[1]
+    cldice_all = torch.zeros((B,C)) #[]
+    for b in range(B):
+        for c in range(C):
+            y_pred = y_predAll[b, c, ...]
+            y_true = y_trueAll[b, c, ...]
+            y_pred = y_pred.unsqueeze(0).unsqueeze(0)
+            y_true = y_true.unsqueeze(0).unsqueeze(0)
+
+            skel_pred = soft_skel(y_pred, iter_)
+            skel_true = soft_skel(y_true, iter_)
+            tprec = (torch.sum(torch.multiply(skel_pred, y_true)) + smooth) / (torch.sum(skel_pred) + smooth)
+            tsens = (torch.sum(torch.multiply(skel_true, y_pred)) + smooth) / (torch.sum(skel_true) + smooth)
+            #cl_dice = 1. - 2.0 * (tprec * tsens) / (tprec + tsens)
+            cl_dice =  2.0 * (tprec * tsens) / (tprec + tsens)
+            cldice_all[b,c] = cl_dice.detach().cpu() #.numpy()
+
+    return cldice_all
+
+
+def get_soft_edges(mask):
+    if mask.dim() == 5:
+        ero = soft_erode(mask)
+    else:
+        raise ValueError("Tensor must be 2D or 3D")
+    contour = torch.logical_xor(ero > 0.5, mask > 0.5)
+    return contour
+
+def Average_Hausdorff_Distance(gth, pred, method="scipy", soft=True):
+    B = gth.shape[0]
+    C = gth.shape[1]
+    gth = (gth > 0.5).float()
+    pred = (pred > 0.5).float()
+    if soft:
+        gth_edges = get_soft_edges(gth)
+        pred_edges = get_soft_edges(pred)
+    else:
+        gth_edges = get_edges(gth)
+        pred_edges = get_edges(pred)
+    ahds_losses, ahds_losses_dir = torch.zeros((B,C)), torch.zeros((B,C)) #[], []
+    hds_losses, hds_losses_dir = torch.zeros((B,C)),torch.zeros((B,C)) #[], []
+    for b in range(B):
+        for c in range(C):
+            gth_edges_bc = gth_edges[b, c, ...]
+            pred_edges_bc = pred_edges[b, c, ...]
+            if (not gth_edges_bc.sum()) and (not pred_edges_bc.sum()):
+                gth2pred = torch.tensor(float('nan'))
+                pred2gth = torch.tensor(float('nan'))
+                ahd = (gth2pred + pred2gth) / 2
+            elif method == "scipy":
+                gth_edges_bc = gth_edges_bc.detach().cpu().numpy()
+                pred_edges_bc = pred_edges_bc.detach().cpu().numpy()
+                gth_edges_bc_dm = distance_transform_edt(1 - gth_edges_bc)
+                pred_edges_bc_dm = distance_transform_edt(1 - pred_edges_bc)
+                gth2pred = pred_edges_bc_dm[gth_edges_bc]
+                pred2gth = gth_edges_bc_dm[pred_edges_bc]
+                ahd1, ahd2 = gth2pred.mean(), pred2gth.mean()
+                hd1, hd2   = gth2pred.max(), pred2gth.max()
+
+                #ahd = (gth2pred + pred2gth) / 2
+            elif method == "keops":
+                gth_edges_bc_coordinates = torch.nonzero(gth_edges_bc)
+                pred_edges_bc_coordinates = torch.nonzero(pred_edges_bc)
+                X = LazyTensor(gth_edges_bc_coordinates.view(gth_edges_bc_coordinates.shape[0], 1, gth_edges_bc_coordinates.shape[1]).float())
+                Y = LazyTensor(pred_edges_bc_coordinates.view(1, pred_edges_bc_coordinates.shape[0], pred_edges_bc_coordinates.shape[1]).float())
+                Distance_matrix = ((X - Y)**2).sum(dim=2)**0.5
+                gth2pred = Distance_matrix.min_reduction(1).mean()
+                pred2gth = Distance_matrix.min_reduction(0).mean()
+                ahd = (gth2pred + pred2gth) / 2
+                ahd = ahd.cpu().numpy()
+            #hds_losses.append(ahd)
+            #ahds_losses.append(ahd1); ahds_losses_dir.append(ahd2); hds_losses.append(hd1); hds_losses_dir.append(hd2)
+            ahds_losses[b,c] = ahd1; ahds_losses_dir[b,c] = ahd2; hds_losses[b,c] = hd1; hds_losses_dir[b,c] = hd2
+
+    #return np.array(hds_losses).mean(), gth2pred, pred2gth
+    return ahds_losses, ahds_losses_dir, hds_losses, hds_losses_dir
+
 def mrview_from_df(df, col_name, condition,  bin_overlay_class=0):
     dfsub = df[df[col_name]==condition]
     for dfser in dfsub.iterrows():
@@ -43,7 +212,7 @@ def mrview_from_df(df, col_name, condition,  bin_overlay_class=0):
             dicegm = "dice_GM"
         elif "metric_dice_GM" in dfser:
             dicegm = "metric_dice_GM"
-        print(f'{dfser[dicegm]:.2} GM dicm from {dfser.model} ')
+        print(f'#{dfser[dicegm]:.2} GM dicm from {dfser.model} ')
 
     return mrview_overlay(list(dfsub.finput.values), [dfsub.flabel.values[0]] + list(dfsub.fpred.values),
                           bin_overlay_class=bin_overlay_class)
@@ -55,21 +224,21 @@ def mrview_overlay(bg_img, overlay_list, bin_overlay_class=0):
     col_overlay = [ '0,1,0', '1,0,0', '0,0,1', '1,1,0', '0,1,1', '1,0,1', '1,0.5,0', '0.5,1,0', '1,0,0.5', '0.5,0,1']
     if bin_overlay_class:
         mrviewopt = [
-            f'-overlay.opacity 0.6 -overlay.colour {col_overlay[k]} -overlay.intensity 0,{bin_overlay_class}   ' \
+            f'-overlay.opacity 0.4 -overlay.colour {col_overlay[k]} -overlay.intensity 0,{bin_overlay_class}   ' \
             f'-overlay.threshold_min {bin_overlay_class-0.5} -overlay.threshold_max {bin_overlay_class+0.5} ' \
-            f'-overlay.interpolation 0 -mode 2' for k in range(len(overlay_list))]
+            f'-overlay.interpolation 0 -mode 2  -size 1300,900 ' for k in range(len(overlay_list))]
     else:
         mrviewopt = [
-            f'-overlay.opacity 0.6 -overlay.colour {col_overlay[k]} -overlay.intensity 0,1   -overlay.threshold_min 0.5  -overlay.interpolation 0 -mode 2'
+            f'-overlay.opacity 0.4 -overlay.colour {col_overlay[k]} -overlay.intensity 0,1   -overlay.threshold_min 0.5  -overlay.interpolation 0 -mode 2'
             for k in range(len(overlay_list)) ]
 
     cmd = 'vglrun mrview '
-    cmd = 'mrview '
+    cmd = 'mrviewv '
     for img in bg_img:
         cmd += (f' {img} ')
     for nb_over, img in enumerate(overlay_list):
         cmd += (f' -overlay.load {img} {mrviewopt[nb_over]} ')
-    print(f'{cmd} &')
+    print(f'{cmd} ')
     return cmd
 def display_res(dir_pred, bg_files, gt_files=None):
 
@@ -106,7 +275,7 @@ def binarize_5D(data, add_extra_to_class=None):
     return  met_overlay.binarize(data, add_extra_to_class=add_extra_to_class)
 
 def computes_all_metric(prediction, target, labels_name, indata=None, selected_label=None,
-                        selected_lab_mask=None, lab_mask_name=None, verbose=False, distance_metric=False,
+                        selected_lab_mask=None, lab_mask_name=None, verbose=True, distance_metric=False,
                         euler_metric=False):
 
     prediction_bin = met_overlay.binarize(prediction)
@@ -117,6 +286,14 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
         if prediction.shape[1] > 1:
             prediction = prediction[:, selected_label, ...]
             prediction_bin = prediction_bin[:, selected_label, ...]
+        else: #WARNING buggy select on 3d only for pred
+            print('warning TODO')
+            todo
+            prediction_bin = prediction
+            prediction_bin[prediction_bin!=selected_label[0]]=0
+            prediction_bin[prediction_bin==selected_label[0]]=1
+
+
         if target.shape[1] > 1: #more than one chanel
             if selected_lab_mask is not None:
                 mask = [target[:, ssi, ...] for ssi in selected_lab_mask]
@@ -126,11 +303,15 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
 
     start = timer()
 
-    dd = metric_dice(prediction_bin, target)
+    #dd = metric_dice(prediction_bin, target)
+    dd_dice = compute_meandice(prediction_bin,target, include_background=True)
+    df_one = pd.DataFrame()
+    for kk, llname in enumerate(labels_name):
+        df_one[f'dice_{llname}'] = dd_dice[:,kk]
 
-    res_dict = {f'dice_{k}':float(v) for k,v in zip(labels_name, dd)}
-    dd = metric_dice(prediction, target)
-    res_dict.update( {f'softdice_{k}':float(v) for k,v in zip(labels_name, dd)} )
+    #arg todo metric_dice without batch reduction
+    #dd = metric_dice(prediction, target)
+    #res_dict.update( {f'softdice_{k}':float(v) for k,v in zip(labels_name, dd)} )
 
     if mask is not None:
         dd = dict()
@@ -161,37 +342,102 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
 
         res_dict.update(dd)
 
-
-    if distance_metric:
-        #prediction = prediction.cpu()
-        #buggy discrete values 1 ???
-        try:
-            dd = compute_average_surface_distance(prediction_bin, target, include_background=True)
-            res_dict.update( {f'Sdis_{k}':float(v) for k,v in zip(labels_name, dd[0])} )
-            dd = compute_hausdorff_distance(prediction_bin, target, percentile=95, include_background=True)
-            res_dict.update( {f'haus_{k}':float(v) for k,v in zip(labels_name, dd[0])} )
-        except:
-            print('distand failed')
-
     resConfu = get_confusion_matrix(prediction_bin, target)
     for ii,mmm in enumerate(confu_met):
-        dd = compute_confusion_matrix_metric(mmm,resConfu)
-        res_dict.update({f'{confu_met_names[ii]}_{k}': float(v) for k, v in zip(labels_name, dd[0])})
+        dd_confu = compute_confusion_matrix_metric(mmm,resConfu)
+        for kk, llname in enumerate(labels_name):
+            df_one[f'{confu_met_names[ii]}_{llname}'] = dd_confu[:,kk].numpy()
+
+            #res_dict.update({f'{confu_met_names[ii]}_{k}': float(v) for k, v in zip(labels_name, batch_confu)})
+
+    if distance_metric:
+        # prediction = prediction.cpu()
+        # buggy discrete values 1 ???
+        try:
+
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            prediction_bin = prediction_bin.to(device)
+            target = target.to(device)
+
+            dd = Average_Hausdorff_Distance(prediction_bin, target)
+            for kk, llname in enumerate(labels_name):
+                df_one[f'Sdis_{llname}'] = dd[0][:, kk].numpy()
+
+            for kk, llname in enumerate(labels_name):
+                df_one[f'SdisI_{llname}'] = dd[1][:, kk].numpy()
+
+            for kk, llname in enumerate(labels_name):
+                df_one[f'SdisMax_{llname}'] = dd[2][:, kk].numpy()
+
+            for kk, llname in enumerate(labels_name):
+                df_one[f'SdisIMax_{llname}'] = dd[3][:, kk].numpy()
+
+            #res_dict.update({f'Sdis_{k}': float(v) for k, v in zip(labels_name, dd[0])})
+            #res_dict.update({f'SdisI_{k}': float(v) for k, v in zip(labels_name, dd[1])})
+            #res_dict.update({f'SdisMax_{k}': float(v) for k, v in zip(labels_name, dd[2])})
+            #res_dict.update({f'SdisIMax_{k}': float(v) for k, v in zip(labels_name, dd[3])})
+
+            cl_dice = soft_cldice(prediction_bin, target)
+            for kk, llname in enumerate(labels_name):
+                df_one[f'clDice_{llname}'] = cl_dice[:, kk].numpy()
+
+            #res_dict.update({f'clDice_{k}': float(v) for k, v in zip(labels_name, cl_dice)})
+
+            # alternative with monai (but cpu)
+            # dd = compute_average_surface_distance(prediction_bin, target, include_background=True)
+            # res_dict.update( {f'Sdis_{k}':float(v) for k,v in zip(labels_name, dd[0])} )
+            # dd = compute_hausdorff_distance(prediction_bin, target, percentile=100, include_background=True)
+            # res_dict.update( {f'haus_{k}':float(v) for k,v in zip(labels_name, dd[0])} )
+        except:
+            print('distand failed')
+    if verbose:
+        print(f'Computed distance metric in {timer()-start}')
+        start = timer()
+
+    if indata is not None:
+        df_sig = pd.DataFrame()
+        for nb_batch, (pred, targ, inda) in enumerate( zip(prediction_bin, target, indata)):
+            #Signal stat for prediction
+            res_dict = dict()
+            for ind_lab, labn in enumerate(labels_name):
+                sig = inda[pred[[ind_lab],...]>0].numpy()   #trick to avoid unsqueeze(0)
+                if len(sig)>0 : #too small patch ... no data
+                    data_qt = np.quantile(sig,[0.1, 0.25, 0.5, 0.75, 0.9])
+                    data_mean, data_std = np.mean(sig), np.std(sig)
+                    res_dict.update({f'PredSmean_{labn}': data_mean, f'PredSstd_{labn}': data_std,f'PredSquant_{labn}':data_qt})
+            #Signal stat for ground truth
+            for ind_lab, labn in enumerate(labels_name):
+                sig = inda[targ[[ind_lab],...]>0].numpy()   #trick to avoid unsqueeze(0)
+                if len(sig)>0 : #too small patch ... no data should not happend here
+                    data_qt = np.quantile(sig,[0.1, 0.25, 0.5, 0.75, 0.9])
+                    data_mean, data_std = np.mean(sig), np.std(sig)
+                    res_dict.update({f'LabSmean_{labn}': data_mean, f'LabSstd_{labn}': data_std,f'LabSquant_{labn}':data_qt})
+            #Signal stat for False Positif
+            FP_mask = (pred[[ind_lab],...]>0) * (targ[[ind_lab],...]==0)
+            for ind_lab, labn in enumerate(labels_name):
+                sig = inda[FP_mask].numpy()
+                if len(sig)>0 : #too small patch ...
+                    data_qt = np.quantile(sig,[0.1, 0.25, 0.5, 0.75, 0.9])
+                    data_mean, data_std = np.mean(sig), np.std(sig)
+                    res_dict.update({f'FPSmean_{labn}': data_mean, f'FPSstd_{labn}': data_std,f'FPSquant_{labn}':data_qt})
+            #Signal stat for False Negative
+            FN_mask = (pred[[ind_lab],...]==0) * (targ[[ind_lab],...]>0)
+            for ind_lab, labn in enumerate(labels_name):
+                sig = inda[FN_mask].numpy()
+                if len(sig)>0 : #too small patch ...
+                    data_qt = np.quantile(sig,[0.1, 0.25, 0.5, 0.75, 0.9])
+                    data_mean, data_std = np.mean(sig), np.std(sig)
+                    res_dict.update({f'FNSmean_{labn}': data_mean, f'FNSstd_{labn}': data_std,f'FNSquant_{labn}':data_qt})
+
+            df_sig = pd.concat([df_sig, pd.DataFrame([res_dict])])
+
+        df_sig.index = pd.RangeIndex(256)
+        df_one = pd.concat([df_one, df_sig], axis=1) #, ignore_index=True)
 
     if verbose:
         print(f'Computed all metric in {timer()-start}')
-        print(res_dict)
-    if indata is not None:
-        if prediction_bin.shape[1]>1:
-            not_with_multiple_chanel
 
-        sig = indata[prediction_bin>0].numpy()
-        if len(sig)>0 : #too small patch ... no data
-            data_qt = np.quantile(sig,[0.1, 0.25, 0.5, 0.75, 0.9])
-            data_mean, data_std = np.mean(sig), np.std(sig)
-            res_dict.update({f'Smean_{labels_name[0]}': data_mean, f'Sstd_{labels_name[0]}': data_std,'Squant':data_qt})
-
-    return res_dict
+    return df_one
 
 def load_model(model_path, device):
     config = Config(None, None, save_files=False)
