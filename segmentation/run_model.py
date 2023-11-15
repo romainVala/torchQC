@@ -766,7 +766,8 @@ class RunModel:
             subject = torchio.Subject(
                 pred=torchio.LabelMap(
                     tensor=to_var(tensor, 'cpu'),
-                    affine=affine)
+                    affine=affine),
+                name=sample['name'][i]
             )
             transformed = self.post_transforms(subject)
             tensor = transformed['pred']['data']
