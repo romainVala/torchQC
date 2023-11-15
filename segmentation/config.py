@@ -781,6 +781,7 @@ class Config:
                     components = ref_images[img_name]['components']
                     for c in components:
                         if os.path.isfile(s[img_name][c]) is False:
+                            print(f'miMMMMMMssing s[img_name][c]')
                             missing_file.append(s[img_name][c])
                             image_exist = False
                 if image_exist is False:
@@ -1148,6 +1149,8 @@ class Config:
                     mmm = struct['model']
                     model_dict = torch.load(file)
                     mmm.load_state_dict(model_dict)
+                    ddd = struct['device']
+                    mmm.to(ddd) #put model in gpu
 
                 model.append(mmm)
                 model_name = ''
@@ -1171,6 +1174,21 @@ class Config:
                 print(f' But ask for {nb_out_wanted} nb output')
                 print(' CUTTING the HEAD and init weigths')
 
+            if False:
+                all_param = model.classifier.state_dict()
+                model_classifier = struct['model'].classifier
+                print(' Remmaping model output 7 TO 6')
+                all_param['block.0.bias'][2] = all_param['block.0.bias'][2] + all_param['block.0.bias'][6]
+                all_param['block.0.bias'][6] = all_param['block.0.bias'][7]
+                all_param['block.0.weight'][2,...] = all_param['block.0.weight'][2,...] + all_param['block.0.weight'][6,...]
+                all_param['block.0.weight'][6,...] = all_param['block.0.weight'][7,...]
+
+                all_param['block.0.bias'] = all_param['block.0.bias'][:nb_out_wanted]
+                all_param['block.0.weight'] = all_param['block.0.weight'][:nb_out_wanted,...]
+                #torch.nn.init.xavier_uniform(all_param['block.0.weight'] )
+                model_classifier.load_state_dict(all_param)
+                model.classifier = model_classifier
+                model.net_parameters['out_classes'] = nb_out_wanted
             if hack_weigths:
                 all_param = model.classifier.state_dict()
                 model_classifier = struct['model'].classifier
