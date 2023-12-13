@@ -965,6 +965,11 @@ class RunModel:
                     info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
                         predictions[idx, channel].sum() * voxel_size
                     )
+                from segmentation.losses.dice_loss import Dice
+                ddd = Dice()
+                mettt = ddd.all_dice_loss(predictions,targets)
+                dice_train = {lll:mmm.cpu().numpy() for lll,mmm in zip(self.labels, mettt)}
+                info['train_dice'] = dice_train
 
             if location is not None:
                 info['location'] = to_numpy(location[idx])
