@@ -781,7 +781,7 @@ class Config:
                     components = ref_images[img_name]['components']
                     for c in components:
                         if os.path.isfile(s[img_name][c]) is False:
-                            print(f'miMMMMMMssing s[img_name][c]')
+                            print(f'miMMMMMMssing {s[img_name][c]}')
                             missing_file.append(s[img_name][c])
                             image_exist = False
                 if image_exist is False:
@@ -1098,7 +1098,7 @@ class Config:
                 m.to(device)
 
             input_shape = self.patch_size or struct['input_shape']
-            if input_shape is not None:
+            if False : #todo bug with UNETR make it crash input_shape is not None:
                 summary, _ = summary_string(model, (1, *input_shape),
                                             self.batch_size, device)
                 self.log('Model summary:')
