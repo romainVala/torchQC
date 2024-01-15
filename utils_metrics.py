@@ -13,7 +13,7 @@ from segmentation.collate_functions import history_collate
 from segmentation.utils import to_numpy
 
 from monai.metrics import compute_hausdorff_distance, compute_average_surface_distance #warning cpu metrics
-from monai.metrics import compute_confusion_matrix_metric, get_confusion_matrix, compute_meandice, compute_generalized_dice
+from monai.metrics import compute_confusion_matrix_metric, get_confusion_matrix, DiceHelper, compute_generalized_dice
 
 from skimage.measure import euler_number, label
 
@@ -276,10 +276,10 @@ def binarize_5D(data, add_extra_to_class=None):
 
 def computes_all_metric(prediction, target, labels_name, indata=None, selected_label=None,
                         selected_lab_mask=None, lab_mask_name=None, verbose=True, distance_metric=False,
-                        euler_metric=False):
+                        euler_metric=False, volume_metric=False, confu_metric=False):
 
     prediction_bin = met_overlay.binarize(prediction)
-
+    #print(f'volume is {volume_metric}')
     mask = None
 
     if selected_label is not None:
@@ -304,10 +304,19 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
     start = timer()
 
     #dd = metric_dice(prediction_bin, target)
-    dd_dice = compute_meandice(prediction_bin,target, include_background=True)
-    df_one = pd.DataFrame()
-    for kk, llname in enumerate(labels_name):
-        df_one[f'dice_{llname}'] = dd_dice[:,kk]
+    # other option from monai is :
+    # metric = DiceMetric(include_background=True, reduction="none", get_not_nans=False)
+    # res = metric(y_pred=prediction_bin, y=target)
+
+    dd_dice, not_nan = DiceHelper(include_background=True, softmax=False)(prediction_bin,target)
+    col_name = [f'dice_{ss}' for ss in labels_name]
+    df_one = pd.DataFrame([dd_dice.numpy()], columns=col_name)
+
+    if volume_metric:
+        for kk, llname in enumerate(labels_name):
+            target_vol = target[:, kk, ...].sum().numpy()
+            df_one[f'vol_targ_{llname}'] = target_vol
+            df_one[f'vol_pred_ration{llname}'] = prediction[:, kk, ...].sum().numpy() / target_vol
 
     #arg todo metric_dice without batch reduction
     #dd = metric_dice(prediction, target)
@@ -342,11 +351,12 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
 
         res_dict.update(dd)
 
-    resConfu = get_confusion_matrix(prediction_bin, target)
-    for ii,mmm in enumerate(confu_met):
-        dd_confu = compute_confusion_matrix_metric(mmm,resConfu)
-        for kk, llname in enumerate(labels_name):
-            df_one[f'{confu_met_names[ii]}_{llname}'] = dd_confu[:,kk].numpy()
+    if confu_metric:
+        resConfu = get_confusion_matrix(prediction_bin, target)
+        for ii,mmm in enumerate(confu_met):
+            dd_confu = compute_confusion_matrix_metric(mmm,resConfu)
+            for kk, llname in enumerate(labels_name):
+                df_one[f'{confu_met_names[ii]}_{llname}'] = dd_confu[:,kk].numpy()
 
             #res_dict.update({f'{confu_met_names[ii]}_{k}': float(v) for k, v in zip(labels_name, batch_confu)})
 
@@ -390,9 +400,9 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
             # res_dict.update( {f'haus_{k}':float(v) for k,v in zip(labels_name, dd[0])} )
         except:
             print('distand failed')
-    if verbose:
-        print(f'Computed distance metric in {timer()-start}')
-        start = timer()
+        if verbose:
+            print(f'Computed distance metric in {timer()-start}')
+            start = timer()
 
     if indata is not None:
         df_sig = pd.DataFrame()
