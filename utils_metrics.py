@@ -274,7 +274,8 @@ def display_res2(resdir, doit=False):
 def binarize_5D(data, add_extra_to_class=None):
     return  met_overlay.binarize(data, add_extra_to_class=add_extra_to_class)
 
-def compute_metric_from_list(f1_list,f2_list,sujname_list, labels_name, selected_label):
+def compute_metric_from_list(f1_list,f2_list,sujname_list, labels_name, selected_label,
+                             distance_metric=False,euler_metric=False, volume_metric=False, confu_metric=False ):
     df = pd.DataFrame()
     thot = tio.OneHot()
 
@@ -285,11 +286,13 @@ def compute_metric_from_list(f1_list,f2_list,sujname_list, labels_name, selected
 
         prediction = i1.data.unsqueeze(0)
         target = i2.data.unsqueeze(0)
-        if prediction.shape[1]> len(selected_label): #quick hack to compare only in sel label (todo for target)
+        if prediction.shape[1]> len(selected_label): #quick hack to compare only in sel label (which supposed here to be the first ones)
             prediction = prediction[:, :len(selected_label), ...]
+        if target.shape[1]> len(selected_label):
+            target = target[:, :len(selected_label), ...]
 
         df_one = computes_all_metric(prediction, target, labels_name, selected_label=selected_label,
-                                     volume_metric=True)
+                                     volume_metric=volume_metric, distance_metric=distance_metric, euler_metric=euler_metric, confu_metric=confu_metric)
         df_one['sujname'] = sujname
         df_one['volume_pred'] = f1; df_one['volume_targ'] = f2
 
