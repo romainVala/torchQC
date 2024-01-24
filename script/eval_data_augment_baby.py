@@ -1,6 +1,7 @@
 
 import torch,numpy as np,  torchio as tio
 from utils_metrics import get_tio_data_loader, predic_segmentation, load_model
+from utils_file import gfile
 from timeit import default_timer as timer
 import json, os, seaborn as sns
 
@@ -30,6 +31,9 @@ nb_test_transform = 0
 fsuj_csv = pd.read_csv('/data/romain/baby/suj_hcp_10oldest_lustre.csv')
 fsuj_csv = pd.read_csv('/data/romain/baby/suj_hcp_76_T1T2_local.csv')
 t1_column_name = "vol_T2"; label_column_name = "label_name"; sujname_column_name = "sujname"
+t1_column_name = "vol_T2_sc"; label_column_name = "label_name_sc"; sujname_column_name = "sujname"
+
+
 #fsuj_csv = pd.read_csv('/data/romain/baby/suj_hcp_30oldest_lustre.csv')
 #fsuj_csv = pd.read_csv('/data/romain/baby/marseille/file_5suj_GT.csv')
 #fsuj_csv = pd.read_csv('/data/romain/baby/marseille/file_12suj.csv')
@@ -63,6 +67,8 @@ models.append(model_dir + 'bin_dseg9_5suj_midaMotion_fromdir/results_cluster_fro
 #models.append(model_dir +''); model_name.append('')
 #models.append(model_dir +''); model_name.append('')
 #
+models = gfile('/data/romain/PVsynth/training/bin_dseg9_15suj/results_le70_mot_from_iWM_thin_SC_ep30', 'model_ep[468]_')+gfile('/data/romain/PVsynth/training/bin_dseg9_15suj/results_le70_mot_from_iWM_thin_SC_ep30', 'model_ep[123]0_')
+model_name = ['mot_from_iWM_thin_SC_ep3' + mm[90:95] for mm in models]
 for mm in models:
     if not os.path.exists(mm):
         print(f'WARNING model {mm} does not exist ')
@@ -95,9 +101,14 @@ if not os.path.exists(result_dir):
 
 df = pd.DataFrame()
 
+only_first_suj = 20
+
 for nb_model, model_path in enumerate(models):
     model = load_model(model_path, device)
+    sujn = 0;
     for suj in tio_data:
+        if sujn>only_first_suj:
+            break
         suj_name = suj.name if isinstance(suj,tio.Subject) else suj["name"][0]
         print(f'Suj {suj_name}')
 
@@ -112,7 +123,7 @@ for nb_model, model_path in enumerate(models):
 
         df = predic_segmentation(suj, model, df, res_dict, device, labels_name, selected_label=selected_label,
                                  out_dir=result_dir, save_data=save_data)
-
+        sujn+=1
 #df.to_csv(f'res_all_metric_hcp80_2model_mot.csv')
 
 df.to_csv(f'res_{resname}.csv')
