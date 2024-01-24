@@ -375,6 +375,17 @@ def addprefixtofilenames(file_names,prefix):
         fout.append(basdir + '/' + prefix + fn)
     return fout
 
+def r_move_file(fin,fout, type='link'):
+    if isinstance(fout,str):
+        if os.path.isdir(fout):
+            fout = [fout + "/" + os.path.basename(ff) for ff in fin]
+
+    for fi,fo in zip(fin,fout):
+        if os.path.isfile(fo):
+            print(f'out exist {fo}')
+        else:
+            os.symlink(fi,fo)
+
 
 def get_parent_path(fin,level=1, remove_ext=False):
 
