@@ -1,25 +1,38 @@
 import torchio as tio
-from utils_file import get_parent_path, gfile, gdir
-import torch
+from utils_file import get_parent_path, gfile, gdir, addprefixtofilenames
+import torch, os, pandas as pd
+suj = gdir('/network/lustre/iss02/opendata/data/baby/devHCP/rel3_dhcp_anat_pipeline',['.*','ses','ana'])
+ff = gfile(suj,'^sub.*[1234567890]_T1w.*nii')
+suj = get_parent_path(ff)[0]
 
-suj = gdir('/data/romain/baby/training_suj',['.*','ses','ana'])
-fsurf = gfile(suj,'pv')
+#suj = gdir('/data/romain/baby/training_suj',['.*','ses','ana'])
 thot = tio.OneHot()
-ind_sel=[4, 5, 6, 7, 8]
+thotinv = tio.OneHot(invert_transform=True)
+ind_sel=[0, 4, 5, 6, 7, 8, 9 ]  #new after training remove also hypocamp and background voxels
 
-for onesuj in suj:
+for ind_suj, onesuj in enumerate(suj):
+    if os.path.isfile(onesuj+'/binPVlabel.nii.gz'):
+        print(f'SKIP binPVlabel exist for {onesuj}')
+        continue
+
     fpv_gm = gfile(onesuj,'pial.*pv')
     fpv_wm = gfile(onesuj,'wm.*pv')
+    if ( len(fpv_wm)==0 ) | ( len(fpv_gm)==0):
+        print(f'SKIP FAILLURE TOBLERONE FOR {onesuj}')
+        continue
+
     fseg = gfile(onesuj, '^nw.*drawem.*thin')
+    fseg = gfile(onesuj, '^sub.*-drawem9.*nii')
 
     tsuj = tio.Subject({'gml':tio.ScalarImage(fpv_gm[0]),'gmr':tio.ScalarImage(fpv_gm[1]),
                         'wml':tio.ScalarImage(fpv_wm[0]),'wmr':tio.ScalarImage(fpv_wm[1]),
                         'seg': tio.LabelMap(fseg[0])})
+
     tsuj = thot(tsuj)
     
     WMdata = tsuj.wml.data + tsuj.wmr.data
     GMfull = tsuj.gml.data + tsuj.gmr.data 
-    dseg= tsuj.seg.data
+    dseg= tsuj.seg.data.type(torch.float32)
 
     GMdata = GMfull- WMdata
     GMdata[GMdata<0] = 0 #do not know why there are negative value from toblerone ...
@@ -29,9 +42,10 @@ for onesuj in suj:
     #remove dseg intersection with WM
     din =   dseg[[4],...] + dseg[[5],...] + dseg[[6],...]+ dseg[[7],...]+ dseg[[8],...] + dseg[[9],...]
     WMdata[din>0] = 0
-    skullWM = dseg[[11], ...] * WMdata
-    skullWM[skullWM>0] = 0
-    dseg[11] = skullWM[0]
+    if dseg.shape[0]>11:
+        skullWM = dseg[[11], ...] * WMdata
+        skullWM[skullWM>0] = 0
+        dseg[11] = skullWM[0]
 
     #remove dseg intersection with CSF
     CSF = 1 - GMfull
@@ -65,8 +79,12 @@ for onesuj in suj:
     
     tsuj.GM.save(onesuj+'/GM.nii.gz');    tsuj.WM.save(onesuj+'/WM.nii.gz');    tsuj.CSF.save(onesuj+'/CSF.nii.gz')
     tsuj.seg.save(onesuj+'/PVlabel.nii.gz')
-    print(f'DONE {onesuj} ')
+    tsuj = thotinv(tsuj)
+    tsuj.seg.save(onesuj+'/binPVlabel.nii.gz')
     print(f'LABEL PV sum min {dseg.sum(axis=0).min()} max {dseg.sum(axis=0).max()}')
+    if dseg.sum(axis=0).max()>1.1:
+        print('ERROR pv sum')
+    print(f'DONE {onesuj}  {ind_suj} / {len(suj)}')
 
     
 nw drawem9
@@ -92,4 +110,53 @@ nerve,15
 skin,16
 skull,17
 vessel,18
+
+import torchio as tio
+from utils_file import get_parent_path, gfile, gdir
+import torch
+import os
+
+
+suj = gdir('/data/romain/baby/training_suj',['.*','ses','ana'])
+f4D = gfile(suj,'scaleI1_iWMPVlabel.nii.gz')
+fdseg = gfile(suj,'^sub.*desc-drawem9_d')
+thot = tio.OneHot(invert_transform=True)
+tmap = tio.RemapLabels(remapping={"0": 0,  "1": 1, "2": 2,  "3": 3, "4": 4,  "5": 5, "6": 6, "7": 7, "8": 8, "9": 9,
+				    "10": 10,"11": 11,"12": 12,"13": 13,"14": 14,"15": 15,"16": 16,"17": 17,"18": 18, "19": 3,    "20": 3})
+transfo = tio.Compose([tmap, thot])
+for ii, onesuj in enumerate(suj):
+    print(ii)
+    tsuj = tio.Subject({'pv':tio.LabelMap(f4D[ii])})
+
+    tsuj = transfo(tsuj)
+    fn = '/scaleI1_labelPV_' + os.path.basename(fdseg[ii])
+    tsuj.pv.data = tsuj.pv.data.type(torch.int32) # = torch.int16(tsuj.pv.data)
+
+    tsuj.pv.save(suj[ii]+fn)
+
+
+#make target label for em_synth_label
+suj = gdir('/data/romain/baby/training_suj_synthseg/res_em','^[345]')
+suj=gdir('/data/romain/baby/training_suj_synthseg/res_em',['^[345]','^[23]'])
+
+flab = gfile(suj,'^s')
+fout = addprefixtofilenames(flab,'target_')
+
+for fin, fo in zip(flab, fout):
+
+    i = tio.LabelMap(fin)
+    i.data[i.data>9] = 4;
+    i.save(fo)
+    print(f'wrotten {fo}')
+
+fem = gfile(suj,'^scale')
+fta = gfile(suj,'^target')
+
+#only once, then mv by hand in target dir
+restarget = '/data/romain/baby/training_suj_synthseg/target9/'
+fname = get_parent_path(flab)[1]
+fta = addprefixtofilenames(fname, restarget)
+df=pd.DataFrame();  df['emBG_label'] = flab; df['target_label9'] = fta
+df['sujname'] = [f'suj{i}' for i in range(90)]
+df.to_csv('rrr')
 
