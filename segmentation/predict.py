@@ -41,6 +41,8 @@ if __name__ == '__main__':
     parser.add_argument('-bs','--Patch_batch_size', type=int, default=4,
                         help='batch size for the patch loader ')
     parser.add_argument('-sp', '--save_4D', type=bool, default=False, help='If True, generate 4D pred ')
+    parser.add_argument('-bc','--BiggestComp', type=int, default=0,nargs='+',
+                        help='batch size for the patch loader ')
 
 
     args = parser.parse_args()
@@ -50,6 +52,7 @@ if __name__ == '__main__':
     patch_overlap = args.PatchOverlap
     batch_size = args.Patch_batch_size
     save_4D = args.save_4D
+    save_biggest_comp = args.BiggestComp
 
     volume = torchio.ScalarImage(path=args.volume)
     tscale = torchio.RescaleIntensity(out_min_max=(0,1), percentiles=(0,99))
@@ -102,6 +105,7 @@ if __name__ == '__main__':
             pp = F.softmax(prediction[0, :-nb_vol_exclude, ...].unsqueeze(0), dim=1)
             prediction[0, :-nb_vol_exclude, ...] = pp[0]
         else:
+            #print('WITH SOFTMAX')
             prediction = F.softmax(prediction, dim=1)
 
     else:
@@ -117,19 +121,35 @@ if __name__ == '__main__':
             with torch.no_grad():
                 predictions = model(one_patch['t1']['data'].float().to(device))
             predictions = F.softmax(predictions, dim=1)
+            #predictions = F.log_softmax(predictions, dim=1) #JUST FOR TRAINING ?
             locations = one_patch[torchio.LOCATION]
             aggregator.add_batch(predictions.to('cpu'), locations)  #if keept on gpu I do not uderstand memory goes up
 
         prediction = aggregator.get_output_tensor().unsqueeze(0)
         print('model estimation done')
 
+    prediction = to_numpy(prediction)
+
+    if save_biggest_comp:
+        print(f'Biggest comp on {save_biggest_comp}')
+        from segmentation.utils import get_largest_connected_component
+        import numpy as np
+
+        #find label index
+        volume_mask = prediction > 0.5 #billot use 0.25 ... why so big ?
+        for i_label in save_biggest_comp:
+            tmp_mask = get_largest_connected_component(volume_mask[:, i_label, ...])
+            prediction[:, i_label, ...] *= tmp_mask
+        #renomalize posteriors todo what if sum over proba is null after connected compo ... ?
+        # if np.sum() == 0
+        prediction /= np.sum(prediction, axis=1)[:,np.newaxis,...]
 
 
     #image = nib.Nifti1Image(
     #    to_numpy(prediction[0].permute(1, 2, 3, 0)),
     #    volume.affine
     #)
-    suj_pred = torchio.Subject(pred=torchio.LabelMap(tensor=to_numpy(prediction[0]), affine=volume.affine) )
+    suj_pred = torchio.Subject(pred=torchio.LabelMap(tensor=prediction[0], affine=volume.affine) )
 
     if orig_shape:
         suj_pred = tback(suj_pred)
@@ -139,7 +159,8 @@ if __name__ == '__main__':
         out_filename += '.nii.gz'
 
     if save_4D:
-        print(f'saving {out_filename}')
+        print(f'saving {out_filename} threshold 0.01')
+        suj_pred.pred.data[suj_pred.pred.data<0.01] = 0
         suj_pred.pred.save(out_filename)
         #nib.save(image, args.filename)
 
