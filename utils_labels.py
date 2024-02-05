@@ -19,7 +19,7 @@ def get_image_as_numpy(mask):
 
 def get_mask_external_broder(mask_in):
 
-    mask, return_tensor, return_image = get_image_as_numpy(mask_in)
+    mask, return_image, return_tensor = get_image_as_numpy(mask_in)
 
     mask_bin = np.zeros_like(mask)
     mask_bin[mask>0] = 1
