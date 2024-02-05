@@ -491,6 +491,11 @@ def gfile(dirs,regex,opts={"items":-1}):
     finaldirs=gfile(finaldirs,regex[-1],opts)
     return finaldirs
 
+
+def delete_file_list(ff):
+    for file in ff:
+        os.remove(file)
+
 def get_log_file(filename=None):
     import logging, sys
 
