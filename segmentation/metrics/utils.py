@@ -6,7 +6,7 @@ class MetricOverlay:
     def __init__(self, metric, channels=None, mask=None, mask_cut=(0.99, 1),
                  binarize_target=False, activation=None, binary_volumes=False,
                  binarize_prediction=False, band_width=None, use_far_mask=False,
-                 mixt_activation=0, additional_learned_param=None, mask_reduce=False):
+                 mixt_activation=0, skip_activation=False, additional_learned_param=None, mask_reduce=False):
         self.metric = metric
         self.channels = channels
         self.mask = mask
@@ -22,6 +22,7 @@ class MetricOverlay:
         self.band_width = band_width
         self.use_far_mask = use_far_mask
         self.mixt_activation = mixt_activation
+        self.skip_activation = skip_activation
         self.additional_learned_param = additional_learned_param
         self.mask_reduce = mask_reduce
 
@@ -95,23 +96,26 @@ class MetricOverlay:
                 target = F.one_hot(target[:, 0, ...].long()) \
                     .permute(0, 4, 1, 2, 3).float()
 
-        # if self.activation is not None:
-        #     if self.mixt_activation:
-        #         pred_seg = self.activation(prediction[:,:-self.mixt_activation,...])
-        #         pred_reg = prediction[:,-self.mixt_activation:,...]
-        #         prediction = [pred_seg, pred_reg]
-        #         target_seg = target[:,:-self.mixt_activation,...]
-        #         target_reg = target[:,-self.mixt_activation:,...]
-        #         target = [target_seg, target_reg]
-        #         # torch.cat( (self.activation(pred_with_act), pred_no_act), dim=1)
-        #         #print(f'shape {pred_no_act.shape} and {pred_with_act.shape} and {prediction.shape}')
-        #     elif self.sigma_prediction>0:
-        #         prediction_seg = self.activation(prediction[:, :-self.sigma_prediction, ...])
-        #         prediction = [prediction_seg, prediction[:, -self.sigma_prediction:, ...]]
-        #         #print(f"shape pred i {prediction.shape}")
-        #
-        #     else:
-        #         prediction = self.activation(prediction)
+        if self.activation is not None:
+            if self.mixt_activation:
+                pred_seg = self.activation(prediction[:,:-self.mixt_activation,...])
+                pred_reg = prediction[:,-self.mixt_activation:,...]
+                prediction = [pred_seg, pred_reg]
+                target_seg = target[:,:-self.mixt_activation,...]
+                target_reg = target[:,-self.mixt_activation:,...]
+                target = [target_seg, target_reg]
+                # torch.cat( (self.activation(pred_with_act), pred_no_act), dim=1)
+                #print(f'shape {pred_no_act.shape} and {pred_with_act.shape} and {prediction.shape}')
+            #elif self.sigma_prediction>0:
+            #    prediction_seg = self.activation(prediction[:, :-self.sigma_prediction, ...])
+            #    prediction = [prediction_seg, prediction[:, -self.sigma_prediction:, ...]]
+                #print(f"shape pred i {prediction.shape}")
+            else:
+                if self.skip_activation is False:
+                    prediction = self.activation(prediction)
+                    #print('Actttttivvva')
+
+
 
         if self.binarize_target:
             target = self.binarize(target)

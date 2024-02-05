@@ -187,6 +187,21 @@ class RunModel:
             targets = to_var(targets[torchio.DATA].float(), self.device, self.no_blocking)
         return volumes, targets
 
+    def get_segmentation_data2D(self, sample):
+        volumes = sample[self.image_key_name]
+        volumes = to_var(volumes[torchio.DATA].float(), self.device, self.no_blocking)
+
+        targets = None
+        if self.label_key_name in sample:
+            targets = sample[self.label_key_name]
+            targets = to_var(targets[torchio.DATA].float(), self.device, self.no_blocking)
+
+        # for target take the midel class
+        targets = targets[..., targets.shape[-1]//2]
+        #take the 2n+1 slice as channell dimension
+        volumes = torch.squeeze(torch.permute(volumes, [0,4,2,3,1]))
+        return volumes, targets
+
     def get_segmentation_data_and_regress_key(self, sample, regress_key):
         volumes = sample[self.image_key_name]
         volumes = to_var(volumes[torchio.DATA].float(), self.device, self.no_blocking)
@@ -463,19 +478,19 @@ class RunModel:
             if eval_dropout:
                 self.model.enable_dropout()
                 if self.split_batch_gpu and self.batch_size > 1:
-                    predictions_dropout = [torch.cat([self.activation(self.model(v.unsqueeze(0))) for v in volumes])
+                    predictions_dropout = [torch.cat([self.model(v.unsqueeze(0)) for v in volumes])
                                            for ii in range(0, eval_dropout)]
                 else:
-                    predictions_dropout = [self.activation(self.model(volumes)) for ii in range(0, eval_dropout)]
+                    predictions_dropout = [self.model(volumes) for ii in range(0, eval_dropout)]
                 predictions = torch.mean(torch.stack(predictions_dropout), axis=0)
             else:
                 if self.split_batch_gpu and self.batch_size > 1: #usefull, when using ListOf transform that pull sample in batch to avoid big full volume batch in gpu
-                    predictions = torch.cat([self.activation(self.model(v.unsqueeze(0))) for v in volumes])
+                    predictions = torch.cat([self.model(v.unsqueeze(0)) for v in volumes])
                 else:
                     if isinstance(self.model, list):
-                        predictions = [self.activation(mmm(volumes)) for mmm in self.model]
+                        predictions = [mmm(volumes) for mmm in self.model]
                     else:
-                        predictions = self.activation(self.model(volumes))
+                        predictions = self.model(volumes)
 
             if eval_dropout:
                 predictions_dropout = [self.apply_post_transforms(pp, sample)[0] for pp in predictions_dropout]
@@ -797,6 +812,11 @@ class RunModel:
 
         save_checkpoint(state, self.results_dir, self.model)
 
+    def record_none(self, df, sample, predictions, targets,
+                                  batch_time, save=False, csv_name='eval', append_in_df=False, model_name='model'):
+
+        return df, 0
+
     def record_simple(self, df, sample, predictions, targets,
                                   batch_time, save=False):
 
@@ -963,11 +983,11 @@ class RunModel:
                        targets[idx, channel].sum() * voxel_size
                     )
                     info[f'predicted_occupied_volume_{suffix}'] = to_numpy(
-                        predictions[idx, channel].sum() * voxel_size
+                        self.activation(predictions)[idx, channel].sum() * voxel_size
                     )
                 from segmentation.losses.dice_loss import Dice
                 ddd = Dice()
-                mettt = ddd.all_dice_loss(predictions,targets)
+                mettt = ddd.all_dice_loss(self.activation(predictions),targets)
                 dice_train = {lll:mmm.cpu().numpy() for lll,mmm in zip(self.labels, mettt)}
                 info['train_dice'] = dice_train
 
@@ -1019,8 +1039,7 @@ class RunModel:
             info['reporting_time'] = reporting_time
             start = time.time()
 
-            self.record_history(info, sample, idx)
-
+            #self.record_history(info, sample, idx)
             df = pd.concat([df, pd.DataFrame([info])], ignore_index=True)
 
         if self.log_on_tensorboard is True:
@@ -1402,7 +1421,8 @@ class RunModel:
                 if self.eval_csv_basename is not None:
                     csv_name = self.eval_csv_basename + '_' + csv_name #if repeate_eval the val loop change eval_csv_basename
                 filename = f'{resdir}/{csv_name}'
-        df = df.drop(columns=["history"])
+        if "history" in df:
+            df = df.drop(columns=["history"])
         df.to_csv(filename+".csv")
 
     def sample_list_to_batch(self,sample):
