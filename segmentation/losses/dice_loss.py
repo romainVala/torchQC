@@ -266,22 +266,60 @@ class Dice:
         self.cut = cut
         self.smooth = smooth
 
+    def single_dice_loss(self,prediction, target):
+        input_flat = prediction.contiguous().view(-1)
+        target_flat = target.contiguous().view(-1)
+        intersection = (input_flat * target_flat).sum()
+        one_vol_dice = 1 - ((2. * intersection + self.smooth) /
+                            (input_flat.pow(2).sum() + target_flat.pow(2).sum()
+                             + self.smooth))
+        return one_vol_dice
+
     def dice_loss(self, predictions, targets):
         #warning, flating all predictions and target and computing one dice score, is not equivalent to
-        # averaging dice scores obtain on each volume ...
+        # averaging dice scores obtain on each volume ... same for the label, this function is called label by label
+        # if predictions.dim() != 4:
+        #     print('error this function should be called with 4D tensor (average on the first dim) ') #not if 2D inputs ...
+        #     stop_please_at_dice_loss
         nb_vol = predictions.shape[0] #btach dimension
         res = 0
         for num_vol in range(0, nb_vol ):
             prediction, target = predictions[num_vol], targets[num_vol]
-            target = target.float()
-            prediction = prediction.float()
-            input_flat = prediction.contiguous().view(-1)
-            target_flat = target.contiguous().view(-1)
-            intersection = (input_flat * target_flat).sum()
-            one_vol_dice =  1 - ((2. * intersection + self.smooth) /
-                        (input_flat.pow(2).sum() + target_flat.pow(2).sum()
-                         + self.smooth))
+            target, prediction = target.float(), prediction.float()
+
+            one_vol_dice = self.single_dice_loss(prediction, target)
             res += one_vol_dice
+        res = res / nb_vol
+        return res
+
+    def weighted_bgfg_dice_medhi(self, predictions, targets):
+        # warning, flating all predictions and target and computing one dice score, is not equivalent to
+        # averaging dice scores obtain on each volume ...
+        nb_vol = predictions.shape[0]  # btach dimension
+        res = 0
+        for num_vol in range(0, nb_vol):
+            prediction, target = predictions[num_vol], targets[num_vol]
+            target, prediction = target.float(), prediction.float()
+
+            nb_label = prediction.shape[0]
+            dice_all = 0
+            for num_label in range(nb_label):  # loop over label
+                target_label = target[num_label]
+                target_label_bg = abs(1 - target_label)
+                prediction_label = prediction[num_label]
+                prediction_label_bg = abs(1 - prediction_label)
+
+                volume_fg = target_label.sum()
+                volume_bg = target_label_bg.sum()
+                volume_tot = volume_fg + volume_bg
+
+                dice_fg = self.single_dice_loss(prediction_label, target_label)
+                dice_bg = self.single_dice_loss(prediction_label_bg, target_label_bg)
+                #average divided by 3 to take into account the weights or just 2 for an average
+                dice_all += ( dice_fg * (1 + (volume_bg / volume_tot)) + dice_bg * (1 + (volume_fg / volume_tot)) ) / 2
+
+            dice_all /= nb_label
+            res += dice_all
         res = res / nb_vol
         return res
 
