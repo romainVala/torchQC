@@ -6,6 +6,21 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from utils_file import get_parent_path
+import torch,numpy as np,  torchio as tio
+from utils_metrics import compute_metric_from_list #get_tio_data_loader, predic_segmentation, load_model, computes_all_metric
+from timeit import default_timer as timer
+import json, os, seaborn as sns
+from utils_file import gfile, gdir, get_parent_path, addprefixtofilenames
+import pandas as pd
+from nibabel.viewers import OrthoSlicer3D as ov
+from utils_labels import remap_filelist, get_fastsurfer_remap
+import matplotlib.pyplot as plt
+plt.interactive(True)
+sns.set_style("darkgrid")
+pd.set_option('display.max_rows', 500)
+pd.set_option('display.max_columns', 500)
+pd.set_option('display.width', 1000)
+import colorcet as cc
 
 def smooth(y, box_pts):
     box = np.ones(box_pts)/box_pts
@@ -41,6 +56,65 @@ def report_df_col(df, col_list, info_title=''):
         plt.plot(aa)
         aas = smooth(aa,20)
         plt.plot(aas)
+
+def report_training(results_dir, save=False, sort_time=False):
+    #01 2024 let s redo with panda, so that on can easily get every thing
+    files = glob.glob(results_dir + '/Train_ep*.csv')
+    if sort_time:
+        files.sort(key=os.path.getmtime)
+    else:
+        files.sort()  #alpha numeric order
+
+    df = pd.concat([pd.read_csv(file, index_col=0) for file in files])
+    df['iter'] = np.array(range(len(df)))
+
+    if 'train_dice' in df.keys():
+        if 'array' in df.train_dice.values[0]:
+            df.train_dice.replace({'array\(':'',', dtype=float32\)':''}, inplace=True,regex=True)
+        df["train_dice"] = df.train_dice.apply(lambda s: eval(s)) #string to dict
+        df["train_dice"] = df.train_dice.apply(lambda s: { 'dice_'+k:v for k,v in s.items()}  )
+        df = pd.concat([df, df['train_dice'].apply(pd.Series)], axis=1)
+    #let say one epoch is 1000 volume (lines in df)
+    dfg = df.groupby(np.arange(len(df)) // 1000)
+    dfg_mean, dfg05, dfg95 = dfg.mean(),  dfg.quantile(q=0.05),  dfg.quantile(q=0.95)
+
+    #training loss
+    fig = plt.figure('training_los')
+    plt.plot(dfg_mean.loss, color='b', label='mean'); plt.plot(dfg05.loss, '--', color='b'); plt.plot(dfg95.loss, '--', color='b', label='0.05 and 0.95 quantile')
+    plt.legend(); plt.title('training_loss')
+    plt.savefig(results_dir + '/training_loss.jpg');
+
+    #dice order
+    ymet=[]
+    for k in df.keys():
+        if 'dice_' in k:
+            ymet.append(k)
+    last_dic = {k: round(dfg_mean.iloc[-1,:][k]*100)/100 for k in ymet}
+    last_dic = dict(sorted(last_dic.items(), key=lambda item: item[1],reverse=True))
+    horder = [k for k in last_dic.keys()]; legend_hue = [f'{k}={v}' for k,v in last_dic.items()]
+    dfmm = dfg_mean.melt(id_vars=[ 'iter'], value_vars=ymet, var_name='metric', value_name='dice')
+    #fig = sns.catplot(data=dfmm,x='metric',y='y',kind="boxen")
+    palette = sns.color_palette(cc.glasbey, n_colors=len(ymet))
+    fig = sns.relplot(data=dfmm,hue='metric',y='dice',x='iter',kind='line', hue_order = horder, height=5,
+                      palette=palette,aspect=3)
+    for t, l in zip(fig._legend.texts, legend_hue):
+        t.set_text(l)
+    plt.savefig(results_dir + '/training_label_dice_loss.jpg');
+
+    #volume métric on the first 6 epochs
+    dfs = df.iloc[:2000].copy()
+    dfs["epochs"] = [(k//1000)+1  for k in range(2000)]
+    ymet=[]
+    for k in df.keys():
+        if  k.startswith('occupied_volume'):
+            ymet.append(k)
+    dfmm = (dfs/dfs.mean()).melt(id_vars=[ 'iter','epochs'], value_vars=ymet, var_name='metric', value_name='targetVol')
+    dfmm.metric.replace({'occupied_volume': 'V'}, inplace=True, regex=True)
+
+    fig = sns.catplot(data=dfmm,x='metric',y='targetVol',kind="violin", col='epochs', height=5, aspect=3,col_wrap=1)
+    #fig = sns.relplot(data=dfmm,hue='metric',y='dice',x='iter',kind='line', height=5, aspect=3)
+    #fig = sns.histplot(data=dfmm,hue='metric',x='dice', height=5, aspect=3)
+    plt.savefig(results_dir + '/label_volume_2_epoch.jpg');
 
 
 def report_learning_curves(results_dirs, save=False, sort_time=False):
