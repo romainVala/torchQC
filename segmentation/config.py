@@ -535,6 +535,8 @@ class Config:
 
         if struct['device'] == 'cuda' and torch.cuda.is_available():
             struct['device'] = torch.device('cuda')
+            #print('CUDAAA DEVICEEE 1')
+            #torch.cuda.set_device(1)
         else:
             struct['device'] = torch.device('cpu')
 
@@ -1100,27 +1102,33 @@ class Config:
                 m.to(device)
 
             input_shape = self.patch_size or struct['input_shape']
-            if False : #todo bug with UNETR make it crash input_shape is not None:
+            #if False : #todo bug with UNETR make it crash input_shape is not None:
+            try :
                 summary, _ = summary_string(model, (1, *input_shape),
                                             self.batch_size, device)
                 self.log('Model summary:')
                 self.log(summary)
+                self.log('MMMMMMMModel parameters: {}'.format(sum([x.nelement() for x in model.parameters()])))
 
-                try:
-                    import hiddenlayer as hl
-                    if device.type=='cuda': #torch.cuda.is_available():
-                        g = hl.build_graph(model,
-                                           torch.rand((1, 1, *input_shape)).cuda(),
-                                           transforms=None)
-                    else:
-                        g = hl.build_graph(model, torch.rand((1, 1, *input_shape)),
-                                           transforms=None)
-                    #g.save(join(self.output_folder, "network_architecture.pdf"))
-                    g.save( "network_architecture.pdf")
-                    del g
-                except Exception as e:
-                    self.log("Unable to plot network architecture:")
-                    self.log(e)
+            except Exception as e:
+                self.log("Unable to print model summay:")
+                self.log(e)
+
+            try:
+                import hiddenlayer as hl
+                if device.type=='cuda': #torch.cuda.is_available():
+                    g = hl.build_graph(model,
+                                       torch.rand((1, 1, *input_shape)).cuda(),
+                                       transforms=None)
+                else:
+                    g = hl.build_graph(model, torch.rand((1, 1, *input_shape)),
+                                       transforms=None)
+                #g.save(join(self.output_folder, "network_architecture.pdf"))
+                g.save( "network_architecture.pdf")
+                del g
+            except Exception as e:
+                self.log("Unable to plot network architecture:")
+                self.log(e)
 
             return m, device
 
