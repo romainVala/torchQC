@@ -56,21 +56,21 @@ def get_mask_neighbor(mask_in, volume_label,label_csv):
         df_con = pd.DataFrame(ski.regionprops_table(mask_bin, properties=properties))
 
 
-def get_remap_from_csv(fin):
+def get_remap_from_csv(fin, index_col_in=0, index_col_remap=1):
     df = pd.read_csv(fin, comment='#')
     #dic_map= { r[0]:r[1]  for i,r in df.iterrows()}
     dic_map={}
     for i,r in df.iterrows():
-        if r[1]==r[1]: #remove nan
-            dic_map[r[0]] = r[1]
+        if r[index_col_remap]==r[index_col_remap]: #remove nan
+            dic_map[r[index_col_in]] = r[index_col_remap]
     #remap_keys = set(dic_map.keys())
     return tio.RemapLabels(remapping=dic_map)
 
 
 
-def get_fastsurfer_remap(faparc, fcsv = '/data/romain/template/free_remap.csv'):
+def get_fastsurfer_remap(faparc, fcsv = '/data/romain/template/free_remap.csv',index_col_in=0, index_col_remap=1):
 
-    tmap = get_remap_from_csv(fcsv)
+    tmap = get_remap_from_csv(fcsv, index_col_remap=index_col_remap, index_col_in=index_col_in)
     dic_map = tmap.remapping
     remap_keys = set(dic_map.keys())
     # complet gray matter labels
@@ -95,7 +95,37 @@ def check_remap(il, dic_map):
             print(f'WARNING no value for {ii}      AAAAAAAAAAAAAA')
 
 
-def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True):
+def resample_and_smooth4D(fin,fref, blur4D=0.5):
+
+    ilt = tio.LabelMap(fin)
+
+    thot = tio.OneHot();
+    thoti = tio.OneHot(invert_transform=True)
+    if blur4D > 0:
+        ts = tio.Blur(std=blur4D)
+
+    tresample = tio.Resample(target=fref, image_interpolation='bspline')
+
+    ilr = thot(ilt)
+    ilr['data'] = ilr.data.float()
+    for k in range(ilr.data.shape[0]):
+        ilk = tio.ScalarImage(tensor=ilr.data[k].unsqueeze(0), affine=ilr.affine)
+        if fref is not None:
+            ilk = tresample(ilk)
+        if blur4D > 0:
+            ilk = ts(ilk)
+
+        if k == 0:
+            data_out = torch.zeros((ilr.data.shape[0],) + ilk.shape[1:])
+        data_out[k] = ilk['data'][0]
+    ilr.data = data_out;
+    ilr.affine = ilk.affine
+    ilt = thoti(ilr)
+    ilt['data'] = ilt.data.to(torch.uint8)
+    return ilt
+
+
+def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True, reslice_4D=False, blur4D=0.5, save=True):
     # fref must be a list of same size
 
     if isinstance(tmap, str):
@@ -121,10 +151,35 @@ def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True):
         check_remap(il, dic_map)
         ilt = tmap(il)
         if fref:
-            tresample = tio.Resample(target=fref[index])
-            ilt = tresample(ilt)
+            if reslice_4D:
+                thot = tio.OneHot(); thoti = tio.OneHot(invert_transform=True)
+                if blur4D>0:
+                    ts = tio.Blur(std=blur4D)
+                tresample = tio.Resample(target=fref[index], image_interpolation='bspline')
 
-        ilt.save(fo)
+                ilr = thot(ilt)
+                ilr['data'] = ilr.data.float()
+                for k in range(ilr.data.shape[0]):
+                    ilk = tio.ScalarImage(tensor=ilr.data[k].unsqueeze(0), affine=ilr.affine)
+                    if blur4D>0:
+                        iltk = ts(tresample(ilk))
+                    else:
+                        iltk = tresample(ilk)
+
+                    if k==0:
+                        data_out = torch.zeros( (ilr.data.shape[0],)+ iltk.shape[1:] )
+                    data_out[k] = iltk['data'][0]
+                ilr.data = data_out; ilr.affine = iltk.affine
+                ilt = thoti(ilr)
+                ilt['data'] = ilt.data.to(torch.uint8)
+
+            else:
+                tresample = tio.Resample(target=fref[index]) #label map take nearrest
+                ilt = tresample(ilt)
+        if save:
+            ilt.save(fo)
+        else:
+            return ilt
 
 
 from scipy.ndimage import label as scipy_label
