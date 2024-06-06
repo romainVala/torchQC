@@ -16,8 +16,13 @@ import resource
 import warnings
 from torch.utils.data import DataLoader
 from segmentation.utils import to_var, summary, save_checkpoint, to_numpy, get_largest_connected_component
-from apex import amp
 from torch.utils.tensorboard import SummaryWriter
+#from apex import amp no more used (06 2024)
+from torch import autocast
+try:
+    from torch import GradScaler  #only with recent torch versions 2.3
+except ImportError:
+    from torch.cuda.amp import GradScaler
 
 
 class ArrayTensorJSONEncoder(json.JSONEncoder):
@@ -243,10 +248,10 @@ class RunModel:
             self.optimizer_dict)
 
         # Initialize Apex
-        if self.apex_opt_level is not None:
-            self.model, self.optimizer = amp.initialize(
-                self.model, self.optimizer, opt_level=self.apex_opt_level
-            )
+        #if self.apex_opt_level is not None:
+        #    self.model, self.optimizer = amp.initialize(
+        #        self.model, self.optimizer, opt_level=self.apex_opt_level
+        #    )
 
         # Try to load optimizer state
         opt_files = glob.glob(
@@ -276,18 +281,18 @@ class RunModel:
             self.log('No shedulder load from file')
 
         # Try to load Apex
-        if self.apex_opt_level is not None:
-            amp_files = glob.glob(
-                os.path.join(
-                    self.results_dir,
-                    f'amp_ep{self.epoch - 1}*.pth.tar'
-                )
-            )
-            if len(amp_files) > 0:
-                amp.load_state_dict(torch.load(amp_files[-1]))
-            self.log(f'working with Apex level {self.apex_opt_level}')
-        else:
-            self.log('No apex optim')
+        # if self.apex_opt_level is not None:
+        #     amp_files = glob.glob(
+        #         os.path.join(
+        #             self.results_dir,
+        #             f'amp_ep{self.epoch - 1}*.pth.tar'
+        #         )
+        #     )
+        #     if len(amp_files) > 0:
+        #         amp.load_state_dict(torch.load(amp_files[-1]))
+        #     self.log(f'working with Apex level {self.apex_opt_level}')
+        # else:
+        #     self.log('No apex optim')
 
         if isinstance(self.train_loader, list):
             dataloader_list = self.train_loader
@@ -434,6 +439,9 @@ class RunModel:
         time_sum, loss_sum, reporting_time_sum = 0, 0, 0
         average_loss, max_loss = None, None
 
+        if self.apex_opt_level is not None:
+            scaler = GradScaler()
+
         for i, sample in enumerate(loader, 1):
             if is_model_training:
                 self.iteration = i
@@ -490,7 +498,11 @@ class RunModel:
                     if isinstance(self.model, list):
                         predictions = [mmm(volumes) for mmm in self.model]
                     else:
-                        predictions = self.model(volumes)
+                        if self.apex_opt_level is not None:
+                            with autocast(device_type='cuda', dtype=torch.float16):
+                                predictions = self.model(volumes)
+                        else:
+                            predictions = self.model(volumes)
 
             if eval_dropout:
                 predictions_dropout = [self.apply_post_transforms(pp, sample)[0] for pp in predictions_dropout]
@@ -507,25 +519,42 @@ class RunModel:
             loss = 0
             if targets is None:
                 targets = predictions
+            if self.apex_opt_level is not None:
+                with autocast(device_type='cuda', dtype=torch.float16):
+                    loss = 0
+                    for criterion in self.criteria:
+                        if isinstance(predictions, list):
+                            one_loss = criterion['criterion'](predictions[0],
+                                                              targets)  # only the loss of the firts model ...
+                        else:
+                            one_loss = criterion['criterion'](predictions, targets)
+                        if isinstance(one_loss, tuple):  # multiple task loss may return tuple to report each loss
+                            one_loss = one_loss[0]
+                        loss += criterion['weight'] * one_loss
 
-            for criterion in self.criteria:
-                if isinstance(predictions, list):
-                    one_loss = criterion['criterion'](predictions[0], targets) #only the loss of the firts model ...
-                else:
-                    one_loss = criterion['criterion'](predictions, targets)
-                if isinstance(one_loss, tuple): #multiple task loss may return tuple to report each loss
-                    one_loss = one_loss[0]
-                loss += criterion['weight'] * one_loss
+            else:
+                for criterion in self.criteria:
+                    if isinstance(predictions, list):
+                        one_loss = criterion['criterion'](predictions[0], targets) #only the loss of the firts model ...
+                    else:
+                        one_loss = criterion['criterion'](predictions, targets)
+                    if isinstance(one_loss, tuple): #multiple task loss may return tuple to report each loss
+                        one_loss = one_loss[0]
+                    loss += criterion['weight'] * one_loss
 
             # Compute gradient and do SGD step
             if is_model_training:
                 self.optimizer.zero_grad()
                 if self.apex_opt_level is not None:
-                    with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                        scaled_loss.backward()
+                    scaler.scale(loss).backward()
+                    scaler.step(self.optimizer)
+                    scaler.update()
+                    #with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                    #    scaled_loss.backward()
                 else:
                     loss.backward()
-                self.optimizer.step()
+                    self.optimizer.step()
+
                 loss = float(loss)
                 predictions = predictions.detach()
             if self.save_predictions and not is_model_training:
@@ -807,8 +836,8 @@ class RunModel:
                  'state_dict': self.model.state_dict(),
                  'optimizer': optimizer_dict,
                  'scheduler': scheduler_dict}
-        if self.apex_opt_level is not None:
-            state['amp'] = amp.state_dict()
+        #if self.apex_opt_level is not None:
+        #    state['amp'] = amp.state_dict()
 
         save_checkpoint(state, self.results_dir, self.model)
 
