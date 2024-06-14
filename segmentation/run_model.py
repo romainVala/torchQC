@@ -830,16 +830,24 @@ class RunModel:
         if self.lr_scheduler is not None:
             scheduler_dict = self.lr_scheduler.state_dict()
 
+        if hasattr(self.model,'module'): #case for torch.nn.DataParallel
+            model_state_dict = self.model.module.state_dict()
+        else:
+            model_state_dict = self.model.state_dict()
+
         state = {'epoch': self.epoch,
                  'iterations': self.iteration,
                  'val_loss': loss,
-                 'state_dict': self.model.state_dict(),
+                 'state_dict': model_state_dict,
                  'optimizer': optimizer_dict,
                  'scheduler': scheduler_dict}
-        #if self.apex_opt_level is not None:
+        #if self.apex_opt_level is not None:  #TODO is there something to save for torch GradScal ???
         #    state['amp'] = amp.state_dict()
 
-        save_checkpoint(state, self.results_dir, self.model)
+        if hasattr(self.model,'module'): #case for torch.nn.DataParallel
+            save_checkpoint(state, self.results_dir, self.model.module)
+        else:
+            save_checkpoint(state, self.results_dir, self.model)
 
     def record_none(self, df, sample, predictions, targets,
                                   batch_time, save=False, csv_name='eval', append_in_df=False, model_name='model'):

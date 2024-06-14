@@ -1130,6 +1130,14 @@ class Config:
                 self.log("Unable to plot network architecture:")
                 self.log(e)
 
+            if device != "cpu" and torch.cuda.device_count() > 1:
+                # Devices collection
+                nb_gpu = torch.cuda.device_count()
+                self.log(f'MMMULTIPLE GPU{nb_gpu}')
+                device_ids = list(range(nb_gpu))
+                # DataParallelisation
+                m = torch.nn.DataParallel(m, device_ids=device_ids)
+
             return m, device
 
         self.log('******** Model  ********')
