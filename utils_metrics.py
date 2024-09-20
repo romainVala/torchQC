@@ -169,7 +169,7 @@ def Average_Hausdorff_Distance(gth, pred, method="scipy", soft=True):
         for c in range(C):
             gth_edges_bc = gth_edges[b, c, ...]
             pred_edges_bc = pred_edges[b, c, ...]
-            if (not gth_edges_bc.sum()) and (not pred_edges_bc.sum()):
+            if (not gth_edges_bc.sum()) or (not pred_edges_bc.sum()):
                 gth2pred = torch.tensor(float('nan'))
                 pred2gth = torch.tensor(float('nan'))
                 ahd = (gth2pred + pred2gth) / 2
@@ -274,7 +274,19 @@ def display_res2(resdir, doit=False):
 def binarize_5D(data, add_extra_to_class=None):
     return  met_overlay.binarize(data, add_extra_to_class=add_extra_to_class)
 
-def compute_metric_from_list(f1_list,f2_list,sujname_list, labels_name, selected_label,
+def compute_PVmetric_from_list(f1_list,f2_list,sujname_list,  volume_metric=False, confu_metric=False ):
+    df = pd.DataFrame()
+    dice_instance = Dice()
+    metric_dice = dice_instance.all_dice_loss
+    # metric_dice = dice_instance.mean_dice_loss #warning argument must have 5 dim
+    # metric_dice = dice_instance.dice_loss  # here 4 or 5 dim (every thing is flatten)
+    met_overlay = MetricOverlay(metric_dice, band_width=5)  # , channels=[2])
+
+    for f1,f2, sujname  in zip(f1_list, f2_list, sujname_list):
+        i1 = tio.LabelMap(f1);      i2 = tio.LabelMap(f2)
+        dsoft_dic = met_overlay(i1.data.unsqueeze(0), i2.data.unsqueeze(0))
+
+def compute_metric_from_list(f1_list,f2_list,sujname_list, labels_name, selected_label, concat_label_list=None,
                              distance_metric=False,euler_metric=False, volume_metric=False, confu_metric=False ):
     df = pd.DataFrame()
     thot = tio.OneHot()
@@ -291,16 +303,17 @@ def compute_metric_from_list(f1_list,f2_list,sujname_list, labels_name, selected
         if target.shape[1]> len(selected_label):
             target = target[:, :len(selected_label), ...]
 
-        df_one = computes_all_metric(prediction, target, labels_name, selected_label=selected_label,
+        df_one = computes_all_metric(prediction, target, labels_name, selected_label=selected_label, concat_label_list=concat_label_list,
                                      volume_metric=volume_metric, distance_metric=distance_metric, euler_metric=euler_metric, confu_metric=confu_metric)
-        df_one['sujname'] = sujname
-        df_one['volume_pred'] = f1; df_one['volume_targ'] = f2
-
-        df = pd.concat([df, df_one], ignore_index=True)
+        ddf_one={}
+        ddf_one['sujname'] = [sujname]
+        ddf_one['volume_pred'] = [f1]; ddf_one['volume_targ'] = [f2]
+        df_one = pd.concat([df_one, pd.DataFrame(ddf_one)],  axis=1)
+        df = pd.concat([df, pd.DataFrame(df_one)], ignore_index=True)
 
     return df
 
-def computes_all_metric(prediction, target, labels_name, indata=None, selected_label=None,
+def computes_all_metric(prediction, target, labels_name, indata=None, selected_label=None, concat_label_list=None,
                         selected_lab_mask=None, lab_mask_name=None, verbose=True, distance_metric=False,
                         euler_metric=False, volume_metric=False, confu_metric=False):
 
@@ -327,6 +340,19 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
                     raise('wrong size for the masks ')
             target = target[:, selected_label, ...]
 
+    if concat_label_list is not None:
+        for concat_label in concat_label_list:
+            ind_select = np.array(concat_label).astype(bool)
+            pred_new = prediction[:,ind_select, ...].sum(axis=1, keepdims=True)
+            prediction = torch.cat([prediction, pred_new], 1)
+            pred_new = prediction_bin[:,ind_select, ...].sum(axis=1, keepdims=True)
+            prediction_bin = torch.cat([prediction_bin, pred_new], 1)
+            targ_new = target[:, ind_select, ...].sum(axis=1, keepdims=True)
+            target = torch.cat([target, targ_new], 1)
+
+            list_label = list(labels_name)
+            list_label.append('_'.join(np.array(labels_name)[ind_select]))
+            labels_name = np.array(list_label)
     start = timer()
 
     #dd = metric_dice(prediction_bin, target)
@@ -337,12 +363,16 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
     dd_dice, not_nan = DiceHelper(include_background=True, softmax=False)(prediction_bin,target)
     col_name = [f'dice_{ss}' for ss in labels_name]
     df_one = pd.DataFrame([dd_dice.numpy()], columns=col_name)
+    df_one = {kk:vv  for vv,kk in zip(dd_dice.numpy(), col_name)}
 
     if volume_metric:
         for kk, llname in enumerate(labels_name):
             target_vol = target[:, kk, ...].sum().numpy()
             df_one[f'vol_targ_{llname}'] = target_vol
-            df_one[f'vol_pred_ration{llname}'] = prediction[:, kk, ...].sum().numpy() / target_vol
+            if target_vol:
+                df_one[f'vol_pred_ration{llname}'] = prediction[:, kk, ...].sum().numpy() / target_vol
+            else:
+                df_one[f'vol_pred_ration{llname}'] = 0
 
     #arg todo metric_dice without batch reduction
     #dd = metric_dice(prediction, target)
@@ -468,11 +498,12 @@ def computes_all_metric(prediction, target, labels_name, indata=None, selected_l
             df_sig = pd.concat([df_sig, pd.DataFrame([res_dict])])
 
         df_sig.index = pd.RangeIndex(256)
-        df_one = pd.concat([df_one, df_sig], axis=1) #, ignore_index=True)
+        df_one = pd.concat([pd.DataFrame(df_one), df_sig], axis=1) #, ignore_index=True)
 
     if verbose:
         print(f'Computed all metric in {timer()-start}')
-
+    if isinstance(df_one,dict):
+        df_one = pd.DataFrame(df_one, index=[0])
     return df_one
 
 def load_model(model_path, device):
