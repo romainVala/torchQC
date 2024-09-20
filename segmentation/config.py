@@ -541,6 +541,14 @@ class Config:
             struct['device'] = torch.device('cpu')
 
         # Make imports
+        # quick hack for string to be eval (don't know how to make it automatically from json)
+        if struct['module'] == "dynamic_network_architectures.architectures.unet":
+            attrib = struct['attributes']
+            attrib['conv_op']  = eval(attrib['conv_op'])
+            attrib['norm_op']  = eval(attrib['norm_op'])
+            attrib['nonlin']  = eval(attrib['nonlin'])
+            struct['attributes'] = attrib
+
         struct['model'], struct['model_class'] = parse_object_import(struct)
 
         return struct
