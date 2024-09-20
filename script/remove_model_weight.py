@@ -26,6 +26,8 @@ for dirs in d:
     for ff in f:
         fname = os.path.basename(ff)
         res = [i for i in range(len(fname)) if fname.startswith('_', i)]
+        if len(res)<=2:
+            continue
         fname[res[1]]
         number = int(fname[res[1]-1])
         if number!=0:

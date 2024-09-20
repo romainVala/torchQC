@@ -221,8 +221,27 @@ for metric in metrics:
     fig.savefig('seg1mm_cmp_orig' + metric + '.png')
 
 
+fileT2 = glob.glob('/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_prob_tissue/retest_HCP1mm_T2/*/*/coreg_metrics.csv')
+fileT2 = glob.glob('/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_prob_tissue/retest_HCP1mm_T2/*/*/metric*.csv')
+fileT1 = glob.glob('/home/romain.valabregue/datal/PVsynth/eval_cnn/RES_prob_tissue/retest_HCP1mm/*/*/*csv')
+dfT2 = [pd.read_csv(ff) for ff in fileT2]
+dfT1 =  [pd.read_csv(ff) for ff in fileT1]
+dfaT1 = pd.concat(dfT1); dfaT2 = pd.concat(dfT2)
 
-df = pd.read_csv(file, index_col=0)
+sns.catplot(data=dfaT1,x='model_name',y='dice_GM')
+sns.catplot(data=dfaT2,x='model_name',y='dice_GM')
+
+dfs1 = dfaT1[dfaT1.model_name=='SNclean_ep120'].copy()
+dfs2 = dfaT2[dfaT2.model_name=='SNclean_ep120'].copy()
+dfs1['contrast'] = 'T1';dfs2['contrast'] = 'T2'
+dfs1.sujname=dfs1.sujname.astype(str);dfs2.sujname=dfs2.sujname.astype(str)
+dfs1 = dfs1.sort_values(by=['sujname']); dfs2 = dfs2.sort_values(by=['sujname'])
+
+dfsa = pd.concat([dfs1,dfs2])
+dfsa=dfsa.sort_values(by=['sujname'])
+
+sns.relplot(data=dfsa, x='sujname', y='dice_GM', hue='contrast' )
+(dfs2.dice_GM- dfs1.dice_GM).argmax()
 
 # concat reference
 df1 = pd.read_csv('/network/lustre/iss01/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/RES_prob_tissue/res1mm_all_mreduce.csv')

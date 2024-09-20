@@ -17,7 +17,7 @@
 #     names.append(f'{prefix}_{mode}_GM_{GM_level}_{noise}_noise')
 #     compare_results(results_dirs, filename, metrics, names)
 
-from utils_file import get_parent_path, gfile, gdir
+from utils_file import get_parent_path, gfile, gdir, addprefixtofilenames
 from utils_metrics import display_res, display_res2, mrview_from_df, mrview_overlay
 import glob, os, numpy as np, pandas as pd, matplotlib.pyplot as plt
 import glob
@@ -76,7 +76,8 @@ def read_feta_eval(ress):
     dfm["scan_age"] = dfm['Gestational age']
 
     return dfm
-def read_hcp_eval(ress, csv_file_name='eval.csv'):  #warning no libreoffice open on to avoid including .~lock.metrics.csv
+def read_hcp_eval(ress, csv_file_name='eval.csv',
+                  flab_regex='^bin_label.nii.gz', fpred_regex='bin_prediction.nii.gz'):  #warning no libreoffice open on to avoid including .~lock.metrics.csv
     df_all = []
     for res in ress:
         resname = get_parent_path(res)[1]
@@ -90,13 +91,17 @@ def read_hcp_eval(ress, csv_file_name='eval.csv'):  #warning no libreoffice open
                 suj.append(one_suj[0])
                 # print(f'found {get_parent_path(one_suj)[1]} for {df_hcp.suj[i]} and {df_hcp.session_id[i]}')
                 fcsv = gfile(one_suj, csv_file_name)
+                if len(fcsv)==0:
+                    fcsv = gfile(one_suj, 'eval')
+                    print(f'WARNING taking instead of {csv_file_name} {fcsv}')
+
                 dfone = pd.read_csv(fcsv[0], index_col=0)
                 #print(dfone.keys())
                 dfone['suj_num'] = suj_num
                 if  not ( ('fpred'  in dfone)): #else label and pred are already in metrics files ('pred'  in dfone) |
                     finput = gfile(one_suj,'^data.nii.gz')
-                    fpred = gfile(one_suj,'bin_prediction.nii.gz')
-                    flabel = gfile(one_suj,'bin_label.nii.gz')
+                    fpred = gfile(one_suj,fpred_regex)
+                    flabel = gfile(one_suj,flab_regex)
                     if dfone.shape[0]==2:
                         finput, fpred, flabel = [finput[0], finput[0]], [fpred[0], fpred[0]], [flabel[0], flabel[0]]
                         dfsl = pd.concat([dfsl]*2, ignore_index=True)
@@ -144,6 +149,15 @@ def get_volume(df,colname):
     data = df['sujtio'].t1.data
     voxel_size = np.array( df['sujtio'].t1.spacing).prod()
     return (data>0).sum().numpy()  * voxel_size
+def get_all_seg_volume(df, colname='sujtio'):
+    data = df[colname].t1.data
+    voxel_size = np.array( df[colname].t1.spacing).prod()
+    resdic = {'vsize':voxel_size}
+    all_values = data.unique()
+    for vv in all_values:
+        resdic[f'Vol_Lab{vv}'] = (data==vv).sum().numpy()
+    return resdic
+
 def compute_mean(df, met):
     for ii, col in enumerate(met):
         if ii==0:
@@ -181,17 +195,48 @@ def nb_outlier(x):
     nb_out = np.sum(zscore>3) / len(zscore) * 100
     return nb_out
 
+def find_outliers_IQR(df, colname):
+    q1=df[colname].quantile(0.25)
+    q3=df[colname].quantile(0.75)
+    IQR=q3-q1
+    ind_sel = ((df[colname]<(q1-1.5*IQR)) | (df[colname]>(q3+1.5*IQR)))
+    #outliers = df[((df[colname]<(q1-1.5*IQR)) | (df[colname]>(q3+1.5*IQR)))]
+    df[f'outlier_{colname}'] = False
+    df.loc[ind_sel,f'outlier_{colname}'] = True
+
+    return df
+#sujnum_sel = df[ind_sel].sujnum
+#for ss in sujnum_sel:
+#    print(ss)
+#    dfa.loc[dfa.sujnum==ss,'outlier_GM_dataT2']=True
 
 
 rootdir = '/data/romain/baby/'
-#rootdir = '/network/lustre/iss02/opendata/data/baby/devHCP/'
-df_hcp_all = pd.read_csv(rootdir+'rel3_dhcp_anat_pipeline/all_seesion_info_order.csv', index_col=0)
+rootdir = '/network/lustre/iss02/opendata/data/baby/'
+df_hcp_all = pd.read_csv(rootdir+'all_seesion_info_order_all.csv')
 df_hcp_all["sujnum"] = range(len(df_hcp_all))
 df_hcp = df_hcp_all[:80]
 df_feta = pd.read_csv('/data/romain/baby/feta_2.1/participants.tsv', sep='\t')
 
 dfp = df_feta[df_feta.Pathology=='Pathological']; dfn = df_feta[df_feta.Pathology=='Neurotypical']
 
+df1 = find_outliers_IQR(df1,'dice_GM')
+df1 = df1.sort_values(by='dice_GM')
+for k in df1.iterrows():
+    if k[1].outlier_dice_GM:
+        #print(f'suj {k[1].sujnum} dice is {k[1].dice_GM}')
+        #print('sleep 0.5')
+        mrview_from_df(df12, 'sujnum',k[1].sujnum,bin_overlay_class=2)
+
+#df1 df2 eval.csv metric*.csv
+a = list(np.intersect1d(df2.columns, df1.columns)); a.pop(8)
+df = pd.merge(df1,df2,how='outer', on=list(a))
+
+
+#merge with MI metric
+dfsub = df_hcp[~pd.isna(df_hcp.vol_T1)]
+dfa = pd.read_csv('/data/romain/baby/ants_MI_mask_volume_coreg.csv')
+df_hcp = pd.merge(dfsub, dfa)
 #hcp stats
 df1 = df_hcp;
 y =  "head_circumference_scan"; x = "scan_age"; #scan_number";
@@ -255,7 +300,7 @@ for k in dfmh.keys():
 
 dfmh = read_hcp_eval(ress, csv_file_name='metrics_patch_16_grid.csv') #'metrics_patch_32_128.csv')
 dfmh['sujn']=dfmh.sujnum;dfmh['mod']=dfmh.model;
-dfmh['snr'] = dfmh.Smean_GM.values / dfmh.Sstd_GM.values
+dfmh['snr'] = dfmh.PredSmean_GM.values / dfmh.PredSstd_GM.values
 
 ymet_str=[]; ymet_int=[]
 for k in dfmh.keys():
@@ -289,6 +334,11 @@ ymet = ['haus_GM', 'haus_WM']
 dfmh['average'] = dfmh.apply(lambda x:  compute_mean(x, ymet), axis=1)
 ymet = ['average'] + ymet
 
+df['dice_mean'] = (df.dice_CSF + df.dice_GM + df.dice_WM + df.dice_cereb + df.dice_deepGM + df.dice_bstem + df.dice_hippo)/7
+torder=['dice_mean','dice_GM','dice_WM','dice_CSF','dice_deepGM','dice_cereb','dice_hippo','dice_bstem']
+morder=['Synth', 'SynthEM', 'SynthMot', 'SynthMotEM', 'DataT2']
+
+
 dfm = read_feta_eval(ress);
 dfmm = dfm.melt(id_vars=['scan_age', 'model_name','ep_name', 'sujnum','model','Pathology','Gestational age'], value_vars=ymet, var_name='metric', value_name='y')
 
@@ -306,14 +356,27 @@ dfs1 = dfmh[(dfmh.model_name=='eval_T1_model_fetaBgT2_hcp_ep1')]
 dfs2 = dfmh[(dfmh.model_name=='coreg_eval_T1_model_fetaBgT2_hcp_ep1')]
 
 #figure 2 :  T1 versus T2
+#MIDL figur ress=[rd+'eval_T2_model_5suj_ep110', rd+'eval_T2_model_5suj_motBigAff_ep30', rd+'eval_T2_model_hcp5sujOnT2_ep64',rd+'eval_T1_coreg_model_5suj_ep110',rd+'coreg/eval_T1_rigid_model_5suj_motBigAff_ep30',rd+'eval_T1_coreg_model_hcp5sujOnT2_ep64']
 df = dfmh.copy()
+#change dice to 1 - dice
+for yy in ymet:
+    df[yy] = 1-df[yy]
+
 df['eval_on']='T2'
 df.loc[df.model.str.startswith('eval_T1'),'eval_on']='T1'
 df.model_name = df.model;
 df.model = df.model.str.replace('eval_T1_coreg_model_5suj_motBigAff_ep30','SynthMot');df.model = df.model.str.replace('eval_T2_model_5suj_motBigAff_ep30','SynthMot');df.model = df.model.str.replace('eval_T1_coreg_model_hcpT2_elanext_5suj_ep1','SynthT2');df.model = df.model.str.replace('eval_T2_model_hcpT2_elanext_5suj_ep1','SynthT2')
 df.model = df.model.str.replace('eval_T2_model_5suj_ep110','Synth'); df.model = df.model.str.replace('eval_T1_coreg_model_5suj_ep110','Synth'); df.model = df.model.str.replace('eval_T1_coreg_model_hcpT2_on5suj_ep16','SynthT2');df.model = df.model.str.replace('eval_T2_model_hcpT2_on5suj_ep16','SynthT2');
+df.model = df.model.str.replace('eval_T1_rigid_model_5suj_motBigAff_ep30','SynthMot');
 df.model = df.model.str.replace('eval_T1_coreg_model_hcpT2_on5sujAug_ep16','SynthT2');df.model = df.model.str.replace('eval_T2_model_hcpT2_on5sujAug_ep16','SynthT2');
 df.model = df.model.str.replace('eval_T1_coreg_model_hcp5sujOnT2_ep64','DataT2');df.model = df.model.str.replace('eval_T2_model_hcp5sujOnT2_ep64','DataT2');
+df.model = df.model.str.replace('eval_T1_coreg_model_hcp5sujOnT2_ep64','DataT2');
+dict_replace = {'eval_T1_antsCSF_model_dataT2_on15suj_ep35' : 'DataT2', 'eval_T2all_model_dataT2_on15suj_ep35':'DataT2',
+                'eval_T1_antsCSF_model_15suj_ep75': 'Synth', 'eval_T2all_model_15suj_ep75': 'Synth',
+                'eval_T1_antsCSF_model_15suj_iWMthinMot_ep19' : 'SynthMot', 'eval_T2_model_15suj_iWMthinMot_ep19':'SynthMot'}
+for k,v in dict_replace.items():
+    df.model = df.model.str.replace(k,v)
+
 dfmm = df.melt(id_vars=['scan_age', 'model_name', 'sujnum','model','eval_on'], value_vars=ymet, var_name='label', value_name='dice')
 #dfmm.label = dfmm.label.str.replace('dice_','')
 fig = sns.catplot(data=dfmm, y='dice', x='eval_on',hue='model', col='label', kind='boxen',col_wrap=4) #7, order=['T2','T1'], hue_order=['SynthT2','SynthMot'])
@@ -328,17 +391,20 @@ col=sns.color_palette('muted'); #col = [col[0], col[1], col[3]]
 
 fig = sns.catplot(data=dfmm, y='dice', x='eval_on',hue='model', col='label', kind='boxen',col_wrap=4, order=['T2','T1'],
                   hue_order=['Synth','SynthMot','DataT2'], col_order=col_order, palette=col)
-ctitle = [ 'GM', 'WM',  'CSF', 'Cereb', 'DeepGM', 'Bstem', 'Hippo_Amyg'] # 'Ventricules'
+ctitle = ['Average', 'GM', 'WM',  'CSF+Vent', 'Cereb', 'DeepGM', 'Bstem', 'HipAmy'] # 'Ventricules'
+#ctitle = [ 'GM', 'WM',  'CSF', 'Ventricule', 'Cereb', 'DeepGM', 'Bstem'] # 'Ventricules'
 plt.ylim([0, 0.2])
 
 for ii, ax in enumerate(fig.axes):
-    if (ii==0) | (ii==4):
+    if (ii==0) | (ii==1):
         #ax.set_ylabel('Dice',bbox=dict(boxstyle="round", fc=(0.8, 0.8, 0.8),ec=(0,0,0)),fontsize='x-large')
-        ax.set_ylabel('Dice',fontsize='xx-large') #'Dice'   'Average Surface dist'
-        #ax.set_ylabel('Volume Ratio',fontsize='xx-large') #ax.set_ylabel('Average Surface dist',fontsize='xx-large')
+        ax.set_ylabel('Dice',fontsize='xx-large') #'Dice'   'Average Surface dist' 'Volume Ratio'
         yy = ax.get_yticklabels(); ax.set_yticklabels(yy,fontsize='xx-large' )
-    if ii>2:
-        ax.set_xticklabels(['T2', 'T1'], rotation=0,fontsize='xx-large' );ax.set_xlabel('')
+    if ii>-1: #2:
+        xx = ax.get_xticklabels()
+        #ax.set_xticklabels(xx, rotation=0,fontsize='xx-large' );ax.set_xlabel('Age groups',fontsize='xx-large')
+        ax.set_xticklabels(xx, rotation=0,fontsize='xx-large' );ax.set_xlabel('Age bins',fontsize='xx-large')
+        #ax.set_xticklabels('', rotation=0, fontsize='xx-large');ax.set_xlabel('', fontsize='xx-large')
     #ax.set_xlabel('',fontsize='x-large', va = 'bottom')# #ax.xaxis.set_label_coords(1.05, -0.025) #ax.tick_params(labelbottom=True)
     #ax.set_xlabel('Subject number',fontsize='x-large')# #ax.xaxis.set_label_coords(1.05, -0.025) #ax.tick_params(labelbottom=True)
     ax.set_title(ctitle[ii], fontdict=dict(fontsize='xx-large'))
@@ -384,6 +450,68 @@ for the_tissue in ytissue:
     plt.figure(); plt.scatter(dfv.lab, dfv.T2);  plt.plot([dfv.T1.min(), dfv.T1.max()],[dfv.T1.min(), dfv.T1.max()])
     plt.ylabel('T2'); plt.xlabel('lab'); plt.title(the_tissue)
 
+#figure dice T1 - dice T2 versus MI
+dfmi = pd.read_csv('/data/romain/baby/ants_MI_mask_volume.csv')
+dft1     = read_hcp_eval(['/data/romain/PVsynth/eval_cnn/baby/Article/bin15suj/from0/eval_T2_model_15suj_bgMida_tSDT_mot_ep240/'], csv_file_name='metrics_GT_T1_cCSFOK.csv')
+dft1['metric_dice_GM'] = 1-dft1.dice_GM
+dft1 = pd.merge(dfmi, dft1,on='sujnum')
+
+dft1GTem = read_hcp_eval(['/data/romain/PVsynth/eval_cnn/baby/Article/bin15suj/from0/eval_T1a_model_15suj_bgMida_tSDT_mot_ep240'])
+dft1 = dft1.sort_values(by='sujnum'); dft1GTem = dft1GTem.sort_values(by='sujnum')
+
+dfmm = dft1.melt(id_vars=['MI','scan_age', 'model_name','ep_name', 'sujnum','model','radiology_score'], value_vars=['dice_GM'], var_name='metric', value_name='y')
+dfmm['age_label'] = pd.cut(dfmm.scan_age, bins=[26,32,36, 40, 46])
+dfmm.groupby(['age_label','model'])['scan_age'].count()
+fig = sns.scatterplot(data=dfmm, x='MI', y='y', hue='age_label')
+import plotly.express as px
+fig = px.scatter(dfm, x="MI", y="y", color="age_label",hover_data=['sujnum']) #size='petal_length',
+fig = px.scatter(dfm, x="MI", y="y", color="age_label",facet_col='age_label',hover_data=['sujnum']) #size='petal_length',
+fig.show()
+
+#figure volume ground truth
+res=['/network/lustre/iss02/home/romain.valabregue/datal/PVsynth/eval_cnn/baby/Article/scale/eval_T2sca_model_binSc_bgMida_stdMot_ep240',
+ '/network/lustre/iss02/home/romain.valabregue/datal/PVsynth/eval_cnn/baby/Article/pve_scale_new/eval_T2sc_model_pvSc_bgEM_wmIh_motfrom0_ep360']
+dfs1 = dfmh[dfmh.model=='eval_T2sca_model_binSc_bgMida_stdMot_ep240'];
+dfs2 = dfmh[dfmh.model=='eval_T2sc_model_pvSc_bgEM_wmIh_motfrom0_ep360']
+dfs1 = dfs1.sort_values(by='scan_age');dfs2 = dfs2.sort_values(by='scan_age')
+
+res=['/network/lustre/iss02/home/romain.valabregue/datal/PVsynth/eval_cnn/baby/Article/scale/eval_T2sca_model_dataT2_on15sujScale_ep69',
+ '/network/lustre/iss02/home/romain.valabregue/datal/PVsynth/eval_cnn/baby/Article/pve_scale_new/eval_T2sc_model_pveSc_onT2_15suj_from0_ep100']
+dfs1 = dfmh[dfmh.model=='eval_T2sca_model_dataT2_on15sujScale_ep69'];
+dfs2 = dfmh[dfmh.model=='eval_T2sc_model_pveSc_onT2_15suj_from0_ep100']
+
+['/data/romain/PVsynth/eval_cnn/baby/Article/bin15suj/from0/eval_T2_model_dataT2_on15suj_ep67',
+ '/data/romain/PVsynth/eval_cnn/baby/Article/bin15suj/from0/eval_T2_model_15suj_bgMida_tSDT_wmEM_mot_ep120/']
+['/data/romain/PVsynth/eval_cnn/baby/Article/pve/eval_T2_model_noscale_pv_15suj_onT2_ep260',
+ '/data/romain/PVsynth/eval_cnn/baby/Article/pve/eval_T2_model_noscale_pv_15suj_bgMida_tSDT_wmEM_mot_ep120']
+dfmhGT = read_hcp_eval(res,csv_file_name='metrics_GT_pve_cCSFOK.csv')
+dfmhGT.model = dfmhGT.model.str.replace('eval_T2_model_dataT2_on15suj_ep67','dataT2')
+dfmhGT.model = dfmhGT.model.str.replace('eval_T2_model_15suj_bgMida_tSDT_wmEM_mot_ep120','SynthMotEM')
+
+dfem = read_hcp_eval(res)
+dfs1   = dfem[dfem.model=='eval_T2_model_dataT2_on15suj_ep67'];
+dfs1pv   = dfem[dfem.model=='eval_T2_model_noscale_pv_15suj_onT2_ep260']
+dfs2 = dfem[dfem.model=='eval_T2_model_15suj_bgMida_tSDT_wmEM_mot_ep120'];
+dfs2pv = dfem[dfem.model=='eval_T2_model_noscale_pv_15suj_bgMida_tSDT_wmEM_mot_ep120']
+
+dfs1.model='DataT2'; dfs2.model='SynthMotEM'; dfs2pv.model='Label_GT'
+dfs1['vol_ratio'] = dfs1.predicted_occupied_volume_GM/ dfs1pv.predicted_occupied_volume_GM
+dfs2['vol_ratio'] = dfs2.predicted_occupied_volume_GM/ dfs2pv.predicted_occupied_volume_GM
+dfs2pv['vol_ratio'] = dfs1.occupied_volume_GM/dfs1pv.occupied_volume_GM
+df = pd.concat([dfs1,dfs2, dfs2pv])
+
+dfs1 = dfs1.sort_values(by='scan_age');dfs2 = dfs2.sort_values(by='scan_age')
+dfs1pv = dfs1pv.sort_values(by='scan_age');dfs2pv = dfs2pv.sort_values(by='scan_age')
+
+plt.figure();
+plt.plot(dfs1.predicted_occupied_volume_GM, dfs1pv.predicted_occupied_volume_GM ,'x')
+plt.plot(dfs2.predicted_occupied_volume_GM, dfs2pv.predicted_occupied_volume_GM, 'x' )
+
+dfs1['vol_ratio'] = dfs1.predicted_occupied_volume_GM/ dfs1pv.predicted_occupied_volume_GM
+dfs2['vol_ratio'] = dfs2.predicted_occupied_volume_GM/ dfs2pv.predicted_occupied_volume_GM
+df = pd.concat([dfs1,dfs2])
+
+
 #repport hue model_per_age
 # df['suj_age'] = 0 #NaN ar not ploted
 df.loc[df.sujnum<20,'suj_age'] = 1
@@ -423,16 +551,20 @@ for model in models:
     dfsub = df[(df.sujnum==sujnum)&(df.model_name==model)]
     #dfh_sub = dfmh[(dfmh.sujnum==sujnum)&(dfmh.model_name==model)]
     dfh_sub = dfmh_filt[(dfmh_filt.sujnum==sujnum)&(dfmh_filt.model_name==model)].copy()
-    dfh_sub['snr'] = dfh_sub.Smean_GM/dfh_sub.Sstd_GM
-    dfh_sub['snr'] = dfh_sub.Sstd_GM / dfh_sub.Smean_GM
+    #dfh_sub['snr'] = dfh_sub.Smean_GM/dfh_sub.Sstd_GM
+    dfh_sub['snr'] = dfh_sub.PredSstd_GM / dfh_sub.PredSmean_GM
+    dfh_sub['snr'] = dfh_sub.FPSmean_GM # / dfh_sub.FPSmean_GM
     dfsort = dfh_sub.sort_values(sel_metric, ascending=sel_ascendig)
     print(f'{sel_metric} {dfsub[sel_metric].mean()} model {model} suj {sujnum} ')
 
-    plt.figure(); plt.scatter(dfh_sub[sel_metric], dfh_sub.fdr_GM);  plt.xlabel(sel_metric); plt.title(model);plt.xlim([0,1])
+    plt.figure(); plt.scatter(dfh_sub.PredSstd_GM, dfh_sub.LabSstd_GM);  plt.xlabel(sel_metric); plt.title(model);
+    plt.plot([0.04, 0.1],[0.04, 0.1]) #plt.xlim([0.4,0.1])
+
+    plt.figure(); plt.scatter(dfh_sub[sel_metric], dfh_sub.snr);  plt.xlabel(sel_metric); plt.title(model);plt.xlim([0,1])
 
 
 
-    limg = tio.ScalarImage(dfsub.fpred.values[0]P) #fucking csv formating ...
+    limg = tio.ScalarImage(dfsub.fpred.values[0]) #fucking csv formating ...
     patch_select = torch.zeros([nbpath+1] + list(limg.data.shape[1:]))
     for nbp in range(nbpath):
         location = dfsort['location'].values[nbp] #dfh_sub[dfh_sub[sel_metric] == dfsub[sel_metric].values[0]]['location'].values[0]
@@ -467,6 +599,21 @@ for model in models:
 
 
 #figure on all data T2 bins by age
+dfmm = dfmh.melt(id_vars=['scan_age', 'model_name','ep_name', 'sujnum','model','radiology_score'], value_vars=ymet, var_name='metric', value_name='y')
+
+dfmm['age_label'] = pd.cut(dfmm.scan_age, bins=[26,32,36, 40, 46])
+dfmm.groupby(['age_label','model'])['scan_age'].count()
+#fig = sns.relplot(data=dfmm, y='y', x='sujnum', hue='model', col='metric') #,col_wrap=3)
+dfmm['one']=1
+fig = sns.catplot(data=dfmm, y='y', x='age_label',hue='model', col='metric', kind='boxen') #,col_wrap=3)
+
+dfmm = df.melt(id_vars=['scan_age', 'model_name','model_name2','model_name3','ep_name', 'sujnum','model','radiology_score'],
+dfmm['age_label'] = pd.cut(dfmm.scan_age, bins=[26,32,36, 40, 46])
+dfmm.groupby(['age_label','model'])['scan_age'].count()
+#fig = sns.relplot(data=dfmm, y='y', x='sujnum', hue='model', col='metric') #,col_wrap=3)
+dfmm['one']=1
+fig = sns.catplot(data=dfmm, y='y', x='model_name3',hue='model_name2', col='metric', kind='boxen')
+
 dfsub = df[df.model=='eval_T2all_model_5suj_motBigAff_ep30']
 all_ages = dfsub.scan_age.values
 age_bins=[]
@@ -484,10 +631,123 @@ mrview_from_df(dfmh, 'suj_num','5')
 #dhcp to _csv data json sel
 df = df_hcp_all.copy()
 #df['anat_path'] = df.apply(lambda r: get_anat_path(r, rd="/data/romain/baby/devHCP/rel3_dhcp_anat_pipeline_sub_small/"), axis=1 )
-df['anat_path'] = df.apply(lambda r: get_anat_path(r, rd="/network/lustre/iss02/opendata/data/baby/devHCP/rel3_dhcp_anat_pipeline/"), axis=1 )
-df["label_name"] = df.apply(lambda r: get_file_path(r,"anat_path","s*drawem9_dseg*gz"), axis=1 )
-df["sujtio"] = df.apply(lambda r: load_torchio_data(r,"label_name"), axis=1 )
-df["volume"] = df.apply(lambda r: get_volume(r,"sujtio"), axis=1 )
+#df['anat_path'] = df.apply(lambda r: get_anat_path(r, rd="/network/lustre/iss02/opendata/data/baby/devHCP/rel3_dhcp_anat_pipeline/"), axis=1 )
+#df["label_name"] = df.apply(lambda r: get_file_path(r,"anat_path","s*drawem9_dseg*gz"), axis=1 )
+df["sujtio"] = df.apply(lambda r: load_torchio_data(r,"vol_label"), axis=1 )
+#df["volume"] = df.apply(lambda r: get_volume(r,"sujtio"), axis=1 )
+res = df.apply(lambda r: get_all_seg_volume(r), axis=1)
+dfr=pd.DataFrame(list(res.values))
+df.index=range(len(df)); dfa=pd.concat([df,dfr],axis=1,ignore_index=True)
+dfa['vol_brain'] = dfa["Vol_Lab1.0"] + dfa["Vol_Lab2.0"] +dfa["Vol_Lab3.0"] + dfa["Vol_Lab5.0"] + dfa["Vol_Lab6.0"] \
+                   +dfa["Vol_Lab7.0"] + dfa["Vol_Lab8.0"] + dfa["Vol_Lab9.0"]
+dfa.drop('sujtio', axis=1, inplace=True)
+dfa['scale_vol'] = 1/dfa['vol_brain']*dfa.vol_brain.max()  #max is 5341720 vox (0.5 iso)
+dfa.to_csv('/data/romain/baby/all_seesion_info_order_volume.csv')
+
+dfa = pd.read_csv('/network/lustre/iss02/opendata/data//baby/all_seesion_info_order_all.csv')
+dfa = pd.read_csv('/data/romain/baby/all_seesion_info_order_volume.csv')
+#no because missing file dfa["T1c"] = dfa.apply(lambda r: get_file_path(r,"sujpath","antsCSF_sub.*gz"), axis=1 )
+
+
+sujdir = gdir('/network/lustre/iss02/opendata/data/baby/training_suj',['su','se','ana'])
+fT2 = gfile(sujdir,'T2w.nii'); flab = gfile(sujdir,'^su.*drawem9.*gz')
+fT2 = gfile(sujdir,'iWMPV.*nii.gz') #fT2 = gfile(sujdir,'iWMnw_drawem9_mida_ext_thin_dseg.nii.gz')
+
+df = pd.read_csv('/network/lustre/iss02/opendata/data/baby/suj_hcp_PV_704.csv')
+dfa = pd.read_csv('/network/lustre/iss02/opendata/data//baby/all_seesion_info_order_all.csv.csv')
+
+sujdir = df.sujpath
+fT2 = gfile(sujdir,'^binPV')
+keep=[]
+for ii, ss in enumerate(dfa.sujpath.values()):
+    if ss in sujdir.values:
+        keep.append(ii)
+dfa = dfa.iloc[keep,:]
+
+#scaling training_suj
+saved_vol = ['vol_T2'] #, 'vol_label']
+suffix='scaleI1_' #'scale_'
+
+for ss,f1,f2 in zip(sujdir,fT2,flab):
+    suj = tio.Subject({"vol_T2": tio.LabelMap(f1), "vol_label": tio.LabelMap(f2) })
+    #suj = tio.Subject({"vol_T2": tio.ScalarImage(f1), "vol_label": tio.LabelMap(f2)})
+    ii=dfa.sujpath.str.contains(ss[54:])
+    if ii.sum()!=1:
+        print(f1)
+        rqsdf
+    scale_fac = dfa[ii].scale_vol.values[0]
+    print(f'scaling {scale_fac}')
+    taff = tio.Affine(scales=scale_fac**(1/3), degrees=0, translation=0)
+    tscI = tio.RescaleIntensity(out_min_max=[0,1], percentiles=[0,100])
+    tcrop = tio.CropOrPad(target_shape=[256,320,320],mask_name='vol_label')
+    tc= tio.Compose([tcrop, taff, tscI])
+    sujscale = tc(suj)
+    for cc in saved_vol:
+        if cc in suj:
+            fout = addprefixtofilenames(str(suj[cc].path), suffix)
+            sujscale[cc].save(fout[0])
+
+#scaling template
+ft1 = gfile('/data/romain/template/fetal_brain_mri_atlas/structural','^t1')
+ft2 = gfile('/data/romain/template/fetal_brain_mri_atlas/structural','^t2')
+flab = gfile('/data/romain/template/fetal_brain_mri_atlas/parcellations','^ti')
+saved_vol = ['vol_T2', 'vol_T1', 'vol_label']
+suffix='scaleI1_' #'scale_'
+for kk in range(len(ft1)):
+    f1, f2, f3 = ft1[kk],ft2[kk],flab[kk]
+    suj = tio.Subject({"vol_T2": tio.ScalarImage(f2),"vol_T1": tio.ScalarImage(f1), "vol_label": tio.LabelMap(f3) })
+    vol_lab = (suj.vol_label.data>0).sum()
+    scale_fac = 5341720 / vol_lab
+    print(f"scale is {scale_fac}  (vol {vol_lab}")
+    taff = tio.Affine(scales=scale_fac**(1/3), degrees=0, translation=0)
+    tscI = tio.RescaleIntensity(out_min_max=[0,1], percentiles=[0,100])
+    tcrop = tio.CropOrPad(target_shape=[256,320,320],mask_name='vol_label')
+    tc= tio.Compose([tcrop, taff, tscI])
+    sujscale = tc(suj)
+    for cc in saved_vol:
+        if cc in suj:
+            fout = os.path.basename(addprefixtofilenames(str(suj[cc].path), suffix)[0])
+            sujscale[cc].save(fout)
+
+    #for label conversion change 9 hippo -> thalamus
+    out_label = [0,1,1,2,2,3,3,5,5,5,8,6,6,6,7,7,9,9,5,5,]
+    map_dic = { f'{i}' : f'{out_label[i]}' for i in range(20)}
+    trm = tio.RemapLabels(map_dic)
+    sujd = trm(sujscale);    fout = os.path.basename(addprefixtofilenames(str(suj[cc].path), 'drawEM_' + suffix)[0])
+    sujd.vol_label.save(fout)
+
+    map_dic_mask = {f'{i}' : "1" for i in range(20)}; map_dic_mask["0"] = "0"
+    trm = tio.RemapLabels(map_dic_mask)
+    sujd = trm(sujscale);    fout = os.path.basename(addprefixtofilenames(str(suj[cc].path), 'mask_'+suffix)[0])
+    sujd.vol_label.save(fout)
+
+#argg attention scalling is changing the affine differently (arondi?)
+#for i in *gz; do echo fslcpgeom ../scaleI1_t1-t21.00.nii.gz $i ; done
+#changing the template labels
+fla=gfile('/data/romain/baby/training_suj_template/label','^nw')
+froi = '/data/romain/baby/training_suj_template/label/mask_jontion_tronc.nii.gz'
+iroi = tio.ScalarImage(froi)
+fo = addprefixtofilenames(fla,'clean_')
+from scipy.ndimage.morphology import binary_fill_holes
+
+for f1, fout in zip(fla,fo):
+    ilab = tio.ScalarImage(f1)
+    froi_ind =  iroi.data>0
+    sel_vox = ilab.data[froi_ind]
+    sel_vox[sel_vox==0]=17
+    ilab.data[froi_ind] = sel_vox
+
+    mask_head = ilab.data>0
+    data = mask_head[0].numpy()
+    dataf = binary_fill_holes(data)
+
+    froi_ind =  torch.Tensor(dataf[np.newaxis,:])>0
+    sel_vox = ilab.data[froi_ind]
+    sel_vox[sel_vox==0]=1
+    ilab.data[froi_ind] = sel_vox
+
+    ilab.save(fout)
+
 fig = sns.relplot(data=df,y="volume",x=range(80))
 
 df = df_feta.copy()
@@ -568,14 +828,18 @@ def get_slice_dice(suj, nbs, orient):
     elif orient=="ax":
         dl = suj.lab.data[..., [nbs]].unsqueeze(0) ; dp = suj.pred.data[..., [nbs]].unsqueeze(0) #axial
         di = suj.din.data[..., [nbs]].unsqueeze(0)
+    elif orient == "cor":
+        dl = suj.lab.data[:, :, [nbs], : ].unsqueeze(0) ; dp = suj.pred.data[:, :, [nbs],: ].unsqueeze(0)
+        di = suj.din.data[:, :, [nbs], : ].unsqueeze(0)
+
     return met_overlay(dp, dl), dl, dp, di
 
 thot = tio.OneHot()
-dfsub = df[df['sujnum']==1]
-dfsub = df[df['sujnum']==6]
-nbs, orient = 145, 'sag'
-nbs, orient = 179, 'ax'
+dfsub = df[df['sujnum']==4]
+dfsub = df[df['sujnum']==813];dfsub = df[df['sujnum']==846]
 
+nbs, orient = 69, 'sag'#nbs, orient = 141, 'cor'
+nbs, orient = 185, 'ax'
 fig = plt.figure('1')
 legend_str=[]
 for dfser in dfsub.iterrows():
@@ -583,11 +847,10 @@ for dfser in dfsub.iterrows():
     suj = tio.Subject({'lab':tio.LabelMap(dfser.flabel), "pred":tio.LabelMap(dfser.fpred) , "din":tio.ScalarImage(dfser.finput) })
     suj = thot(suj)
     res = met_overlay(suj.pred.data.unsqueeze(0), suj.lab.data.unsqueeze(0))
-    slice_dice = []
-    print(f'{dfser.metric_dice_GM:.3} GM dicm from {dfser.model} ')
+    print(f'{dfser.metric_dice_GM:.3} GM dicm from {dfser.model}  {dfser.model}')
     legend_str.append(dfser.model)
     dice_slice, dl, dp, di = get_slice_dice(suj, nbs, orient)
-    print(f'Dice slice {dice_slice}')
+    print(f'Dice slice {1-dice_slice}')
     #plt.figure();    plt.imshow(dp[0, 2, :, :, 0])  # axial
     #plt.figure();    plt.imshow(dp[0, 2, 0, ...])  # sag
 
@@ -611,6 +874,8 @@ for dfser in dfsub.iterrows():
 
     plt.figure(); plt.hist(gmi, bins=100)
     plt.figure(); plt.imshow(dp[0,2,0,:,:],origin='lower') #sagital
+
+    slice_dice = []
 
 #    for nbs in range(0, suj.lab.data.shape[3]): # [3] for axial zslice [1] for sag
     for nbs in range(0, suj.lab.data.shape[1]): # [3] for axial zslice [1] for sag
@@ -671,6 +936,21 @@ mse_inter.sum()/suj.target.data[2].sum() * 100
 
 suj.data.data[0] = mse_inter
 
+###eval metric MI from ANTS
+dfmh['sujpath'] = dfmh.apply(lambda x: os.path.basename(x.vol_T1.values), axis=1)
+df = pd.read_csv('/data/romain/baby/ants_MI_scale_mask_volume.csv')
+df1 = pd.read_csv('/data/romain/baby/ants_MI_mask_volume.csv')
+y=df1.MI.values
+z = np.polyfit(x,y,5);  p= np.poly1d(z); x=range(len(y))
+plt.figure(); plt.hist(y-p(x),bins=100)
+y = y -p(x)
+ind_very_bad = y>0.35; ind_bad = (y>0.2)&(y<0.35); ind_good = y<-0.2
+
+dfs = df[ind_bad]
+dfs.to_csv('/data/romain/baby/csv/good_score.csv',index=False)
+
+for ind,dff in df[ind_very_bad].iterrows():
+    print(f'mrview {dff.vol_T2} {dff.vol_T1}')
 
 #test coregister
 img_tpl = tio.ScalarImage('/data/romain/template/MIDA_v1.0/MIDA_v1_voxels/mask/crop/mask_brain.nii')

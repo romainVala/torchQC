@@ -1,4 +1,4 @@
-import os
+import os, glob
 from segmentation.config import Config
 from segmentation.run_model import RunModel
 from plot_dataset import PlotDataset
@@ -19,11 +19,56 @@ fjson = '/data/romain/PVsynth/jzay/training/baby/bin_dseg9_feta_bg_shape/main.js
 result_dir= 'results_cluster' #os.path.dirname(fjson) +'/test_script'
 config = Config(fjson, result_dir, mode='eval', save_files=False) #since cluster read (and write) the same files, one need save_file false to avoid colusion
 config.init()
-#viz_set = config.train_set #val_set
+viz_set = config.train_set #val_set
 viz_set = config.val_set
 np.random.seed(12)
 torch.manual_seed(12)
 suj = viz_set[0]
+
+for i in range(20):
+    suj = viz_set[i]
+    suj.t1.save(f'dat_n{i}.nii.gz')
+    #suj.label.data[suj.label.data<0.01] = 0
+    suj.label.save(f'lab_n{i}.nii.gz')
+    #suj.label_synth.save(f'labsynth_n{i}.nii.gz')
+
+
+#read saved sample and select those with clean WM (and make a link)
+fjson = '/linkhome/rech/gencme01/urd29wg/training/baby/pve_15suj/scaled_from_dir/bgEM_wm_all/main.json'
+result_dir= 'results_cluster' #os.path.dirname(fjson) +'/test_script'
+config = Config(fjson, result_dir, mode='eval', save_files=False) #since cluster read (and write) the same files, one need save_file false to avoid colusion
+config.init()
+trainset_list = config.train_set
+
+for i in range(27):
+    trainset_list.pop(0)
+
+#first de 0 a 30  second de 20 a 29  third de 14 a 19
+for nb_epoch in range(0,len(trainset_list)):
+    print(nb_epoch)
+
+    viz_set = trainset_list[nb_epoch]
+    nb_epoch+=28
+    print(nb_epoch)
+
+    for ind_suj, suj in enumerate(viz_set):
+            print(f'epoch {nb_epoch} suj {ind_suj} ')
+            dd=suj.label_synth.data[suj.label.data==3]
+            #if dd.max()==dd.min():
+            if len(dd[dd>3])==0:
+                print('make link')
+                do = f"select_WMclena_epo{nb_epoch:03}/"
+                #if ind_suj==0:  #bug if skip first
+                if not( os.path.isdir(do) ):
+                    os.mkdir(do)
+
+                suj_tar = viz_set._subjects[ind_suj]
+                filename = os.path.basename(suj_tar)
+                filename_dir = os.path.basename(os.path.dirname(suj_tar))
+                os.symlink(f'../{filename_dir}/{filename}', do+filename)
+                #os.symlink(suj_tar, do+filename)
+            else:
+                print('skiping')
 
 tc = tio.CropOrPad(target_shape=[192,192,192])
 tc = tio.CropOrPad(target_shape=[224,304,304])
@@ -287,3 +332,55 @@ suj.label.save('l.nii')
 
 suj.t1.data = all_patch
 suj.t1.save('patchRand.nii')
+
+
+
+#for reading data from disk
+import torchio, glob
+from torch.utils.data import DataLoader
+
+def get_queue_loader_from_arg(arg_dict):
+    #add for data set with a lot of files, (previously list of dataloader ... with load_from_dir)
+    sample_files = eval(arg_dict['subjects'])
+    train_set =  torchio.SubjectsDataset(sample_files,
+                                      load_from_dir=arg_dict['load_from_dir'],
+                                      transform=arg_dict['transform'],
+                                      add_to_load=arg_dict['add_to_load'],
+                                      add_to_load_regexp=arg_dict['add_to_load_regexp'])
+
+    train_queue = torchio.Queue(train_set,  start_background=True,
+                                **arg_dict['queue_param'] )
+
+    dataloader = DataLoader(train_queue, self.batch_size, num_workers=0,
+                                   collate_fn=arg_dict['collate_fn'])
+
+    return dataloader
+
+def get_dataset_from_arg(arg_dict, batch_size=1):
+    #add for data set with a lot of files, (previously list of dataloader ... with load_from_dir)
+    sample_files = eval(arg_dict['subjects'])
+    train_set =  torchio.SubjectsDataset(sample_files,
+                                      load_from_dir=arg_dict['load_from_dir'],
+                                      transform=arg_dict['transform'],
+                                      add_to_load=arg_dict['add_to_load'],
+                                      add_to_load_regexp=arg_dict['add_to_load_regexp'])
+
+    #dataloader = DataLoader(train_set, batch_size, num_workers=0)
+                                   #collate_fn=arg_dict['collate_fn'])
+
+    return train_set #dataloader
+
+viz_set = config.train_set #val_set
+param = viz_set[0]
+ds = get_dataset_from_arg(param)
+suj = ds[0]
+
+sample_files = glob.glob('/data/romain/training_saved_sample/baby_15_suj/no_scaling/drawEM_15suj_bgmida_tSTD_mot05/tio_save_mida_wmclean_tSTD_mot05strong_BG0_15suj/ep_000/*gz')
+#let make it directly
+sample_files = glob.glob('/data/romain/training_saved_sample/speciesV3/tio_save_specieV3_clean_largeScale/ep_000/*dup0*gz')
+
+DS = tio.SubjectsDataset(sample_files,load_from_dir=True, transform=None,add_to_load=None,add_to_load_regexp=None)
+#suj = DS[0]
+for suj in DS:
+    suj.t1.save(f't1_{suj.name}.nii.gz')
+    suj.label.save(f'lab_{suj.name}.nii.gz')
