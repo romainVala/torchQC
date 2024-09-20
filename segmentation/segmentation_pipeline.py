@@ -3,7 +3,7 @@ import logging
 import argparse
 import os
 import resource
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 from pathlib import Path
 from segmentation.utils import instantiate_logger
 from segmentation.config import Config, parse_grid_search_file, \
@@ -31,7 +31,7 @@ if __name__ == "__main__":
                         help='Path to results directory if it does not start '
                              'with the config file dir is prepend')
     parser.add_argument('-m', '--mode', type=str, default='train',
-                        help='possible mode :  train, val, infer, visualization ')
+                        help='possible mode :  train, val, infer, visualization, save ')
     parser.add_argument('-e', '--extra_file', type=str,
                         help='Extra configuration file')
     parser.add_argument('-d', '--debug', type=int, default=0,
@@ -135,4 +135,4 @@ if __name__ == "__main__":
         jobs_struct['jobs'] = jobs
         create_jobs(jobs_struct)
 
-    plt.show()
+    #plt.show()
