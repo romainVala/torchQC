@@ -1173,7 +1173,7 @@ class Config:
                     mmm, ddd = return_model(mmm, file)
                 else:
                     mmm = struct['model']
-                    model_dict = torch.load(file)
+                    model_dict = torch.load(file, map_location=torch.device(struct['device']))
                     mmm.load_state_dict(model_dict)
                     ddd = struct['device']
                     mmm.to(ddd) #put model in gpu
