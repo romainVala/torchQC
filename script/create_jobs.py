@@ -83,9 +83,9 @@ def create_jobs( params_fname ) :
         err_file    = logs_dir + '/err-X_' + str(j)
            
         txt = [ '#!/bin/bash',
-                        '#SBATCH -m block:block', 
-                        '#SBATCH --mail-type=ALL',
-                        '#SBATCH -p ' + params['cluster_queue'],
+                        #'#SBATCH -m block:block',
+                        #'#SBATCH --mail-type=ALL',
+                        '#SBATCH ' + params['cluster_queue'],
                         '#SBATCH -n ' + str(params['cpus_per_task']), ]
         if 'mem_per_cpu_MB' in params :
             txt.append( '#SBATCH --mem-per-cpu=' + str(params['mem_per_cpu_MB']) )
@@ -127,7 +127,7 @@ def create_jobs( params_fname ) :
     fd = open( do_qsub_file, 'w' )
     # fprintf( fd, [ 'export jobid=`sbatch -p ' cluster_queue ' --qos=' cluster_queue ' -N 1 --cpus-per-task=' num2str(cpus_per_task) ] ) ;
     # no more --qos option...
-    fd.write( 'export jobid=`sbatch -p ' + params['cluster_queue'] )
+    fd.write( 'export jobid=`sbatch ' + params['cluster_queue'] )
 
     # walltime required
     fd.write( ' -t ' + params['walltime'] )
