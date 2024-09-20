@@ -323,6 +323,12 @@ class Dice:
         res = res / nb_vol
         return res
 
+    def mean_dice_loss_and_20xL1(self, prediction, target):
+        Ldice = mean_metric(prediction, target, self.dice_loss)
+        L1loss = torch.nn.L1Loss()
+        L1 = L1loss(prediction, target)
+        return Ldice + 20*L1
+
     def mean_dice_loss(self, prediction, target):
         return mean_metric(prediction, target, self.dice_loss)
 
