@@ -6,6 +6,7 @@ from segmentation.config import Config
 from segmentation.utils import to_numpy
 import nibabel as nib
 import os, json
+from utils_file import get_parent_path, remove_extension
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -34,6 +35,8 @@ if __name__ == '__main__':
                         help='nb volume to exclude (from the end) from the softmax activation')
     parser.add_argument('-c','--CropOrPad', type=str, default='None',
                         help='tuple of target dim')
+    parser.add_argument('-vs','--VoxelSize', type=float, default=0,
+                        help='resample to VoxelSize before pred, and back')
     parser.add_argument('-p','--PatchSize', type=int, default=0,
                         help='patch size to process the image (default 0 -> full input size)')
     parser.add_argument('-po','--PatchOverlap', type=int, default=0,
@@ -48,127 +51,184 @@ if __name__ == '__main__':
     args = parser.parse_args()
     nb_vol_exclude = int(args.exlcude_to_softmax)
     vol_crop_pad = eval(args.CropOrPad)
+    voxel_size = float(args.VoxelSize)
     patch_size = args.PatchSize
     patch_overlap = args.PatchOverlap
     batch_size = args.Patch_batch_size
     save_4D = args.save_4D
     save_biggest_comp = args.BiggestComp
 
-    volume = torchio.ScalarImage(path=args.volume)
-    tscale = torchio.RescaleIntensity(out_min_max=(0,1), percentiles=(0,99))
-    volume = tscale(volume)
-    tcan = torchio.ToCanonical()
-    volume = tcan(volume)
-
-    if vol_crop_pad:
-        tpad = torchio.CropOrPad(target_shape=vol_crop_pad)
-        volume = tpad(volume)
-        orig_shape = 0
+    input_files = args.volume
+    if "," in input_files:
+        fin_list=input_files.split(',')
+        fout_names = [remove_extension(ff) for ff in get_parent_path(fin_list)[1]]
+        make_average=True; average_pred=None
     else:
-        orig_shape = volume.shape[-3:]
-        treshape = torchio.EnsureShapeMultiple(2**5)
-        volume = treshape(volume)
-        tback = torchio.CropOrPad(target_shape=orig_shape)
-        print(f'suj new shape is {volume.shape} orig is {orig_shape}')
+        fin_list = [input_files]
+        fout_names = ['']
+        make_average = False
 
-    model_struct = {
-        'module': args.model_module,
-        'name': args.model_name,
-        'last_one': False,
-        'path': args.model,
-        'device': args.device,
-        }
+    for fin,fout_name in zip(fin_list, fout_names):
+        volume = torchio.ScalarImage(path=fin)
 
-    if os.path.isfile(args.model_json):
-        with open(args.model_json) as f:
-            model_struct =  json.load(f)
-            
-        model_struct['path'] = args.model
-        model_struct['last_one'] = False
-        model_struct['device'] = args.device
+        tscale = torchio.RescaleIntensity(out_min_max=(0,1), percentiles=(0,99))
+        volume = tscale(volume)
+        tcan = torchio.ToCanonical()
+        volume = tcan(volume)
 
+        if voxel_size>0:
+            tresamp = torchio.Resample(voxel_size)
+            volume = tresamp(volume)
+            print(f'suj new voxelSize is {volume} orig is {volume.shape[-3:]}')
 
-    config = Config(None, None, save_files=False)
-    model_struct = config.parse_model_file(model_struct)
-    model, device = config.load_model(model_struct)
-    #device = args.device
-    device =  model_struct['device']
-
-
-    model.eval()
-
-    if patch_size==0:
-        with torch.no_grad():
-            print(device)
-            prediction = model(volume.data.unsqueeze(0).float().to(device))
-        if nb_vol_exclude > 0:
-            pp = F.softmax(prediction[0, :-nb_vol_exclude, ...].unsqueeze(0), dim=1)
-            prediction[0, :-nb_vol_exclude, ...] = pp[0]
+        if vol_crop_pad:
+            tpad = torchio.CropOrPad(target_shape=vol_crop_pad)
+            volume = tpad(volume)
+            orig_shape = 0
         else:
-            #print('WITH SOFTMAX')
-            prediction = F.softmax(prediction, dim=1)
+            orig_shape = volume.shape[-3:]
+            treshape = torchio.EnsureShapeMultiple(2**5)
+            volume = treshape(volume)
+            tback = torchio.CropOrPad(target_shape=orig_shape)
+            print(f'suj new shape is {volume.shape} orig is {orig_shape}')
 
-    else:
-        suj = torchio.Subject({'t1': volume})
-        grid_sampler = torchio.inference.GridSampler(
-            suj, patch_size, patch_overlap, padding_mode='reflect'
-        )
-        patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=batch_size)
-        aggregator = torchio.inference.GridAggregator(grid_sampler, overlap_mode='hann')
-        print(f' preparing {len(patch_loader)} patches with batch size {batch_size}')
-        for ii, one_patch in enumerate(patch_loader):
-            #print(f'patch {ii}')
+        model_struct = {
+            'module': args.model_module,
+            'name': args.model_name,
+            'last_one': False,
+            'path': args.model,
+            'device': args.device,
+            }
+
+        if os.path.isfile(args.model_json):
+            with open(args.model_json) as f:
+                model_struct =  json.load(f)
+
+            model_struct['path'] = args.model
+            model_struct['last_one'] = False
+            model_struct['device'] = args.device
+
+
+        config = Config(None, None, save_files=False)
+        model_struct = config.parse_model_file(model_struct)
+        model, device = config.load_model(model_struct)
+        #device = args.device
+        device =  model_struct['device']
+
+
+        model.eval()
+
+        if patch_size==0:
             with torch.no_grad():
-                predictions = model(one_patch['t1']['data'].float().to(device))
-            predictions = F.softmax(predictions, dim=1)
-            #predictions = F.log_softmax(predictions, dim=1) #JUST FOR TRAINING ?
-            locations = one_patch[torchio.LOCATION]
-            aggregator.add_batch(predictions.to('cpu'), locations)  #if keept on gpu I do not uderstand memory goes up
+                print(device)
+                prediction = model(volume.data.unsqueeze(0).float().to(device))
+                if make_average:
+                    if average_pred is None:
+                        average_pred = prediction
+                    else:
+                        average_pred += prediction
 
-        prediction = aggregator.get_output_tensor().unsqueeze(0)
-        print('model estimation done')
+            if nb_vol_exclude > 0:
+                pp = F.softmax(prediction[0, :-nb_vol_exclude, ...].unsqueeze(0), dim=1)
+                prediction[0, :-nb_vol_exclude, ...] = pp[0]
+            else:
+                #print('WITH SOFTMAX')
+                prediction = F.softmax(prediction, dim=1)
 
-    prediction = to_numpy(prediction)
+        else:
+            if make_average:
+                TODO
+            suj = torchio.Subject({'t1': volume})
+            grid_sampler = torchio.inference.GridSampler(
+                suj, patch_size, patch_overlap, padding_mode='reflect'
+            )
+            patch_loader = torch.utils.data.DataLoader(grid_sampler, batch_size=batch_size)
+            aggregator = torchio.inference.GridAggregator(grid_sampler, overlap_mode='hann')
+            print(f' preparing {len(patch_loader)} patches with batch size {batch_size}')
+            for ii, one_patch in enumerate(patch_loader):
+                #print(f'patch {ii}')
+                with torch.no_grad():
+                    predictions = model(one_patch['t1']['data'].float().to(device))
+                predictions = F.softmax(predictions, dim=1)
+                #predictions = F.log_softmax(predictions, dim=1) #JUST FOR TRAINING ?
+                locations = one_patch[torchio.LOCATION]
+                aggregator.add_batch(predictions.to('cpu'), locations)  #if keept on gpu I do not uderstand memory goes up
 
-    if save_biggest_comp:
-        print(f'Biggest comp on {save_biggest_comp}')
-        from segmentation.utils import get_largest_connected_component
-        import numpy as np
+            prediction = aggregator.get_output_tensor().unsqueeze(0)
+            print('model estimation done')
 
-        #find label index
-        volume_mask = prediction > 0.5 #billot use 0.25 ... why so big ?
-        for i_label in save_biggest_comp:
-            tmp_mask = get_largest_connected_component(volume_mask[:, i_label, ...])
-            prediction[:, i_label, ...] *= tmp_mask
-        #renomalize posteriors todo what if sum over proba is null after connected compo ... ?
-        # if np.sum() == 0
-        prediction /= np.sum(prediction, axis=1)[:,np.newaxis,...]
+        prediction = to_numpy(prediction)
+
+        if save_biggest_comp:
+            print(f'Biggest comp on {save_biggest_comp}')
+            from segmentation.utils import get_largest_connected_component
+            import numpy as np
+
+            #find label index
+            volume_mask = prediction > 0.5 #billot use 0.25 ... why so big ?
+            for i_label in save_biggest_comp:
+                tmp_mask = get_largest_connected_component(volume_mask[:, i_label, ...])
+                prediction[:, i_label, ...] *= tmp_mask
+            #renomalize posteriors todo what if sum over proba is null after connected compo ... ?
+            # if np.sum() == 0
+            prediction /= np.sum(prediction, axis=1)[:,np.newaxis,...]
 
 
-    #image = nib.Nifti1Image(
-    #    to_numpy(prediction[0].permute(1, 2, 3, 0)),
-    #    volume.affine
-    #)
-    suj_pred = torchio.Subject(pred=torchio.LabelMap(tensor=prediction[0], affine=volume.affine) )
+        #image = nib.Nifti1Image(
+        #    to_numpy(prediction[0].permute(1, 2, 3, 0)),
+        #    volume.affine
+        #)
+        suj_pred = torchio.Subject(pred=torchio.LabelMap(tensor=prediction[0], affine=volume.affine) )
 
-    if orig_shape:
-        suj_pred = tback(suj_pred)
+        if orig_shape:
+            suj_pred = tback(suj_pred)
+        if voxel_size>0:
+            tresamp = torchio.Resample(target=fin, label_interpolation='bspline')
+            suj_pred = tresamp(suj_pred)
+            print(f'RESAMPLE {suj_pred}')
 
-    out_filename = args.filename
-    if ~(out_filename.endswith('.nii') | out_filename.endswith('.gz')):
-        out_filename += '.nii.gz'
+        out_filename = args.filename + fout_name
+        if ~(out_filename.endswith('.nii') | out_filename.endswith('.gz')):
+            out_filename += '.nii.gz'
 
-    if save_4D:
-        print(f'saving {out_filename} threshold 0.01')
-        suj_pred.pred.data[suj_pred.pred.data<0.01] = 0
-        suj_pred.pred.save(out_filename)
-        #nib.save(image, args.filename)
+        if save_4D:
+            print(f'saving {out_filename} threshold 0.01')
+            suj_pred.pred.data[suj_pred.pred.data<0.01] = 0
+            suj_pred.pred.save(out_filename)
+            #nib.save(image, args.filename)
 
-    tseg_bin = torchio.OneHot(invert_transform=True)
-    suj_pred = tseg_bin(suj_pred)
+        tseg_bin = torchio.OneHot(invert_transform=True)
+        suj_pred = tseg_bin(suj_pred)
 
-    outdir =  os.path.dirname(out_filename)+'/' if os.path.dirname(out_filename) else "./"
-    new_out_file = outdir + 'bin_' + os.path.basename(out_filename)
-    print('saving bin version')
-    suj_pred.pred.save(new_out_file)
+        outdir =  os.path.dirname(out_filename)+'/' if os.path.dirname(out_filename) else "./"
+        new_out_file = outdir + 'bin_' + os.path.basename(out_filename)
+        print('saving bin version')
+        suj_pred.pred.save(new_out_file)
+
+    if make_average:
+        average_pred = F.softmax(average_pred, dim=1)
+        prediction = to_numpy(average_pred)
+
+        suj_pred = torchio.Subject(pred=torchio.LabelMap(tensor=prediction[0], affine=volume.affine))
+
+        if orig_shape:
+            suj_pred = tback(suj_pred)
+
+        out_filename = args.filename + '_average'
+        if ~(out_filename.endswith('.nii') | out_filename.endswith('.gz')):
+            out_filename += '.nii.gz'
+
+        if save_4D:
+            print(f'saving {out_filename} threshold 0.01')
+            suj_pred.pred.data[suj_pred.pred.data < 0.01] = 0
+            suj_pred.pred.save(out_filename)
+            # nib.save(image, args.filename)
+
+        tseg_bin = torchio.OneHot(invert_transform=True)
+        suj_pred = tseg_bin(suj_pred)
+
+        outdir = os.path.dirname(out_filename) + '/' if os.path.dirname(out_filename) else "./"
+        new_out_file = outdir + 'bin_' + os.path.basename(out_filename)
+        print('saving bin version')
+        suj_pred.pred.save(new_out_file)
 
