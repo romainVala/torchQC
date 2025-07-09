@@ -216,6 +216,27 @@ def mrview_from_df(df, col_name, condition,  bin_overlay_class=0):
 
     return mrview_overlay(list(dfsub.finput.values), [dfsub.flabel.values[0]] + list(dfsub.fpred.values),
                           bin_overlay_class=bin_overlay_class)
+
+def mrview_overlay_list(bg_img, overlay_list, doit=True, max_mrview=5):
+    cmdi = 'vglrun mrview'
+    mrview_opt = '-mode 2 -size 1300,900'
+    overlay_opt = '-overlay.opacity 0.2 -overlay.colourmap 3 -overlay.interpolation 0 -overlay.threshold_min 0.5'
+    job=[]; nb_mrview=0
+    for fbg, fov in zip(bg_img, overlay_list):
+        cmd = f'{cmdi} {fbg} -overlay.load {fov} {overlay_opt} {mrview_opt}'
+        job.append(cmd)
+        print(cmd)
+        if doit :
+            if nb_mrview< max_mrview:
+                cmd_list = cmd.split(' ')
+                process = subprocess.Popen(cmd_list, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                #subprocess.run(cmd.split(' '))
+                nb_mrview += 1
+            else:
+                c = input('continue ?')
+                nb_mrview = 0
+
+
 def mrview_overlay(bg_img, overlay_list, bin_overlay_class=0):
     if not isinstance(bg_img, list):
         bg_img = [bg_img]
