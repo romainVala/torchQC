@@ -3,10 +3,10 @@ import torch,numpy as np,  torchio as tio
 from utils_metrics import compute_metric_from_list #get_tio_data_loader, predic_segmentation, load_model, computes_all_metric
 from timeit import default_timer as timer
 import json, os, seaborn as sns, shutil
-from utils_file import gfile, gdir, get_parent_path, addprefixtofilenames
+from utils_file import gfile, gdir, get_parent_path, addprefixtofilenames, r_move_file,,delete_file_list
 import pandas as pd
 from nibabel.viewers import OrthoSlicer3D as ov
-from utils_labels import remap_filelist, get_fastsurfer_remap
+from utils_labels import remap_filelist, get_fastsurfer_remap, get_remapping, create_mask
 import matplotlib.pyplot as plt
 from script.create_jobs import create_jobs
 
@@ -18,19 +18,41 @@ pd.set_option('display.width', 1000)
 
 
 #adult hcp different predictions
-suj = gdir('/network/lustre/iss02/opendata/data/HCP/raw_data/test_retest/session1',['\d.*','T1w'])
-#on training suj= gdir('/network/lustre/iss02/opendata/data/HCP/training39',['\d.*','T1w',])
+suj = gdir('/network/iss/opendata/data/HCP/raw_data/test_retest/session1',['\d.*','T1w'])
+#on training suj= gdir('/network/iss/opendata/data/HCP/training39',['\d.*','T1w',])
 droi1= gdir(suj,'ROI_PVE_1mm')
 droi= gdir(suj,'ROI$')
 #suj = gdir(suj,'T1_1mm')
-dfs =  gdir(suj,['pred_fs','[1234567890]']);dfree =  gdir(suj,['freesurfer','suj','mri'])
+dfs =  gdir(suj,['pred_fs','[1234567890]']);dfree =  gdir(suj,['freesurfer_crop','suj','mri'])
 dAssN = gdir(suj,'AssemblyNet');dpred = gdir(suj,'pred_myS');dSynthS = gdir(suj,'SynthSeg2')
 dSynthSeg = gdir(suj,['SynthSeg'])
 
 dfsl_bin =  gdir(suj, 'first')
 
-#ft1 = gfile(suj,'^T1w_1mm.nii$'); # ft1 = gfile(suj,'^T1w_acpc_dc_restore.nii.gz')
-ft1 = gfile(suj,'^rT1');
+#ft1 = gfile(suj,'^T1w_1mm.nii$'); # ft1 = gfile(suj,'^rT1');
+ft1 = gfile(suj,'^T1w_acpc_dc_restore.nii.gz')
+
+#remap
+fapar = gfile(dfree,'^aparc.aseg')
+tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/iss/opendata/data/template/remap/free_remapV2.csv', index_col_remap=4)
+remap_filelist(fapar,tmap,fref=ft1, prefix='remapHyp_',reslice_with_mrgrid=True)
+
+#make even T1 (for freesurfer)
+cmd = [f'mrgrid {f1}  crop -axis 1 0,1 {f2}' for f1,f2 in zip(fanat,fo)]
+
+#lobes remap
+fass = gfile(dAssN,'^native_structures_T1w_acpc_dc_restore.nii.gz')
+tmap = get_remapping('assn',tmap_index_col=[0,3])
+remap_filelist(fass,tmap, prefix='remapLobes_')
+remap_filelist(fass, tmap, prefix='Dillremap_', fref=fass, skip=True, reslice_4D=True, blur4D=6,save=True, reduce_BG=0.1 , reslice_with_mrgrid=False)
+f = gfile(dAssN, '^Dill')
+diclab = get_remapping('assn',lab_name=['names_lobes','value_lobes']);diclab.pop('BG')
+create_mask(f,diclab)
+df = pd.read_csv('/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/csv_prediction/HCP_test_retest_07mm_suj82_vol_T1_07_free_Ass_siam.csv')
+for k,v in diclab.items():
+    df[f'mask_{k}'] = gfile(dAssN,f'm_{k}')
+    print(k)
+df.to_c
 
 sujname = get_parent_path(droi,3)[1]
 sujnameID = [s[:6] for s in sujname]
@@ -43,8 +65,8 @@ concat_label_list = [[0,0,0,0,0,0,0,1,0,1]]
 
 #df = compute_metric_from_list(flab,flab2,sujname, labels_name, selected_label, distance_metric=True, volume_metric=True)
 
-fcsv=gfile('/network/lustre/iss02/opendata/data/HCP/raw_data/test_retest/res/compare/res1mm/again','csv')
-fcsv=gfile('/network/lustre/iss02/opendata/data/template/manual_seg/MICCAI_2012/metriques/all','csv')
+fcsv=gfile('/network/iss/opendata/data/HCP/raw_data/test_retest/res/compare/res1mm/again','csv')
+fcsv=gfile('/network/iss/opendata/data/template/manual_seg/MICCAI_2012/metriques/all','csv')
 df = pd.concat([pd.read_csv(ff) for ff in fcsv])
 def get_pred_GT(ligne,pred=True, col_name='comp'):
     cell_content = ligne[col_name]    #array_path = eval(cell_content)
@@ -161,8 +183,8 @@ for ii, ax in enumerate(fig.axes):
 sns.move_legend(fig,'right',fontsize='xx-large',frameon=True, shadow=True, title=f'model ',title_fontsize='xx-large')
 fig.savefig(f'{dout}/res_GTs_{ymetOne[0]}.png')
 
-df1 = pd.read_csv('/network/lustre/iss02/opendata/data/HCP/raw_data/test_retest/res/res_dist_binPV_versus_freesurfer.csv')
-df2 = pd.read_csv('/network/lustre/iss02/opendata/data/HCP/raw_data/test_retest/res/res_dist_predFS_versus_freesurfer.csv')
+df1 = pd.read_csv('/network/iss/opendata/data/HCP/raw_data/test_retest/res/res_dist_binPV_versus_freesurfer.csv')
+df2 = pd.read_csv('/network/iss/opendata/data/HCP/raw_data/test_retest/res/res_dist_predFS_versus_freesurfer.csv')
 df1['comp'] = "binPV_freesurfer"; df2['comp'] = "predFS_freesurfer"
 df = pd.concat([df1,df2])
 
@@ -218,11 +240,11 @@ plt.ylim([0.8,0.96]) ; #plt.ylim([0.7,1.3])
 
 #remap freesurfer / fastsurfer
 fapar = gfile(dfree,'^aparc.aseg'); fapar = gfile(dfs,'^aparc')
-tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remap.csv')
+tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/iss/opendata/data/template/remap/free_remap.csv')
 
 #remap Synthseg
 fapar = gfile(dSynthS,'rT1w_1mm_synthseg')
-tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remap.csv')
+tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/iss/opendata/data/template/remap/free_remap.csv')
 remap_filelist(fapar,tmap)
 
 #remap old model to new
@@ -236,7 +258,7 @@ remap_filelist(f1,tmap)
 dfsl = gdir(suj,['BADcat12'])
 ffirst = gfile(dfsl,'^first.*firstseg.nii.gz')
 ffirst = gfile(dfsl_bin,'first.*firstseg.nii.gz')
-tmap = get_fastsurfer_remap(ffirst[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/remap_fsl_first.csv')
+tmap = get_fastsurfer_remap(ffirst[0],fcsv ='/network/iss/opendata/data/template/remap/remap_fsl_first.csv')
 remap_filelist(ffirst,tmap, fref=ft1, prefix='r1mm_remap_')
 
 
@@ -246,8 +268,8 @@ df = compute_metric_from_list(f1,ftar,sujname, labels_name, selected_label, dist
 df['sujnameID'] = sujnameID; df['comp'] = "predFS_freesurfer"
 dfall = pd.concat([dfall,df])
 
-dfall.to_csv('/network/lustre/iss02/opendata/data/HCP/raw_data/test_retest/res/res_1mm_mypred2.csv',index=False)
-dfall = pd.read_csv('/network/lustre/iss02/opendata/data/HCP/raw_data/test_retest/res/res_1mm_mypred.csv')
+dfall.to_csv('/network/iss/opendata/data/HCP/raw_data/test_retest/res/res_1mm_mypred2.csv',index=False)
+dfall = pd.read_csv('/network/iss/opendata/data/HCP/raw_data/test_retest/res/res_1mm_mypred.csv')
 
 f1 = gfile(dpred,'^rema.*SN');  df['comp'] = "SN_clean_freesurfer"
 f1 = gfile(dpred,'^rema.*YEB');  df['comp'] = "bYEB_erod_freesurfer"
@@ -264,7 +286,7 @@ ftar = gfile(droi1,'^rrT1mm_bin_PV'); f1 = gfile(dfsl,'^r1mm_remap_');df['comp']
 ftar = gfile(dfree,'^rema');  f1 = gfile(droi1,'^rrT1mm_bin_PV');df['comp'] = "binPV_freesurfer"
 #make binPV in trainin39
 fassemb = gfile(dAssN,'^native_structure.*nii.gz')
-tmap = get_fastsurfer_remap(fassemb[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/remap_vol2Brain_label.csv')
+tmap = get_fastsurfer_remap(fassemb[0],fcsv ='/network/iss/opendata/data/template/remap/remap_vol2Brain_label.csv')
 remap_filelist(fassemb,tmap,prefix='remapHyp_')
 
 # again with all at once
@@ -281,8 +303,8 @@ for k,v in dict_files.items():
 
 
 cmd_init = '\n'.join(['python -c "','from utils_metrics import compute_metric_from_list ','from torch import tensor as tensor'])
-dout = '/network/lustre/iss02/opendata/data/HCP/raw_data/test_retest/res/compare/res1mm/again'
-dout = '/network/lustre/iss02/opendata/data/template/manual_seg/MICCAI_2012/metriques/all'
+dout = '/network/iss/opendata/data/HCP/raw_data/test_retest/res/compare/res1mm/again'
+dout = '/network/iss/opendata/data/template/manual_seg/MICCAI_2012/metriques/all'
 
 pred_list = list(dict_files.keys())
 nbc = len(pred_list); jobs=[]
@@ -319,19 +341,19 @@ create_jobs(job_params)
 
 #eval manual segmentation
 #remap
-suj = ['/network/lustre/iss02/opendata/data/template/manual_seg/oasis_1103_3/'] #['/data/romain/template/manual_seg/oasis_1103_3/']
+suj = ['/network/iss/opendata/data/template/manual_seg/oasis_1103_3/'] #['/data/romain/template/manual_seg/oasis_1103_3/']
 dfree = gdir(suj, ['freesurfer', 'suj', 'mri'])
 ft1 = gfile(suj,'^1.*nii.gz')
-fgt = gfile('/network/lustre/iss02/opendata/data/template/manual_seg/MICCAI_2012/MICCAI-2012-Multi-Atlas-Challenge-Data/testing-labels','^1.*gz')
+fgt = gfile('/network/iss/opendata/data/template/manual_seg/MICCAI_2012/MICCAI-2012-Multi-Atlas-Challenge-Data/testing-labels','^1.*gz')
 fapar = gfile(dfree,'^aparc.aseg')
-tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remapV2.csv', index_col_remap=4)
-remap_filelist(fapar,tmap,fref=ft1, prefix='remapHyp_',)
+tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/iss/opendata/data/template/remap/free_remapV2.csv', index_col_remap=4)
+remap_filelist(fapar,tmap,fref=ft1, prefix='remapHyp_',reslice_with_mrgrid=True)
 
 fapar = gfile(gdir(suj,['fastS','suj']),'^aparc')
-tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remapV2.csv')
+tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/iss/opendata/data/template/remap/free_remapV2.csv')
 remap_filelist(fapar,tmap,fref=ft1)
 
-tmap = get_fastsurfer_remap(fgt[0],fcsv ='/network/lustre/iss02/opendata/data//template/manual_seg/remap_label_brainCOLOR_neuromorphometrics.csv', index_col_remap=2)
+tmap = get_fastsurfer_remap(fgt[0],fcsv ='/network/iss/opendata/data//template/manual_seg/remap_label_brainCOLOR_neuromorphometrics.csv', index_col_remap=2)
 remap_filelist(fgt,tmap, prefix='remapHyp_')
 
 fvol2b = gfile(gdir(suj,'vol2Brain'),'native_structure.*nii.gz')
@@ -346,7 +368,7 @@ tmap = get_fastsurfer_remap(ffsl[0],fcsv ='/data/romain/template/remap/remap_fsl
 remap_filelist(ffsl,tmap)
 
 ffsl = gfile(gdir(suj,'SynthSeg'),'_synthseg.nii')
-tmap = get_fastsurfer_remap(ffsl[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remap.csv')
+tmap = get_fastsurfer_remap(ffsl[0],fcsv ='/network/iss/opendata/data/template/remap/free_remap.csv')
 remap_filelist(ffsl,tmap)
 
 #remap old model to new
@@ -374,7 +396,7 @@ fig = sns.catplot(data=dfmm, y='y', col='metric', order=xorder, col_order=corder
 
 #manual seg oasis
 #adult hcp different predictions
-suj = gdir('/network/lustre/iss02/opendata/data/template/manual_seg/MICCAI_2012/nii',['.*'])
+suj = gdir('/network/iss/opendata/data/template/manual_seg/MICCAI_2012/nii',['.*'])
 dfs =  gdir(suj,['pred_fs','[1234567890]']);dfree =  gdir(suj,['freesurfer','suj','mri'])
 dAssN = gdir(suj,'AssemblyNet');dpred = gdir(suj,'pred_myS');dSynthS = gdir(suj,'SynthSeg'); dfsl = gdir(suj,'fsl_first_rstd')
 
@@ -383,20 +405,20 @@ tmap = get_fastsurfer_remap(ffsl[0],fcsv ='/data/romain/template/remap/remap_fsl
 remap_filelist(ffsl,tmap,fref=fgt)
 
 fpred = gfile(dpred,'_synthseg.nii')
-tmap = get_fastsurfer_remap(fpred[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remap.csv')
+tmap = get_fastsurfer_remap(fpred[0],fcsv ='/network/iss/opendata/data/template/remap/free_remap.csv')
 remap_filelist(fpred,tmap)
 
 fapar = gfile(dfree,'^aparc.aseg')
-tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remapV2.csv')
-tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remapV2.csv', index_col_remap=4)
+tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/iss/opendata/data/template/remap/free_remapV2.csv')
+tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/iss/opendata/data/template/remap/free_remapV2.csv', index_col_remap=4)
 remap_filelist(fapar,tmap,fref=ft1, prefix='remapHyp_',) #remap_filelist(fapar,tmap,fref=fgt)
 
 fpred = gfile(dfs,'^aparc')
-tmap = get_fastsurfer_remap(fpred[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remapV2.csv')
+tmap = get_fastsurfer_remap(fpred[0],fcsv ='/network/iss/opendata/data/template/remap/free_remapV2.csv')
 remap_filelist(fpred,tmap,fref=fgt)
 
 fpred = gfile(dAssN,'^native_structure.*nii.gz')
-tmap = get_fastsurfer_remap(fpred[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/remap_vol2Brain_label.csv')
+tmap = get_fastsurfer_remap(fpred[0],fcsv ='/network/iss/opendata/data/template/remap/remap_vol2Brain_label.csv')
 remap_filelist(fpred,tmap,prefix='remapHyp_')
 
 
@@ -415,15 +437,15 @@ selected_index = [1,2,3,4,5,6,7,8,9,10,11]
 selected_label = torch.zeros(labels_name.shape); selected_label[selected_index]=1; selected_label = selected_label>0
 labels_name = labels_name[selected_index]
 
-dout = '/network/lustre/iss02/opendata/data/template/manual_seg/MICCAI_2012/metriques/' #'/data/romain/template/manual_seg/MICCAI_2012/metriques/'
+dout = '/network/iss/opendata/data/template/manual_seg/MICCAI_2012/metriques/' #'/data/romain/template/manual_seg/MICCAI_2012/metriques/'
 dres = gdir('/data/romain/template/manual_seg/MICCAI_2012/processed','.*')
-dres = gdir('/network/lustre/iss02/opendata/data/template/manual_seg/MICCAI_2012/processed','(PICSL_BC_3|NonLocalSTAPLE_2|MALP_EM_3)')
+dres = gdir('/network/iss/opendata/data/template/manual_seg/MICCAI_2012/processed','(PICSL_BC_3|NonLocalSTAPLE_2|MALP_EM_3)')
 fres = gfile(dres,'.*gz')
 tmap = get_fastsurfer_remap(fapar[0],fcsv ='/data/romain/template/manual_seg/MICCAI_2012/MICCAI_MultiAtlasChallenge2012_corrected/labels_name.csv')
 remap_filelist(fres,tmap)
 resname = get_parent_path(dres)[1]
-fgt = gfile('/network/lustre/iss02/opendata/data/template/manual_seg/MICCAI_2012/MICCAI-2012-Multi-Atlas-Challenge-Data/testing-labels','^remapHyp')
-fgt01 = gfile('/network/lustre/iss02/opendata/data/template/manual_seg/MICCAI_2012/MICCAI-2012-Multi-Atlas-Challenge-Data/testing-labels','^s01_remap')
+fgt = gfile('/network/iss/opendata/data/template/manual_seg/MICCAI_2012/MICCAI-2012-Multi-Atlas-Challenge-Data/testing-labels','^remapHyp')
+fgt01 = gfile('/network/iss/opendata/data/template/manual_seg/MICCAI_2012/MICCAI-2012-Multi-Atlas-Challenge-Data/testing-labels','^s01_remap')
 sujname = [ss[6:10] for ss in get_parent_path(fgt)[1] ]
 dict_files ={}
 for one_res, rname in zip(dres, resname):
@@ -504,7 +526,7 @@ for ffin, ffout in zip(fgt,fout):
 def generate_job_model_file_and_name(fin_list, model_file, model_name, jobdir, skip_if_exist=True, option=''):
     from script.create_jobs import create_jobs
 
-    cmd_ini = 'python /network/lustre/iss02/cenir/software/irm/toolbox_python/romain/torchQC/segmentation/predict.py '
+    cmd_ini = 'python /network/iss/cenir/software/irm/toolbox_python/romain/torchQC/segmentation/predict.py '
     fout_list = addprefixtofilenames(fin_list, 'pred_')
     jobs = []
     for fin, fout in zip(fin_list, fout_list):
@@ -535,7 +557,7 @@ def generate_job_model_file_and_name(fin_list, model_file, model_name, jobdir, s
 def generate_job_from_model_link(fin_list, model_file, jobdir, skip_if_exist=True, option=''):
     from script.create_jobs import create_jobs
 
-    cmd_ini = 'python /network/lustre/iss02/cenir/software/irm/toolbox_python/romain/torchQC/segmentation/predict.py '
+    cmd_ini = 'python /network/iss/cenir/software/irm/toolbox_python/romain/torchQC/segmentation/predict.py '
     fout_list = addprefixtofilenames(fin_list, 'pred_')
     jobs = []
     for fin, fout in zip(fin_list, fout_list):
@@ -609,20 +631,24 @@ def copy_link_from_model_file(model_list,model_name,outdir):
 outdir = '/data/romain/template/validation_set/HCP'
 copy_validation_set(dfv,outdir)
 
-dfv = pd.read_csv('/network/lustre/iss02/opendata/data/template/validataion_set/HCP_test_retest_07mm_suj82.csv')
+dfv = pd.read_csv('/network/iss/opendata/data/template/validataion_set/HCP_test_retest_07mm_suj82.csv')
+
+# training set 16
+sujname = get_parent_path(suj,2)[1];  sujname = [ f'hcp_S{i+1:02}_{s}' for i,s in enumerate(sujname)]
+flab_rib = gfile(suj,'^remapGM_ribbo'); flab_mid = gfile(droi,'r07_bin.*')
+df['lab_rib'] = flab_rib;df['lab_mid'] = flab_mid;
+df.to_csv('/network/iss/opendata/data/template/validataion_set/HCP_trainset_07mm_suj16.csv', index=False)
+
 # validataion csv HCP
 ft1 = gfile(suj,'^T1w_acpc_dc_restore.nii.gz');ft2 = gfile(suj,'^T2w_acpc_dc_restore.nii.gz')
 flab_Ass = gfile(dAssN,'remapHy');flab_free = gfile(dfree,'remapHy')
 
-#for training sujname = get_parent_path(suj,2)[1];  sujname = [ f'hcp_S{i+1:02}_{s}' for i,s in enumerate(sujname)]
 sujname = get_parent_path(droi,3)[1];sujname = [ss if 'S2' in ss else ss+'_S1' for ss in sujname]; sujname = [ f'hcp_S{i+1:02}_{s}' for i,s in enumerate(sujname)]
 
 print(f'fT1 {len(ft1)} first {ft1[0]}');print(f'fT2 {len(ft2)} first {ft2[0]}');print(f'flab_Ass {len(flab_Ass)} first {flab_Ass[0]}');print(f'flab_free {len(flab_free)} first {flab_free[0]}')
-df = pd.DataFrame()
-df['sujname'] = sujname
+df = pd.DataFrame(); df['sujname'] = sujname
 df['vol_T1_07'] = ft1;df['vol_T2_07'] = ft2;df['lab_Free'] = flab_free;df['lab_Assn'] = flab_Ass
-df.to_csv('/network/lustre/iss02/opendata/data/template/validataion_set/HCP_test_retest_07mm_suj82.csv', index=False)
-df.to_csv('/network/lustre/iss02/opendata/data/template/validataion_set/HCP_trainset_07mm_suj16.csv', index=False)
+df.to_csv('/network/iss/opendata/data/template/validataion_set/HCP_test_retest_07mm_suj82.csv', index=False)
 
 # validataion csv MICCAI
 ft1 = gfile(suj,'^1.*nii.gz')
@@ -633,19 +659,37 @@ df['sujname'] = sujname
 df['vol_T1'] = ft1; df['lab_gt'] = fgt; df['lab_Free'] = flab_free;df['lab_Assn'] = flab_Ass
 df.to_csv('/network/iss/opendata/data/template/validataion_set/MICCAI_testset_suj20.csv', index=False)
 
+#DBB
+dfDBB = pd.read_csv('/network/iss/opendata/data/template/manual_seg/DBB/testset/my_qc.csv')
+dfs=dfDBB.sort_values('selected');dfs = dfs[dfs.selected>0] #18
+suj = [ gdir('/network/iss/opendata/data/template/manual_seg/DBB/testset',sub)[0] for sub in dfs.sujname.values]
+sujt = gdir(suj,'anat'); sujl = gdir(suj,'parcel');sujm = gdir(suj,'mask');
+df = pd.DataFrame()
+df['sujname'] = [f'S{kk:02}_{sn}' for kk,sn in enumerate(dfs.sujname.values)]
+df['vol_T1'] = gfile(sujt,'gz'); df['lab_GT'] = gfile(sujl,'gz');
+df.to_csv('/network/iss/opendata/data/template/validataion_set/DBB_sel18.csv', index=False)
+create_nnunet_testset_from_csv(['/network/iss/opendata/data/template/validataion_set/DBB_sel18.csv'],
+                               '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set')
+
 # ULTRABRAIN
-suj = gdir('/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/UTE/','ULTRABRAIN')
+suj = gdir('/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/UTE/','ULTRABRAIN')
 dmid = gdir(suj,'mida_v5'); suj = get_parent_path(dmid)[0] #to get training set
 suj = suj[:3]+suj[4:5] #to get testset
 #suj = suj[-4:]; #suj = get_parent_path(dAssN)[0];
 dfreeS = gdir(suj, ['freesurfer','suj$','surf']); dAssN = gdir(suj,'AssemblyNet')
 dfree = gdir(suj, ['freesurfer','suj$','mri'])
 sujname = [f'ULTRA_{s[15:18]}' for s in get_parent_path(suj)[1]]
+dcoreg = gdir(suj,'coreg_head_skull')
 
 fute, funi, finv2, fflair, fwmn, fct = gfile(suj,'^UTE'),gfile(suj,'^rUNI'), gfile(suj,'^rINV2'), gfile(suj,'^rFLAI'), gfile(suj,'^rWMn'), gfile(suj,'^rCT')
+finv1 = gfile(suj,'^rINV1')
+fo = [f'/vol_inv1/{nn}_{ss}' for nn,ss in zip(sujname,get_parent_path(finv1)[1])]
+
+fute, funi, finv2, fflair, fct = (gfile(dcoreg,'^rHSonCT.*UTE'),gfile(dcoreg,'^rHSonCT.*UNI'),
+                                        gfile(dcoreg,'^rHSonCT.*INV2'), gfile(dcoreg,'^rHSonCT.*FLAI'),
+                                        gfile(suj,'^rCT'))
 fapar = gfile(dfree,'^aparc.aseg')
-tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/lustre/iss02/opendata/data/template/remap/free_remapV2.csv', index_col_remap=4)
-remap_filelist(fapar,tmap,fref=fute, prefix='remapHyp_',)
+tmap = get_fastsurfer_remap(fapar[0],fcsv ='/network/iss/opendata/data/template/remap/free_remapV2.csv', index_col_remap=4)
 
 
 fall = fute+ funi+ finv2+ fflair+ fwmn + fct
@@ -653,7 +697,7 @@ fmask = gfile(gdir(get_parent_path(fall)[0],'spm'),'mask_brain_erode_dila')
 fout = addprefixtofilenames(fall,'crop_')
 fcmd = open('cmd2.bash', 'w')
 for fi,fm, fo in zip(fall,fmask,fout):
-    cmd = f'mrgrid {fi} crop -mask {fm} -uniform -30 -crop_unbound - | mrgrid -force - crop -axis 2 30,0 {fo}.gz\n'
+    cmd = f'mrgrid {fi} crop -mask {fm} -uniform -30 -crop_unbound - | mrgrid -force - crop -axis 2 30,0 {fo}\n'
     fcmd.write(cmd); print(cmd)#outvalue = subprocess.run(cmd.split(' '))
 fcmd.close()
 fin = gfile(suj,'^crop_'); fout = addprefixtofilenames(fin,'r07')
@@ -668,19 +712,27 @@ dout='/network/iss/opendata/data/template/validataion_set/'
 df = pd.DataFrame()
 df['sujname'] = sujname
 df['vol_ute'], df['vol_uni'], df['vol_inv2'], df['vol_flair'], df['vol_wmn'], df['vol_ct'] = fute, funi, finv2, fflair, fwmn, fct
+df['vol_ute'], df['vol_uni'], df['vol_inv2'], df['vol_flair'], df['vol_ct'] = fute, funi, finv2, fflair, fct
 df['vol_ute'], df['vol_uni'], df['vol_inv2'], df['vol_flair'], df['vol_wmn'] = gfile(suj,'^crop_UTE'),gfile(suj,'^crop_rUNI'), gfile(suj,'^crop_rINV2'), gfile(suj,'^crop_rFLAI'), gfile(suj,'^crop_rWMn')
 df.to_csv(dout + 'ULTRA_trainset_suj5x5.csv', index=False)
-df['vol_ute'], df['vol_uni'], df['vol_inv2'], df['vol_flair'], df['vol_wmn'] , df['vol_ct'] = gfile(suj,'^r07crop_UTE'),gfile(suj,'^r07crop_rUNI'), gfile(suj,'^r07crop_rINV2'), gfile(suj,'^r07crop_rFLAI'), gfile(suj,'^r07crop_rWMn'), gfile(suj,'^r07crop_rCT')
+df['vol_ute'], df['vol_uni'], df['vol_inv2'], df['vol_wmn'] , df['vol_ct'] = gfile(suj,'^r07crop_UTE'),gfile(suj,'^r07crop_rUNI'), gfile(suj,'^r07crop_rINV2'), gfile(suj,'^r07crop_rFLAI'), gfile(suj,'^r07crop_rWMn'), gfile(suj,'^r07crop_rCT')
+df['lab_mid'] =  gfile(dmid,'^rUTE_binmr')
+df['mask_top'] = gfile(gdir(suj, 'slicer'), 'mask_top')
+
+#to add
+flabel = gfile(gdir(dir_suj, 'mida_v5'), '^crop_rUTE_binmrt_r025_bin_PV_head_mida_Aseg_cereb')
+# flabel = gfile(gdir(dir_suj, 'mida_v5'), '^rUTE_binmrt_r025_bin_PV_head_mida_Aseg_cereb')
+df['lab_Assn'] = flabel
 df.to_csv(dout + '/ULTRA_trainset_suj5x5_r07.csv', index=False)
-df.to_csv(dout + '/ULTRA_testset_r06.csv', index=False)
+df.to_csv(dout + '/ULTRA_all.csv', index=False)
 
 #run predict
 dir_model='/data/romain/template/validation_set/model'
-dout = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/new_eval/HCP/'
-dout = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/new_eval/MIC/'
-dout = '/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/new_eval/ULTRAr07/'
-dfval = pd.read_csv('/network/lustre/iss02/opendata/data/template/validataion_set/HCP_test_retest_07mm_suj82.csv')
-dfval = pd.read_csv('/network/lustre/iss02/opendata/data/template/validataion_set/MICCAI_testset_suj20.csv')
+dout = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/new_eval/HCP/'
+dout = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/new_eval/MIC/'
+dout = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/new_eval/ULTRAr07/'
+dfval = pd.read_csv('/network/iss/opendata/data/template/validataion_set/HCP_test_retest_07mm_suj82.csv')
+dfval = pd.read_csv('/network/iss/opendata/data/template/validataion_set/MICCAI_testset_suj20.csv')
 dfval = dfval[:10]
 copy_label_data(dfval, dout)
 
@@ -695,6 +747,103 @@ jobdir = dout + 'jobs/'
 #generate_job_model_file_and_name(suj_eval, model_file, model_name, jobdir) #, option=' -d cpu ')
 generate_job_from_model_link(suj_eval, model_file,  jobdir)
 generate_job_from_model_link(suj_eval, model_file,  jobdir, option=' --VoxelSize 1.5 ')
-generate_job_from_model_link(suj_eval, model_file,  jobdir, option=' -mj /network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/PVsynth/jzay/training/RES_mida/Uhcp4_skul_v5/skv5.1/noSpMean_nnUnet/res_bs2_P192_gpu1cpu40/model.json ')
+generate_job_from_model_link(suj_eval, model_file,  jobdir, option=' -mj /network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/jzay/training/RES_mida/Uhcp4_skul_v5/skv5.1/noSpMean_nnUnet/res_bs2_P192_gpu1cpu40/model.json ')
+
+##########  ultracortex import
+fGT=gfile('/network/iss/opendata/data/template/manual_seg/ultracortex/ds005216/derivatives/manual_segmentation','seg')
+ffre=gfile('/network/iss/opendata/data/template/manual_seg/ultracortex/ds005216/derivatives/freesurfer_segmentation','seg')
+sujn = [ss[:6] for ss in get_parent_path(fGT)[1]];sujn[3] = 'sub-3'; sujn[-1] = 'sub-9'
+suj = [ gdir('/network/iss/opendata/data/template/manual_seg/ultracortex/ds005216',ss)[0] for ss in sujn]
+suj = gdir(suj,['ses-1','ana'])
+fT1 = gfile(suj,'.*nii')
+dout='/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/ultracortex/vol_T1std/freesurfer_seg/'
+
+fana_brain = [ gfile('/network/iss/opendata/data/template/manual_seg/ultracortex/ds005216/derivatives/skullstrips/',ss+'_')[0] for ss in sujn]
+fo = gfile('/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/ultracortex/vol_T1std','.*gz')
+fo = ['/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/ultracortex/vol_T1std/gouhfi_brain_masked/conform/'+ss for ss in get_parent_path(fo)[1]]
+to = tio.ToOrientation('LIA')
+for f1,f2 in zip(fana_brain,fo):
+    it = to(tio.ScalarImage(f1))
+    it.save(f2)
+
+
+fos = [dout + ff for ff in  get_parent_path(fT1)[1] ]
+tc = tio.ToCanonical()
+for fi,fo in zip(fT1,fos):
+    il = tc(tio.ScalarImage(fi))
+    il.save(fo)
+
+fl = gfile(dout,'.*nii')
+tmap = tio.RemapLabels({0:0, 2:0, 41:0, 43:0, 44:0, 45:0, 42:1,  3:1})
+remap_filelist(fl, tmap, prefix='remapGM_', skip=False)
+fT1 = gfile(dout,'gz')
+ffr = gfile(gdir(dout,'free'),'^remap.*gz')
+fgt = gfile(gdir(dout,'label'),'^remap.*gz')
+suj =[ s[:-17] for s in get_parent_path(fT1)[1] ]
+df = pd.DataFrame()
+
+
+
+
+
+
+dfall = df.copy()
+dfs1 = dfall[dfall.dataset_name=='MICCAI_testset_suj20_vol_T1']
+dfs2 = dfall[dfall.dataset_name=='HCP_trainset_07mm_suj16_vol_T1_07']
+
+df['one'] = 1
+sns.catplot(data=df, y='dice_GM', x='label', col='dataset_name', hue='model_name', col_wrap=3, kind='boxen') #hue_order=xorder                        col_order=corder)
+dfs =df[( df.dataset_name=='HCP_test_retest_07mm_suj82_vol_T1_07') & (df.label=='Assn') & (df.hausdorff_dist_Put>30)]
+dfs1 =df[( df.dataset_name.str.startswith('UL') ) ]
+dfs2 =df[( df.dataset_name.str.startswith('HCP') ) | ( df.dataset_name.str.startswith('MIC') ) ]
+
+
+morder = ['nnUnet_lowres', 'nnUnet_NoDA', 'nnUnet_NoDeep', 'nnUnet', 'nnUnet_XL',
+         'e3unet', 'unet_hcp16','unet_Uhcp4',]
+dsorder = ['HCP_test_retest_07mm_suj82_vol_T1_07','HCP_trainset_07mm_suj16_vol_T1_07','MICCAI_testset_suj20_vol_T1']
+df.model_name.str.replace('3d_fullres_nnUNetTrainerNoDA_nnUNetPlans','nnUnet_NoDA',inplace=True)
+
+dfs = df[df.dataset_name!= 'wmn']
+dfs = dfs[dfs.model_name=='3d_fullres_nnUNetTrainer_nnUNetResEncUNetXLPlans_DS702']
+dfs = df[(df.dataset_name=='dHcp_old075_volT2_GT') & (df.label_column=='lab_binPV')]
+dfmm = df.melt(id_vars=['subject_id', 'model_name', 'dataset_name', 'label'], value_vars=ymet, var_name='from', value_name='dice');
+ymet=['dice_Put','dice_Cau-acc','dice_Pal','dice_thal','dice_hypp','dice_amyg','dice_cerGM','dice_CSFv']
+sns.catplot(data=dfmm, y='dice', x='label', col='from', hue='model_name', kind='boxen',hue_order=morder,col_wrap=4)
+
+cc = sns.color_palette()
+
+dfs22 = df[df.dataset_name=='HCP_test_retest_07mm_suj82_vol_T1_07']
+dfs22 = df[df.dataset_name=='MICCAI_testset_suj20_vol_T1']
+dfs22 = df[(df.dataset_name=='ULTRA_testset_r06_vol_uni')|(df.dataset_name=='ULTRA_trainset_suj5x5_vol_uni')]
+dfmm = dfs.melt(id_vars=['sujname', 'model_name', 'dataset_name', 'label'], value_vars=ymet, var_name='from', value_name='dice');
+sns.catplot(data=dfmm, y='dice', x='dataset_name',kind='boxen', col='from',col_wrap=1)
+sns.catplot(data=dfmm, y='dice', x='dataset_name',kind='boxen', col='from', hue='model_name')
+sns.catplot(data=dfmm, y='y', x='label', col='dice', hue='model_name', col_wrap=4, kind='boxen',hue_order=morder)
+
+
+morder=['pred_DS704_3nnResXL_res', 'pred_DS706_5nnResXL_res','pred_DS708_5nnResXL_res','pred_DS709_CascadeNoDA_res',
+       'pred_DS710_5ResEncXL_res','pred_DS718_5nnResXXLres','pred_DS712_5ResXLres']
+
+ymet=[]
+for k in df.keys():
+    if 'hausd' in k:
+        ymet.append(k)
+
+
+dfa = pd.concat([dfs,dfsr])
+dfa.model_name.replace('synth_fuzzy_resunet_without_back_original','Ines_orig',inplace=True)
+dfa.model_name.replace('synth_fuzzy_resunet_without_back_bce_dice_original','Ines_bce_dice',inplace=True)
+dfa.model_name.replace('synth_fuzzy_resunet_without_back_tversky_original','Ines_tversky',inplace=True)
+morder = ['nnUnet_lowres', 'nnUnet_NoDA', 'nnUnet_NoDeep', 'nnUnet', 'nnUnet_XL',
+         'e3unet', 'unet_hcp16','unet_Uhcp4','Ines_orig','Ines_bce_dice','Ines_tversky']
+
+for ff in fcsv:
+    df = pd.read_csv(ff)
+    dorig = get_parent_path(df.vol_path_orig)[0]
+    dmask = gfile(gdir(dorig,'slicer'),'mask_top')
+    if len(dmask)!=9:
+        qsdf
+    df['mask_top'] = dmask
+    df.to_csv(ff,index=False)
 
 
