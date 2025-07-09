@@ -9,7 +9,7 @@
 
 # import for calling binqires
 from subprocess import *
-import os,sys,re
+import os,sys,re, shutil
 import tempfile
 
 #import shutil
@@ -404,8 +404,21 @@ def r_move_file(fin,fout, type='link'):
         if os.path.isfile(fo):
             print(f'out exist {fo}')
         else:
-            os.symlink(fi,fo)
+            if type=='link':
+                os.symlink(fi,fo)
+            elif type=='move':
+                shutil.move(fi,fo)
 
+def r_mkdir(din,subdir):
+    dir_out_list = []
+    for dd in din:
+        od = os.path.join(dd,subdir)
+        if os.path.isdir(od):
+            skip=1
+        else:
+            os.mkdir(od)
+        dir_out_list.append(od)
+    return dir_out_list
 
 def get_parent_path(fin,level=1, remove_ext=False):
 
@@ -442,7 +455,7 @@ def get_parent_path(fin,level=1, remove_ext=False):
         return path_name, file_name
 
 
-def gfile(dirs,regex,opts={"items":-1}):
+def gfile(dirs,regex,opts={"items":-1}, list_flaten = True):
   """ get files from dirs depending in the regular expression
   dirs: is a list of input directories
   regex: is a list of regular expresions. Each item of the list is a subdirectory
@@ -485,7 +498,7 @@ def gfile(dirs,regex,opts={"items":-1}):
 
       files=os.listdir(d)
       files.sort()
-      
+      files_in_one_dir = []
       i=0
       for f in files:
         #print " file "+f
@@ -494,13 +507,16 @@ def gfile(dirs,regex,opts={"items":-1}):
           #continue
         if comp.search(f) is None:
           continue
-
-        finaldirs.append(ff)
+        if list_flaten:
+            finaldirs.append(ff)
+        else:
+            files_in_one_dir.append(ff)
         i=i+1
     
       if items>0 and i != items:
           print("WARNING found %d item and not %s in %s"%(i,items,d))
-      
+      if list_flaten is False:
+          finaldirs.append(files_in_one_dir)
 
     return finaldirs
   else:
