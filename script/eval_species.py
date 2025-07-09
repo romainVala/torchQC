@@ -227,15 +227,104 @@ prediction = pred[:, selected_label, ...]
 target = targ[:, selected_label, ...]
 dice_ines(prediction,target)
 
+def mykdir(dir):
+    if not os.path.isdir(dir) :
+        os.makedirs(dir)
 
 
 ### select data
 ### select dhcp_data
-dfhcp = pd.read_csv('/network/lustre/iss02/opendata/data/baby/all_seesion_info_order_all.csv')
+dfhcp = pd.read_csv('/network/iss/opendata/data/baby/all_seesion_info_order_all.csv')
 dfs = dfhcp[~dfhcp.PV.isna()]; dfs.index = range(len(dfs)); dfs = dfs.iloc[np.r_[:20,703-20:703],:]; dfs.index = range(len(dfs));
 sujname = [ f'dhcp_S{d.sujnum:03}_{d.sujname}_T2' for dd,d in dfs.iterrows()]
 df=pd.DataFrame()
 df['sujname'] = sujname; df['label'] = dfs['vol_label']; df['data']=dfs.vol_T2 ;
+
+## again in 2025 mai
+dout_nn = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/'
+#young
+dfs = dfhcp[~dfhcp.PV.isna()]; dfs.index = range(len(dfs));
+dfs1 = dfs.iloc[np.r_[:20],:]; dfs1.index = range(len(dfs1));
+sujname = [ f'dhcp_S{d.sujnum:03}_{d.sujname}_T2' for dd,d in dfs1.iterrows()]
+dout1 = os.path.join(dout_nn,'dHcp_young075_scale')
+DSname = 'dHcp_young075_scale_volT2_GT'
+
+
+#old
+dfs1 = dfs.iloc[np.r_[703-20:703],:]; dfs1.index = range(len(dfs1));
+sujname = [ f'dhcp_S{d.sujnum:03}_{d.sujname}_T2' for dd,d in dfs1.iterrows()]
+dout1 = os.path.join(dout_nn,'dHcp_old075')
+DSname = 'dHcp_old075_volT2_GT'
+dout_imgT2 = os.path.join(dout1,'vol_T2');dout_imgT1 = os.path.join(dout1,'vol_T1');dout_lab = os.path.join(dout1,'label_T2')
+mykdir(dout_imgT2); mykdir(dout_imgT1); mykdir(dout_lab)
+Hvol,new_res, scale_res = [], [], True
+for ii,dfrow in dfs1.iterrows():
+    if scale_res:
+        il = tio.ScalarImage(dfrow.vol_label)
+        Hvol.append((il.data>0).sum()*0.5**3/1000)
+        newres = (1200/((il.data>0).sum()*0.5**3/1000))**(1/3)*0.5 #taking adult brain with 1200 cm^3
+        new_res.append(newres)
+        #for old new resolution should be around 0.6, but I still stay at 0.75 to avoid PV
+    else:
+        newres = 0.75
+
+    il = tio.ScalarImage(dfrow.vol_T2)
+    new_aff = il.affine; new_aff[0,0]=newres;new_aff[1,1]=newres;new_aff[2,2]=newres;
+    io = tio.ScalarImage(tensor=il.data, affine=new_aff); io.save(f'{dout_imgT2}/{sujname[ii]}.nii.gz')
+    il = tio.ScalarImage(dfrow.vol_T1)
+    new_aff = il.affine; new_aff[0,0]=newres;new_aff[1,1]=newres;new_aff[2,2]=newres;
+    io = tio.ScalarImage(tensor=il.data, affine=new_aff); io.save(f'{dout_imgT1}/{sujname[ii][:-1]}1.nii.gz')
+    il = tio.ScalarImage(dfrow.binPV)
+    new_aff = il.affine; new_aff[0,0]=newres;new_aff[1,1]=newres;new_aff[2,2]=newres;
+    io = tio.ScalarImage(tensor=il.data, affine=new_aff); io.save(f'{dout_lab}/binPV_{sujname[ii][:-1]}1.nii.gz')
+    il = tio.ScalarImage(dfrow.vol_label)
+    new_aff = il.affine; new_aff[0,0]=newres;new_aff[1,1]=newres;new_aff[2,2]=newres;
+    io = tio.ScalarImage(tensor=il.data, affine=new_aff); io.save(f'{dout_lab}/labFree_{sujname[ii][:-1]}1.nii.gz')
+
+#make csv for old results
+sujdirbin = gdir('/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/baby/Article/bin15suj/from0/eval_T2_model_15suj_bgMida_tSDT_wmEM_mot_ep240',
+              '|'.join([f'{ss}_ses-{ssid}' for ss,ssid in zip(dfs1.suj,dfs1.session_id) ]))
+sujdirpv = gdir('/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/eval_cnn/baby/Article/pve/eval_T2_model_noscale_pv_15suj_bgMida_tSDT_wmEM_mot_ep240',
+              '|'.join([f'{ss}_ses-{ssid}' for ss,ssid in zip(dfs1.suj,dfs1.session_id) ]))
+sujdirorig = get_parent_path(dfs1.vol_T1)[0]
+dfpred = pd.DataFrame()
+dfpred['sujname'] = sujname
+dfpred['vol_path'] = gfile(sujdirbin,'data.nii')
+dfpred['predict_path'] = gfile(sujdirbin,'bin_prediction.nii.gz')
+dfpred['lab_free'] = gfile(sujdirbin,'bin_label.nii.gz') #gfile(sujdirorig,'^sub.*drawem9_dseg.nii.gz') #bad padding
+dfpred['lab_binPV'] = gfile(sujdirpv,'^bin_label.nii.gz')
+
+dfpred['model_name'],dfpred['dataset_name'],dfpred['input_type'] = 'wmEM_mot_ep240' ,DSname,'vol_T2'
+dfpred.to_csv(dout1 + '/previous_dHcp_pred_bin_wmEM_mot_ep240.csv',index=False)
+
+dfpred = pd.DataFrame()
+dfpred['sujname'] = sujname
+dfpred['vol_path'] = gfile(sujdirpv,'data.nii')
+dfpred['predict_path'] = gfile(sujdirpv,'bin_prediction.nii.gz')
+dfpred['lab_free'] = gfile(sujdirbin,'bin_label.nii.gz') #gfile(sujdirorig,'^sub.*drawem9_dseg.nii.gz') #bad padding
+dfpred['lab_binPV'] = gfile(sujdirpv,'^bin_label.nii.gz')
+
+dfpred['model_name'],dfpred['dataset_name'],dfpred['input_type'] = 'pve_wmEM_mot' ,DSname,'vol_T2'
+dfpred.to_csv(dout1 + '/previous_dHcp_pred_pve_wmEM_mot_ep240.csv',index=False)
+
+#get volume_estimation from hcp
+dfh=pd.read_csv('/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/csv_validationHCP_MICCAI/HCP_trainset_07mm_suj16_vol_T1_07_pred_DS708_5nnResXL_res.csv')
+
+Hvol=[]
+for ii,dfrow in dfh.iterrows():
+    il = tio.LabelMap(dfrow.lab_Free)
+    Hvol.append((il.data>0).sum())
+vol_hcp_mean = 1200; # torch.tensor(Hvol).sum()/16*0.7**3 /1000 # 1215.9288 cm^3
+
+#write GT csv (for pred eval)
+dfp=pd.DataFrame()
+dfp['sujname']= sujname
+dfp['vol_path'] = gfile(dout_imgT2,'.*gz')
+dfp['vol_free'] = gfile(dout_lab,'Free.*gz')
+dfp['vol_binPV'] = gfile(dout_lab,'binPV.*gz')
+dfp.to_csv(dout1+'/dHcp_young075_scale_volT2_GT.csv',index=False)
+
+
 
 ### adult hcp
 dt1= gdir('/network/lustre/iss02/opendata/data/HCP/raw_data/test_retest/session2',['\d.*','T1w','T1_1mm'])
@@ -245,7 +334,6 @@ sujname = get_parent_path(droi,3)[1]
 sujname = [ f'ahcp_S{i}_retest2_{s}_T1_1mm' for i,s in enumerate(sujname)]
 dfone = pd.DataFrame(); dfone['sujname'] = sujname; dfone['label'] = flab; dfone['data']= ft1 ;
 df = pd.concat([dfone,df])
-
 ### macaque Marseille
 fT1 = gfile('/network/lustre/iss02/opendata/data/template/primate/macac/derivatives/crop_T1w_masked/','s*')
 flab = gfile('/network/lustre/iss02/opendata/data/template/primate/macac/derivatives/crop_label/','^rema*')
