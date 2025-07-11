@@ -744,7 +744,7 @@ if __name__ == '__main__':
         create_nnunet_dataset_from_nii(fimg, flab, label_dic, dataset_name, dnnunet_root, base_name='RRR',
                                        tmap_lab=tio.RemapLabels(dic_map_target), start_from=1471) #859
 
-        # nnUNetv2_plan_and_preprocess  -c 3d_fullres -d 716
+        # nnUNetv2_plan_and_preprocess  -c 3d_fullres -d 716 -np 32
         # nnUNetv2_plan_experiment -d 716 -pl nnUNetPlannerResEncXL
         # ensuite verifier diff :  kompare nnUNetResEncUNetXLPlans.json ../Dataset715_MixSuj6/nnUNetResEncUNetXLPlans.json
 
@@ -759,7 +759,7 @@ if __name__ == '__main__':
         # sur amper 14 cpu mais 24 sur gpu-cenir
         # lancer que le premier job (array=1) et attendre le debut du training ... mias peut etre plus utile a partir 2.6.0
 
-        #for tumor
+        ###############for tumor
         from utils_labels import get_label_set_map
         dirout = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/Vascular4_tumor'
         for ii in range(1,4):
@@ -779,6 +779,13 @@ if __name__ == '__main__':
 
             nb_suj = create_nnunet_dataset_from_nii(fimg, flab, label_dic, dataset_name, dnnunet_root, base_name='RRR',
                                            tmap_lab=tio.RemapLabels(dic_map_target),start_from=nb_suj) #859
+
+        #add dataset without tumor (here 716)
+        fimg = gfile('/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/Dataset716_MixLowDill/imagesTr','.*gz')
+        flab = gfile('/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/Dataset716_MixLowDill/labelsTr',
+    '.*gz')
+        nb_suj = create_nnunet_dataset_from_nii(fimg, flab, label_dic, dataset_name, dnnunet_root, base_name='RRR',
+                                           start_from=nb_suj)
 
 #        create_nnunet_dataset_from_nii(fimg, flab, label_dic, dataset_name, dnnunet_root, base_name='RRR',
 #                                       tmap_lab=dic_map_target, tmap_fil_up='Anomalies',start_from=0) #859
