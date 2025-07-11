@@ -197,7 +197,7 @@ def create_nnunet_dataset_from_tio(fsuj, fcsv, base_name = 'RRR'):
 ### CREATE from nifti file (link image, OneHotInv for labels
 def create_nnunet_dataset_from_nii(fimg, flab,label_dic,dataset_name, dnnunet_root,
                                    base_name = 'RRR',lab_one_hot=False, tmap_lab = None, region_mask=False,
-                                   start_from=0):
+                                   tmap_fil_up=None, start_from=0):
     dnnunetData = os.path.join(dnnunet_root, dataset_name) + '/'
     if not os.path.isdir(dnnunetData): os.mkdir(dnnunetData)
     img_path, label_path = dnnunetData + 'imagesTr/', dnnunetData + 'labelsTr/'
@@ -219,7 +219,21 @@ def create_nnunet_dataset_from_nii(fimg, flab,label_dic,dataset_name, dnnunet_ro
                 il = thoti(il)
                 il.save(label_path+fout_name)
         elif tmap_lab is not None:
-            il = tmap_lab(tio.LabelMap(flabel))
+            if tmap_fil_up is not None: #added for tumor label which add 1 to 3 extra label (bein not continuous with healthy labels)
+                max_remap_key = max(list(tmap_lab.keys()))
+                max_remap_val = max(list(tmap_lab.values()))
+                il = tio.LabelMap(flabel)
+                label_values = il.data.unique().to(int).numpy()
+                extra_labels = label_values[label_values>max_remap_key]
+                extended_tmap = {kk:(max_remap_val+1) for kk in extra_labels}
+                print(f'extended tmap {extended_tmap}')
+                new_tmap_lab = {k:v for k,v in tmap_lab.items()}
+                new_tmap_lab.update(extended_tmap)
+                il = tio.RemapLabels(new_tmap_lab)(il)
+                label_dic[tmap_fil_up] = max_remap_val+1
+            else:
+                il = tmap_lab(tio.LabelMap(flabel))
+
             il.save(label_path+fout_name)
             if region_mask:
                 fout_mask_name = f'{base_name}_{(ii+start_from):04}_0001.nii.gz'
@@ -231,12 +245,15 @@ def create_nnunet_dataset_from_nii(fimg, flab,label_dic,dataset_name, dnnunet_ro
 
         print((ii+start_from))
     nb_suj = len(fimg)+start_from
+    label_dic = {k: v for k, v in sorted(label_dic.items(), key=lambda item: item[1])} #sort
+
     if region_mask:
         json_dic = {"channel_names": {"0": "T1","1":"mask"}, 'labels': label_dic, "numTraining": nb_suj, "file_ending": ".nii.gz"}
     else:
         json_dic = {"channel_names": {"0":"T1"}, 'labels':label_dic, "numTraining": nb_suj, "file_ending": ".nii.gz"}
     with open(dnnunetData+'/dataset.json', 'w') as file:
         json.dump(json_dic, file, indent=4, sort_keys=False)
+    return nb_suj
 
 ### CREATE test set from file path and file_name list
 def create_nnunet_testset_from_file_list(file_list, name_list, dout, datasetName):

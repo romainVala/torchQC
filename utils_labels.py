@@ -6,9 +6,102 @@ import skimage.measure as ski
 import torch, numpy as np
 from collections import Counter
 import subprocess
-from utils_file import get_parent_path, addprefixtofilenames
+from utils_file import get_parent_path, addprefixtofilenames, gfile, gdir
 import nibabel as nib
 import re
+
+
+# -----------------------------------------------------------------------------
+# mapping label and getting training sets labels
+# -----------------------------------------------------------------------------
+
+def get_label_set_map(label_set_num:int,add_tumor_labs=False):
+    if label_set_num==1: #mida
+        sujdir = ['/network/iss/opendata/data/template/MIDA_v1.0/MIDA_v1_voxels/mida_all/']
+        label_csv = '/network/iss/opendata/data/template/remap/my_synth/mida_labels.csv'
+
+        df = pd.read_csv(label_csv, comment='#')
+        dic_lab = {ll['Name']: ll['value'] for ii, ll in df.iterrows()}
+        dic_map_synth = {ll['value']: ll['synth_tissue_29'] for ii, ll in df.iterrows()}
+        dic_map_target = {ll['value']: ll['value'] for ii, ll in df.iterrows()}
+        #no need dic_lab['Hyp'] = dic_lab['Hippo']  #for correct value in add_som_dill
+
+        #name_map, synth_map, target_map = build_mapping_from_label_csv(            label_csv, col_name, col_tissu, col_target)
+
+        fins = gfile(sujdir, '^csf_veine_r025s05')
+        #fins = gfile(sujdir, '^csf_veine_r025s05_mida')
+
+        dic_map_target_RegFew = {ll['value']: ll['synth_targetRegionFew'] for ii, ll in df.iterrows()}
+        dic_lab_RegFew = {ll['NameTargetRegionFew']: ll['synth_targetRegionFew'] for ii, ll in df.iterrows()}
+
+        #args_files_maps = {"mida": (fins, dic_lab, dic_map_synth, dic_map_target)}
+        name='mida'
+
+    if label_set_num==2: #vasc
+
+        dirvas = '/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/vascular_pc3D/preproc/'
+        sujdir = gdir(dirvas, ['(AR$|SO$)', 'synth_v3'])
+        label_csv = '/network/iss/opendata/data/template/remap/my_synth/Svas_synth_v3.csv'
+        df = pd.read_csv(label_csv)
+        dic_lab = {ll['Name']:ll['synth'] for ii,ll in df.iterrows()}
+        dic_lab['Hippo'] = dic_lab['Hyp']  # for correct value in add_som_dill
+
+        label_csv = '/network/iss/opendata/data/template/remap/my_synth/brain_and_skull_and_Ass_vascular_v3_label_DS709.csv'
+        df = pd.read_csv(label_csv)
+        #dic_lab = {ll['Name']:ll['synth'] for ii,ll in df.iterrows()}
+        dic_map_synth = {ll['synth']: ll['synth_tissu'] for ii, ll in df.iterrows()}
+        dic_map_target = {ll['synth']: ll['synth_target'] for ii, ll in df.iterrows()}
+
+        fins = gfile(sujdir, '^r025_s05.*gz')
+
+        dic_lab_RegFew = {ll['NameTargetRegionFew']:ll['synth_targetRegionFew'] for ii,ll in df.iterrows()}
+        dic_map_target_RegFew = {ll['synth']:ll['synth_targetRegionFew'] for ii,ll in df.iterrows()}
+
+        name= "vasc"
+
+    if label_set_num==3: #skul
+        sujdir = gdir('/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/Skull/',
+                      ['.*', 'slicer2'])
+        label_csv = '/network/iss/opendata/data/template/remap/my_synth/brain_and_skull_and_head_Ultra_v2_label_DS708_notumor.csv'
+
+        df = pd.read_csv(label_csv)
+        dic_lab = {ll['Name']: ll['synth'] for ii, ll in df.iterrows()}
+        dic_map_synth = {ll['synth']: ll['synth_tissu'] for ii, ll in df.iterrows()}
+        dic_map_target = {ll['synth']: ll['synth_target'] for ii, ll in df.iterrows()}
+
+        #dic_lab['Hyp'] = dic_lab['Hippo']  # for correct value in add_som_dill
+        dic_lab['vascular_brain'] = dic_lab['Vas_brain']
+
+        fins = gfile(sujdir, '^inVe.*down')
+
+        dic_map_target_RegFew = {ll['synth_target']: ll['synth_region_few'] for ii, ll in df.iterrows()}
+        dic_lab_RegFew = {ll['Name_region_few']: ll['synth_region_few'] for ii, ll in df.iterrows()}
+
+        #args_files_maps = {"skul": (fins, dic_lab, dic_map_synth, dic_map_target)}
+        name= "skul"
+
+
+    dic_lab = {k: v for k, v in sorted(dic_lab.items(), key=lambda item: item[1])}
+    dic_lab_RegFew = {k: v for k, v in sorted(dic_lab_RegFew.items(), key=lambda item: item[1])}
+
+    if add_tumor_labs:
+        # tricky here because ANO has been added before the remap target so their value start avec last dic_map_target
+        max_remap_key = max(list(dic_map_target.keys()))
+        max_remap_val = max(list(dic_map_target_RegFew.values()))
+        extended_tmap = {(max_remap_key+kk):(max_remap_val+1) for kk in range(1,4)}
+        dic_map_target_RegFew.update(extended_tmap)
+        dic_lab_RegFew['Anomalies'] = max_remap_val + 1
+
+    args_files_maps = {"name": name, "files": fins, "name_map": dic_lab,
+                       "synth_map": dic_map_synth, "target_map": dic_map_target,
+                       "target_map_RegionFew": dic_map_target_RegFew, "name_map_RegionFew": dic_lab_RegFew}
+
+    return args_files_maps
+
+# -----------------------------------------------------------------------------
+# Utility Functions
+# -----------------------------------------------------------------------------
+
 def get_image_as_numpy(mask):
     return_tensor = return_image = False
     if isinstance(mask,tio.Image):

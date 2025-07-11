@@ -1,6 +1,7 @@
 import torchio
 import torchio as tio, numpy as np
 import torch, pandas as pd, nibabel as nib, tempfile
+from script.generate_synth_with_tumor import regroupe_GenTmpDir
 
 from utils_file import get_parent_path, gfile, gdir, addprefixtofilenames, r_move_file, r_mkdir
 from utils_labels import get_mask_external_broder
@@ -757,6 +758,47 @@ if __name__ == '__main__':
         #attention avec cette option pas de --c du coup il ecrase tout si le job se relance !!!
         # sur amper 14 cpu mais 24 sur gpu-cenir
         # lancer que le premier job (array=1) et attendre le debut du training ... mias peut etre plus utile a partir 2.6.0
+
+        #for tumor
+        from utils_labels import get_label_set_map
+        dirout = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/Vascular4_tumor'
+        for ii in range(1,4):
+            dic = get_label_set_map(ii)
+            regroupe_GenTmpDir(dirout,prefix=dic['name'])
+        # ont été généré mida 450 vasc 600 et skull 750 ... pas balance mais tant pis
+        dataset_name, dnnunet_root = 'Dataset717_MixLowDill_Ano', '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/'
+        #or directly
+        nb_suj = 0
+        for ii in range(1,4):
+            dic = get_label_set_map(ii,add_tumor_labs=True)
+            dic_map_target = dic['target_map_RegionFew']
+            label_dic = dic['name_map_RegionFew']
+            dout1 = dirout + f'/{dic["name"]}_synth_bin'
+            fimg, flab = gfile(dout1, 'Sim.*gz'), gfile(dout1, '^Lab.*gz')
+            print(len(fimg))
+
+            nb_suj = create_nnunet_dataset_from_nii(fimg, flab, label_dic, dataset_name, dnnunet_root, base_name='RRR',
+                                           tmap_lab=tio.RemapLabels(dic_map_target),start_from=nb_suj) #859
+
+#        create_nnunet_dataset_from_nii(fimg, flab, label_dic, dataset_name, dnnunet_root, base_name='RRR',
+#                                       tmap_lab=dic_map_target, tmap_fil_up='Anomalies',start_from=0) #859
+        def regroupe_GenTmpDir(dirout, dir_regex='generate', prefix=''):
+            #regroup all generated data in one folder  #just change the generation number in file name
+            suj = gdir(dirout,f'{dir_regex}_{prefix}')
+            dout1, dout2 = dirout+f'/{prefix}_synth_bin' , dirout + f'/{prefix}_synth_4D'
+            if not os.path.isdir(dout1): os.mkdir(dout1);
+            if not os.path.isdir(dout2): os.mkdir(dout2);
+
+            for k,dirgen in enumerate(suj):
+                f = gfile(dirgen, '^[SL]')
+                fname = get_parent_path(f)[1]
+                fnew = [ f'{dout1}/{ff[:7]}{k:03}{ff[10:]}' for ff in fname]
+                r_move_file(f, fnew, type='move')
+
+                f = gfile(dirgen, '^[4d]')
+                fname = get_parent_path(f)[1]
+                fnew = [ f'{dout2}/{ff[:9]}{k:03}{ff[12:]}' for ff in fname]
+                r_move_file(f, fnew, type='move')
 
 
 
