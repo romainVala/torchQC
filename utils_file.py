@@ -408,6 +408,8 @@ def r_move_file(fin,fout, type='link'):
                 os.symlink(fi,fo)
             elif type=='move':
                 shutil.move(fi,fo)
+            elif type=="copy":
+                shutil.copy(fi,fo)
 
 def r_mkdir(din,subdir):
     dir_out_list = []
@@ -474,7 +476,9 @@ def gfile(dirs,regex,opts={"items":-1}, list_flaten = True):
     
   if isinstance(regex,str):
     regex=[regex]
-  
+
+  if isinstance(dirs[0],list):
+      return [gfile(dd,regex,opts=opts, list_flaten=list_flaten) for dd in dirs]
   # extracting options
   verbose=False
   if "verbose" in opts and opts["verbose"] == True:
@@ -602,7 +606,7 @@ def readList(listfile):
     lines=open(listfile).readlines()
     for l in lines:
       sp=l[:-1].split(",")
-      if len(sp) is not 2:
+      if len(sp) != 2:
         print(" -- skipping line")
         continue       
       id=sp[0]
