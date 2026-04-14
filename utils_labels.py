@@ -183,6 +183,8 @@ def get_remapping(fin, tmap_index_col=None,lab_name=None ):
         match fin:
             case 'assn':
                 fin = '/network/iss/opendata/data/template/remap/remap_vol2Brain_label.csv'
+            case '712' :
+                fin = '/network/iss/opendata/data/template/remap/my_synth/region_Few_DS712.csv'
 
 
     df = pd.read_csv(fin, comment='#')
@@ -276,7 +278,7 @@ def resample_and_smooth4D(fin,fref, blur4D=0.5, fout=None, skip_blur=None):
 
 
 def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True, reslice_4D=False, blur4D=0.5,
-                   save=True, reduce_BG=0 , reslice_with_mrgrid=False):
+                   save=True, reduce_BG=0 , reslice_with_mrgrid=False, blur_only_BG=False):
     # fref must be a list of same size
 
     if isinstance(tmap, str):
@@ -308,12 +310,19 @@ def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True, reslice_4D=
                 tresample = tio.Resample(target=fref[index], image_interpolation='bspline')
 
                 ilt = tmap(il)
+                if blur_only_BG:
+                    BG_mask = ilt.data==0
                 ilr = thot(ilt)
                 ilr['data'] = ilr.data.float()
                 for k in range(ilr.data.shape[0]):
                     ilk = tio.ScalarImage(tensor=ilr.data[k].unsqueeze(0), affine=ilr.affine)
                     if blur4D>0:
-                        iltk = ts(tresample(ilk))
+                        if blur_only_BG:
+                            iltk = tresample(ilk)
+                            iltk_blur = ts(iltk)
+                            iltk.data[BG_mask] = iltk_blur.data[BG_mask]
+                        else:
+                            iltk = ts(tresample(ilk))
                     else:
                         iltk = tresample(ilk)
 
