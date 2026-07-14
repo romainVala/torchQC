@@ -230,6 +230,40 @@ def check_remap(il, dic_map):
         if ii not in remap_keys:
             print(f'WARNING no value for {ii}      AAAAAAAAAAAAAA')
 
+def read_freesurfer_colorlut(fsc=None):
+    if fsc is None:
+        fsc = '/network/iss/opendata/data/template/remap/FreeSurferColorLUT_v8.txt'
+
+    rgb = np.empty((0, 4), dtype=np.int64)
+    label_names = {}
+
+    with open(fsc, 'r') as f:
+      raw_lut = f.readlines()
+
+    # read and process line by line
+
+    pattern = re.compile(r'\d{1,5}[ ]+[a-zA-Z-_0-9*.]+[ ]+\d{1,3}[ ]+\d{1,3}[ ]+\d{1,3}[ ]+\d{1,3}')
+    for line in raw_lut:
+      if pattern.match(line):
+        s = line.rstrip().split(' ')
+        s = list(filter(None, s))
+        rgb = np.append(rgb, np.array([[int(s[0]), int(s[2]), int(s[3]), int(s[4])]]), axis=0)
+        #label_names[int(s[0])] = s[1]
+        label_names[s[1]] = np.array([[ int(s[2]), int(s[3]), int(s[4])]])
+    return rgb, label_names
+
+
+def create_mask(fin,diclab):
+    dirout = get_parent_path(fin)[0]
+    for fi, fo in zip(fin,dirout):
+        il = tio.LabelMap(fi)
+        for k,v in diclab.items():
+            tout = torch.zeros_like(il.data)
+            tout[il.data==v] = 1
+            io = tio.LabelMap(tensor=tout,affine=il.affine)
+            fout = f'/m_{k}.nii.gz'
+            print(f'creating {fout}')
+            io.save(fo+fout)
 
 def resample_and_smooth4D(fin,fref, blur4D=0.5, fout=None, skip_blur=None):
     if fout is not None:
@@ -487,39 +521,5 @@ def pool_remap(il_in, pooling_size=2, ensure_multiple=None, tmap=None,keep_missi
         # iout.affine = io_affine
     return iout
 
-def read_freesurfer_colorlut(fsc=None):
-    if fsc is None:
-        fsc = '/network/iss/opendata/data/template/remap/FreeSurferColorLUT_v8.txt'
-
-    rgb = np.empty((0, 4), dtype=np.int64)
-    label_names = {}
-
-    with open(fsc, 'r') as f:
-      raw_lut = f.readlines()
-
-    # read and process line by line
-
-    pattern = re.compile(r'\d{1,5}[ ]+[a-zA-Z-_0-9*.]+[ ]+\d{1,3}[ ]+\d{1,3}[ ]+\d{1,3}[ ]+\d{1,3}')
-    for line in raw_lut:
-      if pattern.match(line):
-        s = line.rstrip().split(' ')
-        s = list(filter(None, s))
-        rgb = np.append(rgb, np.array([[int(s[0]), int(s[2]), int(s[3]), int(s[4])]]), axis=0)
-        #label_names[int(s[0])] = s[1]
-        label_names[s[1]] = np.array([[ int(s[2]), int(s[3]), int(s[4])]])
-    return rgb, label_names
-
-
-def create_mask(fin,diclab):
-    dirout = get_parent_path(fin)[0]
-    for fi, fo in zip(fin,dirout):
-        il = tio.LabelMap(fi)
-        for k,v in diclab.items():
-            tout = torch.zeros_like(il.data)
-            tout[il.data==v] = 1
-            io = tio.LabelMap(tensor=tout,affine=il.affine)
-            fout = f'/m_{k}.nii.gz'
-            print(f'creating {fout}')
-            io.save(fo+fout)
 
 
