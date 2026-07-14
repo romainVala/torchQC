@@ -128,7 +128,6 @@ def con_comp_dill(data, scale=2, interp_up = 'nearest'):
     upc_cc = ups(components.float()).int()[0][0]
     return upc_cc, n_components
 
-
 def get_mask_external_broder(mask_in):
 
     mask, return_image, return_tensor = get_image_as_numpy(mask_in)
@@ -167,7 +166,6 @@ def get_mask_neighbor(mask_in, volume_label,label_csv):
                       'eccentricity','orientation', 'centroid', 'bbox']
         df_con = pd.DataFrame(ski.regionprops_table(mask_bin, properties=properties))
 
-
 def get_remap_from_csv(fin, index_col_in=0, index_col_remap=1):
     df = pd.read_csv(fin, comment='#')
     #dic_map= { r[0]:r[1]  for i,r in df.iterrows()}
@@ -201,8 +199,6 @@ def get_remapping(fin, tmap_index_col=None,lab_name=None ):
     if lab_name is not None:
         dic_lab = {ll[lab_name[0]]: ll[lab_name[1]]  for ii, ll in df.iterrows() }
         return dic_lab
-
-
 
 def get_fastsurfer_remap(faparc, fcsv = '/data/romain/template/free_remap.csv',index_col_in=0, index_col_remap=1):
 
