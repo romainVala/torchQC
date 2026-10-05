@@ -236,6 +236,12 @@ def mrview_overlay_list(bg_img, overlay_list, doit=True, max_mrview=5):
                 c = input('continue ?')
                 nb_mrview = 0
 
+def mrview_all(fin):
+    cmd = 'mrviewv '
+    for img in fin:
+        cmd += (f' {img} ')
+    print(f'{cmd} ')
+    #return cmd
 
 def mrview_overlay(bg_img, overlay_list, bin_overlay_class=0):
     if not isinstance(bg_img, list):
@@ -246,7 +252,8 @@ def mrview_overlay(bg_img, overlay_list, bin_overlay_class=0):
     if bin_overlay_class:
         mrviewopt = [
             f'-overlay.opacity 0.4 -overlay.colour {col_overlay[k]} -overlay.intensity 0,{bin_overlay_class}   ' \
-            f'-overlay.threshold_min {bin_overlay_class-0.5} -overlay.threshold_max {bin_overlay_class+0.5} ' \
+            f'-overlay.threshold_min {bin_overlay_class-0.5}  -overlay.threshold_max {bin_overlay_class+0.5} ' \
+            f'-overlay.intensity {bin_overlay_class-1},{bin_overlay_class} '
             f'-overlay.interpolation 0 -mode 2  -size 1300,900 ' for k in range(len(overlay_list))]
     else:
         mrviewopt = [
