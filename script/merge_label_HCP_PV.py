@@ -866,6 +866,31 @@ resample_to(fpv, fref, tmap=tmap_GT, prefix='rUTE_nearest_') #test
 resample_mrt_remap_to_4DPV(fpv, fref, tmap=tmap_GT, prefix='rUTE_', skip=False, jobdir='/network/lustre/iss02/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/UTE/job/mrt_resample')
 pool_remap_to_4DPV(fpv,pooling_size=3, ensure_multiple=6, tmap=tmap, prefix='r075' )
 
+#resampling 025 GT to rUTE for GT eval,
+tmap_GT = tio.RemapLabels( {dd.synth:dd.targetSkinAir for ii,dd in dfc.iterrows()}) #
+fGT = gfile(dmid,'(^r025_PV05_head_|^r025_bin_PV_head_mida_Aseg_cereb)')
+resample_mrt_remap_to_4DPV(fGT, fref, tmap=tmap_GT, prefix='rSkUTE',skip=False, jobdir='/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/UTE/job/mrt_resample')
+fin = gfile(dmid,'^label', list_flaten=False)
+fo1 = [ff + '/rUTE_4Dmrt_r025_bin_PV_head_mida_Aseg_cereb.nii.gz' for ff in get_parent_path(fGT)[0]]
+fo2 = [ff + '/rUTE_binmrt_r025_bin_PV_head_mida_Aseg_cereb.nii.gz' for ff in get_parent_path(fGT)[0]]
+single_to_4D(fin, fo1, fo2, delete_single=True)
+
+#same thing for GT vasculat directly at 0.5 so just a remap to make it easy
+suj = gdir('/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/vascular_pc3D/preproc/',['Svas_','synth_v3'])
+#fis = gfile(suj,'^Syn.*0[34]_[Vv]3.nii.gz')
+fis = gfile(suj,'^GTgm_Syn.*0[34]_[Vv]3.nii.gz')
+dfc = pd.read_csv('/network/iss/opendata/data/template/remap/my_synth/Svas_synth_v3_keep_labels.csv')
+tmap_GT = tio.RemapLabels( {dd.synth:dd.synth_GT for ii,dd in dfc.iterrows()}) #
+fo = addprefixtofilenames(fis,'r05_GT_')
+for ffi,ffo in zip(fis,fo):
+    il = tmap_GT(tio.LabelMap(ffi))
+    il.save(ffo)
+
+frefs = gfile(gdir(get_parent_path(fis,2)[0],'synth2' ),'^r025.*orig')
+#frefs =[ '/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/vascular_pc3D/preproc/Svas_04_2024_10_25_TEST_ANAT_rrr_SO/synth/r025mrt_nearest_Synth_Vas_04.nii.gz' for ii in fis]
+#frefs[2]='/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/vascular_pc3D/preproc/Svas_03_2024_09_26_TEST_ANAT_rrr_AR/synth/r025_mrt_nearest_SynthVas_03_00.nii.gz'
+fout = addprefixtofilenames(fis,'r025_s05_')
+
 def resample_to(fpv, fref, tmap=None, prefix='rUTE_', skip=True, jobdir='', interp='nearest'   ):
 
     dic_map = tmap.remapping if tmap is not None else None
@@ -1086,7 +1111,7 @@ def reinsert_vessel_dura():
     il.save(fout)
 
 #usample and smooth all labels
-suj = gdir('/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/vascular_pc3D/preproc/',['Svas_','synth_v2'])
+suj = gdir('/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/vascular_pc3D/preproc/',['Svas_','synth_v3'])
 fis = gfile(suj,'^Synt')
 frefs = gfile(gdir(get_parent_path(fis,2)[0],'synth2' ),'^r025.*orig')
 #frefs =[ '/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/vascular_pc3D/preproc/Svas_04_2024_10_25_TEST_ANAT_rrr_SO/synth/r025mrt_nearest_Synth_Vas_04.nii.gz' for ii in fis]
@@ -1135,7 +1160,10 @@ mask_dill = binary_dilation(mask_dill, iterations=2, structure=st).astype(int)
 il.data[(mask_dill*maskCSF)>0 ]= 1
 
 ##################################################################################
-#new skull ULTRA from CT reinsert brain and mida (DS 708)
+###2025 12 add RU SN STN cereb nuc
+dsynt = gdir(suju,'syn.*v4$')
+fadd=gfile(dsynt,'r02.*add')
+,#new skull ULTRA from CT reinsert brain and mida (DS 708)
 suj = gdir('/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/Skull/',['.*','slicer2'])
 sujn = get_parent_path(suj,2)[1]
 sujultra = [ gdir('/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/UTE/',[sss,'mida_v5'])[0] for sss in sujn]
