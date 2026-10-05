@@ -3,7 +3,7 @@ import torch,numpy as np,  torchio as tio
 from utils_metrics import compute_metric_from_list #get_tio_data_loader, predic_segmentation, load_model, computes_all_metric
 from timeit import default_timer as timer
 import json, os, seaborn as sns, shutil
-from utils_file import gfile, gdir, get_parent_path, addprefixtofilenames, r_move_file,,delete_file_list
+from utils_file import gfile, gdir, get_parent_path, addprefixtofilenames, r_move_file,delete_file_list
 import pandas as pd
 from nibabel.viewers import OrthoSlicer3D as ov
 from utils_labels import remap_filelist, get_fastsurfer_remap, get_remapping, create_mask
@@ -42,12 +42,19 @@ cmd = [f'mrgrid {f1}  crop -axis 1 0,1 {f2}' for f1,f2 in zip(fanat,fo)]
 
 #lobes remap
 fass = gfile(dAssN,'^native_structures_T1w_acpc_dc_restore.nii.gz')
-tmap = get_remapping('assn',tmap_index_col=[0,3])
+tmap = get_remapping('assn',tmap_index_col=[0,5])  #3 is 6 region but 5 is only 4
 remap_filelist(fass,tmap, prefix='remapLobes_')
 remap_filelist(fass, tmap, prefix='Dillremap_', fref=fass, skip=True, reslice_4D=True, blur4D=6,save=True, reduce_BG=0.1 , reslice_with_mrgrid=False)
-f = gfile(dAssN, '^Dill')
-diclab = get_remapping('assn',lab_name=['names_lobes','value_lobes']);diclab.pop('BG')
+remap_filelist(fass, tmap, prefix='DillBGremap_', fref=fass, skip=True, reslice_4D=True, blur4D=6,save=True, reduce_BG=0.1 , blur_only_BG=True, reslice_with_mrgrid=False)
+f = gfile(dAssN, '^DillBG')
+diclab = get_remapping('assn',lab_name=['names_lobes4','value_lobes4']);diclab.pop('BG')
 create_mask(f,diclab)
+%mask hcp motor
+tmap = get_remapping('assn',tmap_index_col=[0,7])  #3 is 6 region but 5 is only 4
+remap_filelist(fass, tmap, prefix='DillBGmaskMot_', fref=fass, skip=True, reslice_4D=True, blur4D=2,save=True, reduce_BG=0.4 , blur_only_BG=True, reslice_with_mrgrid=False)
+diclab = get_remapping('assn',lab_name=['names_motor','value_motor']);diclab.pop('BG')
+#create_mask(f,diclab) c'est deja un mask
+
 df = pd.read_csv('/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/csv_prediction/HCP_test_retest_07mm_suj82_vol_T1_07_free_Ass_siam.csv')
 for k,v in diclab.items():
     df[f'mask_{k}'] = gfile(dAssN,f'm_{k}')
@@ -683,6 +690,17 @@ dcoreg = gdir(suj,'coreg_head_skull')
 
 fute, funi, finv2, fflair, fwmn, fct = gfile(suj,'^UTE'),gfile(suj,'^rUNI'), gfile(suj,'^rINV2'), gfile(suj,'^rFLAI'), gfile(suj,'^rWMn'), gfile(suj,'^rCT')
 finv1 = gfile(suj,'^rINV1')
+flab_mid=  gfile(dmid,'^rUTE_binmr')
+fos = addprefixtofilenames(fct,'fake_')
+for fc,fm,fo  in zip(fct,flab_mid, fos):
+    ic = tio.ScalarImage(fc)
+    im = tio.LabelMap(fm)
+    brain_mask = (im.data > 0) & (im.data < 14)
+    ct_brain = ic.data[brain_mask]
+    mean, std = torch.mean( ct_brain ), torch.std( ct_brain )
+    ic.data[brain_mask] = torch.randn(ct_brain.shape) * std + mean
+    ic.save(fo)
+
 fo = [f'/vol_inv1/{nn}_{ss}' for nn,ss in zip(sujname,get_parent_path(finv1)[1])]
 
 fute, funi, finv2, fflair, fct = (gfile(dcoreg,'^rHSonCT.*UTE'),gfile(dcoreg,'^rHSonCT.*UNI'),
