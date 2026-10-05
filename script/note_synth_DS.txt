@@ -1,0 +1,23 @@
+
+DS706
+2suj Vas (v1)
+augment_vascular_synth_v1.py
+   input 2*2  synth2/r025_s05_rVesDurSyn*
+   output img training_saved_sample/Vasular1
+ 
+
+DS708
+3suj Ultra Skull 
+augment_vascular_synth_v2.py
+   input 3*4 version /slicer2/inVesSkCT_r025s05_r025 PV_GM * 4
+   output img training_saved_sample/Ulra3suj_SkVessel
+
+change from v1 : diff_GM if nb_iter>2 within is vessel and Dura
+
+
+DS709 DS710
+2suj Vas (v3) 
+(better vascular near brainsteam there was a bug in 706 but smoother so lose smaller vessel compare to 706) 
+augment_vascular_synth_v3.py
+   input 2*2  synth_v3/r025_s05_SynthVas_
+   output img training_saved_sample/Vascular3/
