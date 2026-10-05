@@ -759,7 +759,7 @@ if __name__ == '__main__':
         # sur amper 14 cpu mais 24 sur gpu-cenir
         # lancer que le premier job (array=1) et attendre le debut du training ... mias peut etre plus utile a partir 2.6.0
 
-        ###############for tumor
+        ###############for tumor data genere par synthetic-mri-generator
         from utils_labels import get_label_set_map
         dirout = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/Vascular4_tumor'
         for ii in range(1,4):
@@ -786,6 +786,10 @@ if __name__ == '__main__':
     '.*gz')
         nb_suj = create_nnunet_dataset_from_nii(fimg, flab, label_dic, dataset_name, dnnunet_root, base_name='RRR',
                                            start_from=nb_suj)
+
+        iidd = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/Results/Dataset716_MixLowDill/nnUNetTrainerNoDA__nnUNetResEncUNetXLPlans__3d_fullres'
+        nnunet_train_job(717, jobdir_name='DS717', nbfold=5, nbcpu=14,
+                         plan_model=plan_model, plan_type=plan_type, init_model_dir=iidd)
 
 #        create_nnunet_dataset_from_nii(fimg, flab, label_dic, dataset_name, dnnunet_root, base_name='RRR',
 #                                       tmap_lab=dic_map_target, tmap_fil_up='Anomalies',start_from=0) #859
