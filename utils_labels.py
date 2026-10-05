@@ -9,6 +9,9 @@ import subprocess
 from utils_file import get_parent_path, addprefixtofilenames, gfile, gdir
 import nibabel as nib
 import re
+from scipy.ndimage import label as scipy_label
+import numpy as np
+import subprocess
 
 
 # -----------------------------------------------------------------------------
@@ -248,6 +251,11 @@ def read_freesurfer_colorlut(fsc=None):
         label_names[s[1]] = np.array([[ int(s[2]), int(s[3]), int(s[4])]])
     return rgb, label_names
 
+def get_dict_from_freesurfer_values(value_list):
+    rgb, label_name = read_freesurfer_colorlut()
+    dic_val_name = {int(rr[0]):nn for rr,nn in zip(rgb,label_name)}
+    dic_sel = {l:n for l,n in dic_val_name.items() if l in value_list}
+    return dic_sel
 
 def create_mask(fin,diclab):
     dirout = get_parent_path(fin)[0]
@@ -298,7 +306,7 @@ def resample_and_smooth4D(fin,fref, blur4D=0.5, fout=None, skip_blur=None):
     ilr.data = data_out;
     ilr.affine = ilk.affine
     ilt = thoti(ilr)
-    ilt['data'] = ilt.data.to(torch.uint8)
+    ilt['data'] = ilt.data.to(torch.int16)
 
     if fout is not None:
         ilt.save(fout)
@@ -307,9 +315,9 @@ def resample_and_smooth4D(fin,fref, blur4D=0.5, fout=None, skip_blur=None):
     return ilt
 
 
-def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True, reslice_4D=False, blur4D=0.5,
+def remap_filelist(fin, tmap=None, prefix='remap_', fref=None, skip=True, reslice_4D=False, blur4D=0.5,
                    save=True, reduce_BG=0 , reslice_with_mrgrid=False, blur_only_BG=False):
-    # fref must be a list of same size
+    # fref must be a list of same size if a string, then no resampling
 
     if isinstance(tmap, str):
         if tmap == 'fastsurfer':
@@ -330,16 +338,23 @@ def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True, reslice_4D=
                 print(f'Erasing existing remap file {fo}')
 
         il = tio.LabelMap(fi)
-        dic_map = tmap.remapping
-        check_remap(il, dic_map)
+        if tmap:
+            dic_map = tmap.remapping
+            check_remap(il, dic_map)
         if fref:
             if reslice_4D:
                 thot = tio.OneHot(); thoti = tio.OneHot(invert_transform=True)
                 if blur4D>0:
                     ts = tio.Blur(std=blur4D)
-                tresample = tio.Resample(target=fref[index], image_interpolation='bspline')
-
-                ilt = tmap(il)
+                if isinstance(fref,str):
+                    print('no resampling')
+                    tresample = None
+                else:
+                    tresample = tio.Resample(target=fref[index], image_interpolation='bspline')
+                if tmap:
+                    ilt = tmap(il)
+                else:
+                    ilt = il
                 if blur_only_BG:
                     BG_mask = ilt.data==0
                 ilr = thot(ilt)
@@ -348,13 +363,23 @@ def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True, reslice_4D=
                     ilk = tio.ScalarImage(tensor=ilr.data[k].unsqueeze(0), affine=ilr.affine)
                     if blur4D>0:
                         if blur_only_BG:
-                            iltk = tresample(ilk)
+                            if tresample:
+                                iltk = tresample(ilk)
+                            else:
+                                iltk = ilk
                             iltk_blur = ts(iltk)
-                            iltk.data[BG_mask] = iltk_blur.data[BG_mask]
+                            if BG_mask.shape == iltk.data.shape:
+                                iltk.data[BG_mask] = iltk_blur.data[BG_mask]
+                            else:
+                                BG_mask = iltk.data == 0
+
                         else:
-                            iltk = ts(tresample(ilk))
+                            if tresample:
+                                iltk = ts(tresample(ilk))
+                            else:
+                                iltk = ts(ilk)
                     else:
-                        iltk = tresample(ilk)
+                        iltk = tresample(ilk) #will bug if tresample is not define, but since no bluring should not happen
 
                     if k==0: #'data_out' not in locals() do not work if list ...
                         data_out = torch.zeros( (ilr.data.shape[0],)+ iltk.shape[1:] )
@@ -362,17 +387,19 @@ def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True, reslice_4D=
                     if k==0 and reduce_BG>0:
                         data_out[k] *= reduce_BG
 
-                ilr.data = data_out; ilr.affine = iltk.affine
+                ilr['data'] = data_out; ilr.affine = iltk.affine
                 ilt = thoti(ilr)
-                ilt['data'] = ilt.data.to(torch.uint8)
+                ilt['data'] = ilt.data.to(torch.int16)
 
             else:
                 if reslice_with_mrgrid:
                     fffo = addprefixtofilenames(fo, 'rmrt_')
-                    import subprocess
                     cmd = f'mrgrid {fi} regrid -interp nearest -template {fref[index]} -strides {fref[index]} {fffo[0]}'
                     outvalue = subprocess.run(cmd.split(' '))
-                    ilt = tmap(tio.LabelMap(fffo[0]))
+                    if tmap:
+                        ilt = tmap(tio.LabelMap(fffo[0]))
+                    else:
+                        ilt = tio.LabelMap(fffo[0])
                     os.remove(fffo[0])
 
                 else:
@@ -388,8 +415,6 @@ def remap_filelist(fin, tmap, prefix='remap_', fref=None, skip=True, reslice_4D=
             return ilt
 
 
-from scipy.ndimage import label as scipy_label
-import numpy as np
 
 def get_largest_connected_component(mask, structure=None):
     """Function to get the largest connected component for a given input.
