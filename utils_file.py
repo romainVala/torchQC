@@ -534,7 +534,12 @@ def gfile(dirs,regex,opts={"items":-1}, list_flaten = True):
 
 def delete_file_list(ff):
     for file in ff:
-        os.remove(file)
+        if os.path.isfile(file):
+            os.remove(file)
+        elif os.path.isdir(file):
+            shutil.rmtree(file)
+        else:
+            print(f"file {file} does not exist")
 
 def get_log_file(filename=None):
     import logging, sys
