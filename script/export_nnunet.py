@@ -1,12 +1,81 @@
 import torch,numpy as np,  torchio as tio
-import json, os, seaborn as sns, tarfile, subprocess, pathlib, shutil
-from utils_file import gfile, gdir, get_parent_path, addprefixtofilenames, remove_extension, r_move_file
+import json, commentjson, os, tarfile, subprocess, pathlib, shutil
+from utils_file import gfile, gdir, get_parent_path, addprefixtofilenames, remove_extension, r_move_file, \
+    delete_file_list, r_mkdir
 from utils_labels import remap_filelist
 import pandas as pd
 from nibabel.viewers import OrthoSlicer3D as ov
 import matplotlib.pyplot as plt
 from script.create_jobs import create_jobs
 from utils_labels import remap_filelist, get_fastsurfer_remap
+from scipy.ndimage import binary_dilation
+
+from SIAMpred.paths import get_model_path_and_fold
+
+import random
+def _get_lut(fname=None):
+    """Get a FreeSurfer LUT."""
+
+    dtype = [
+        ("id", "<i8"),
+        ("name", "U"),
+        ("R", "<i8"),
+        ("G", "<i8"),
+        ("B", "<i8"),
+        ("A", "<i8"),
+    ]
+    lut = {d[0]: list() for d in dtype}
+
+    with open(fname) as fid:
+        for line in fid:
+            line = line.strip()
+            if line.startswith("#") or not line:
+                continue
+            line = line.split()
+            if len(line) != len(dtype):
+                raise RuntimeError(f"LUT is improperly formatted: {fname}")
+            for d, part in zip(dtype, line):
+                lut[d[0]].append(part)
+    lut = {d[0]: np.array(lut[d[0]], dtype=d[1]) for d in dtype}
+
+    lut["name"] = [str(name) for name in lut["name"]]
+    return lut
+
+
+def convert_FS_lut_to_ctbl(fname=None):
+    lut = _get_lut(fname)
+    output_path = fname[:-4] + '.ctbl'
+    alpha=255
+    with open(output_path, "w") as f:
+        for name,id,r,g,b in zip(lut['name'],lut['id'],lut['R'],lut['G'],lut['B']):
+            f.write(f"{id} {name} {r} {g} {b} {alpha}\n")
+
+    print(f'File {output_path} CREATED')
+
+
+
+def write_ctbl(dicl, output_path, alpha=255, seed=None):
+    if seed is not None:
+        random.seed(seed)
+
+    with open(output_path, "w") as f:
+        for label_name, label_id in sorted(dicl.items(), key=lambda x: x[1]):
+            if label_id == 0:
+                continue  # souvent on ignore le background
+
+            r = random.randint(0, 255)
+            g = random.randint(0, 255)
+            b = random.randint(0, 255)
+
+            f.write(f"{label_id} {label_name} {r} {g} {b} {alpha}\n")
+
+def load_json(json_file: str) -> tio.Transform:
+    """
+    Load TorchIO Compose pipeline from a JSON definition.
+    """
+    with open(json_file, encoding="utf-8") as f:
+        data = commentjson.load(f)
+    return data
 
 def main_createDS_old():
     din = '/data/romain/PVsynth/saved_sample/Uhcp4_skv5.1/tio_save_mot_nii/'
@@ -64,18 +133,32 @@ def generate_DS_region_main():
     generate_DS_region(fin, flab, label_dic, dic_map, label_dic_all,DS_region_num, DS_root_name)
 
 def generate_DS_region(fin, flab, label_dic, dic_map, label_dic_all,DS_region_num, DS_root_name,
-        dnnunet = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/'):
+                       Fake=False,auto_crop=False,skip_if_exist=True,min_subregion=1,
+                       region_list=None,dnnunet = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/'):
 
     tmap_label = tio.RemapLabels(dic_map)
-    for k,v in label_dic.items() :
+    if region_list is None:
+        region_list = label_dic
+    for regname in region_list:
+        if isinstance(regname,list):
+            val_reg = [label_dic[nnn] for nnn in regname]
+            regname = '_'.join(regname)
+        else:
+            if regname not in label_dic:
+                print(f'SSS No labe {regname}')
+                continue
+
+            val_reg = [label_dic[regname]]
+
         dic_region={}
-        for kk,vv in label_dic_all.items():
-            if dic_map[vv]==v:
-                dic_region.update({kk:vv})
+        for val_reg_order in val_reg : #to regroup by sub reg
+            for kk,vv in label_dic_all.items():
+                if dic_map[vv] == val_reg_order: # .in val_reg:
+                    dic_region.update({kk:vv})
         #print(f'"""""{k}""""""""""')
         nb_subregion = len(dic_region)
-        if nb_subregion>1:
-            print(f'{k} has {nb_subregion} region')
+        if nb_subregion>min_subregion:
+            #print(f'{k} has {nb_subregion} region')
             label_dic_region_LR, dic_map_regionLR = {'background': 0}, {}
             for kk,vv in dic_region.items():
                 if (kk.startswith('R_') | kk.startswith('L_')):
@@ -95,14 +178,19 @@ def generate_DS_region(fin, flab, label_dic, dic_map, label_dic_all,DS_region_nu
                 else:
                     new_dic_map[kk] = 0
 
-            print(f"after LR {len(label_dic_region_LR)} regions")
+            tmap_label = tio.RemapLabels(new_dic_map)
+            dataset_name = f'Dataset{DS_region_num}_{regname}_{DS_root_name}'
+            print(f"###### {dataset_name} :  {len(label_dic_region_LR)} regions")
+            #print(f"   {regname}                :  {label_dic_region_LR} ")
             print(label_dic_region_LR)
             #print(new_dic_map)
-            tmap_label = tio.RemapLabels(new_dic_map)
-            dataset_name = f'Dataset{DS_region_num}_{k}_{DS_root_name}'
-            print(f"Creation {dataset_name}")
-            create_nnunet_dataset_from_nii(fin, flab, label_dic_region_LR, dataset_name=dataset_name,
-                                           dnnunet_root=dnnunet, tmap_lab=tmap_label,region_mask=True)
+            if skip_if_exist & os.path.isdir(f'{dnnunet}/{dataset_name}'):
+                print('Exist so Skip')
+            elif Fake:
+                print('FAKE skiping')
+            else:
+                create_nnunet_dataset_from_nii(fin, flab, label_dic_region_LR, dataset_name=dataset_name,
+                                               dnnunet_root=dnnunet, tmap_lab=tmap_label,region_mask=True, auto_crop=auto_crop)
             DS_region_num+=1
 
 
@@ -162,7 +250,7 @@ def main_all():
     jobdir = '/network/iss/cenir/analyse/irm/users/romain.valabregue/segment_RedNucleus/vascular_pc3D/preproc/nnunet_pred/job/prednn'  # '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/job_pred/nnunet_Ultra'
     nnunet_make_predict_job(indirs, plan_model, plan_train, plan_type, datasetID=708, jobdir=jobdir, cmd_option='')
 
-    model_num_list=[3, 122, 13,14,15 ]
+    model_num_list=[3, 122, 13,14,15,16 ]
     nnunet_siam_pred_job(indirs,model_num_list)
 
 ### CREATE from tio suj  and  filter csv augmentation
@@ -194,22 +282,89 @@ def create_nnunet_dataset_from_tio(fsuj, fcsv, base_name = 'RRR'):
         if ind_suj>1000:
             break
 
+def change_model_trainer(fin, trainer_name='nnUNetTrainerNoDA'):
+    for ff in fin:
+        print(f'changing {ff}')
+        mout = torch.load(ff)
+        print(f'found {mout["trainer_name"]}')
+        mout['trainer_name'] = trainer_name
+        torch.save(mout, ff)
+
+def make_full_split(fjson):
+    import json
+    import sys
+    from pathlib import Path
+
+    split_file = Path(fjson)
+    assert split_file.exists(), f"{split_file} not found"
+
+    # read the existing splits
+    with split_file.open("r") as f:
+        splits = json.load(f)
+
+    # collect all case IDs present in any split
+    all_train = set()
+    for s in splits:
+        all_train.update(s.get("train", []))
+        all_train.update(s.get("val", []))
+
+    new_split = {
+        "train": sorted(list(all_train)),
+        "val": splits[0]['val']  # empty validation
+    }
+
+    splits.append(new_split)
+    new_file = split_file.parent / (split_file.stem + ".json") #orverright existing one
+
+    with new_file.open("w") as f:
+        json.dump(splits, f, indent=4)
+
+    print(f"✅ Added new full-data split #{len(splits) - 1}")
+    print(f"Saved as {new_file}")
+    print(f"To train: nnUNetv2_train DATASET_ID 3d_fullres {len(splits) - 1} -tr nnUNetTrainerNoDA")
+
+def concat_nnunet_dataset(ds_list, dataset_name, base_name = 'RRR', max_perDS=None):
+    dfirst = ds_list[0]
+    dnnunet_root = get_parent_path(dfirst)[0]
+    fdsjson = gfile(dfirst,'dataset.json')
+    dnnunetData = os.path.join(dnnunet_root, dataset_name) + '/'
+    if not os.path.isdir(dnnunetData): os.mkdir(dnnunetData)
+    shutil.copy(fdsjson[0], dnnunetData)
+    img_path, label_path = dnnunetData + 'imagesTr/', dnnunetData + 'labelsTr/'
+    if not os.path.isdir(img_path): os.mkdir(img_path);
+    if not os.path.isdir(label_path): os.mkdir(label_path)
+
+    start_from = len(gfile(img_path, '.*gz'))
+    curent_vol_idx = start_from
+    for dnnds in ds_list:
+        first_img_path, first_label_path = dnnds + '/imagesTr/', dnnds + '/labelsTr/'
+        fimg, flab = gfile(first_img_path,'.*gz'), gfile(first_label_path,'.*gz')
+        if max_perDS:
+            fimg, flab = fimg[:max_perDS], flab[:max_perDS]
+        for ii, (fdata, flabel) in enumerate(zip(fimg, flab)):
+            fout_img = f'{base_name}_{curent_vol_idx:04}_0000.nii.gz'  #only one input channel
+            fout_lab = f'{base_name}_{curent_vol_idx:04}.nii.gz'  # no channels here
+
+            os.symlink(fdata, img_path + fout_img)
+            os.symlink(flabel, label_path + fout_lab)
+            curent_vol_idx += 1
+    print(f'total num subjec is {curent_vol_idx}')
+
+
+
 ### CREATE from nifti file (link image, OneHotInv for labels
 def create_nnunet_dataset_from_nii(fimg, flab,label_dic,dataset_name, dnnunet_root,
                                    base_name = 'RRR',lab_one_hot=False, tmap_lab = None, region_mask=False,
-                                   tmap_fil_up=None, start_from=0):
+                                   tmap_fil_up=None, start_from=0, auto_crop=False):
     dnnunetData = os.path.join(dnnunet_root, dataset_name) + '/'
     if not os.path.isdir(dnnunetData): os.mkdir(dnnunetData)
     img_path, label_path = dnnunetData + 'imagesTr/', dnnunetData + 'labelsTr/'
     if not os.path.isdir(img_path): os.mkdir(img_path);
     if not os.path.isdir(label_path): os.mkdir(label_path)
+    if start_from == 'last':
+        start_from = len(gfile(img_path,'.*gz'))
 
     for ii, (fdata, flabel) in enumerate(zip(fimg, flab)):
-        fout_name = f'{base_name}_{(ii+start_from):04}_0000.nii.gz'  #only one input channel
-        if os.path.isfile((img_path+fout_name)): #skip if exist
-            continue
-        if not os.path.isfile((img_path+fout_name)):
-            os.symlink(fdata, img_path + fout_name)
 
         fout_name = f'{base_name}_{(ii+start_from):04}.nii.gz'  #no channels here
         if lab_one_hot:
@@ -233,15 +388,39 @@ def create_nnunet_dataset_from_nii(fimg, flab,label_dic,dataset_name, dnnunet_ro
                 label_dic[tmap_fil_up] = max_remap_val+1
             else:
                 il = tmap_lab(tio.LabelMap(flabel))
+            if auto_crop:
 
-            il.save(label_path+fout_name)
-            if region_mask:
-                fout_mask_name = f'{base_name}_{(ii+start_from):04}_0001.nii.gz'
-                il['data'][il.data>0] = 1
-                il.save(img_path + fout_mask_name)
+                data = torch.tensor( binary_dilation((il.data[0]>0).numpy().astype('float64'),iterations=4) )
+                imask = tio.LabelMap(tensor= data.unsqueeze(0), affine=il.affine)
+                imask['data'][0] = data
+                suj = tio.Subject({'t1':tio.ScalarImage(fdata),'lab':il, 'mask':imask})
+                tc = tio.CropOrPad(mask_name='mask')
+                sujt = tc(suj)
+                sujt.lab.save(label_path+fout_name)
+                if region_mask:
+                    fout_mask_name = f'{base_name}_{(ii+start_from):04}_0001.nii.gz'
+                    il = sujt.lab
+                    il['data'][il.data>0] = 1
+                    il.save(img_path + fout_mask_name)
+
+                fout_name = img_path+f'{base_name}_{(ii+start_from):04}_0000.nii.gz'  #only one input channel
+                sujt.t1.save(fout_name)
+
+
+            else:
+                il.save(label_path+fout_name)
+                if region_mask:
+                    fout_mask_name = f'{base_name}_{(ii+start_from):04}_0001.nii.gz'
+                    il['data'][il.data>0] = 1
+                    il.save(img_path + fout_mask_name)
         else:
             os.symlink(flabel, label_path + fout_name)
 
+        fout_name = f'{base_name}_{(ii+start_from):04}_0000.nii.gz'  #only one input channel
+        if os.path.isfile((img_path+fout_name)): #skip if exist
+            continue
+        if not os.path.isfile((img_path+fout_name)):
+            os.symlink(fdata, img_path + fout_name)
 
         print((ii+start_from))
     nb_suj = len(fimg)+start_from
@@ -318,21 +497,50 @@ def create_nnunet_testset_from_csv(fcsv_list, dout, ds_name_list=None):
     return fcsv_out_list
 
 def nnunet_train_job(datasetNum, jobdir_name = 'trainVasReg',nbfold = 3,nbcpu = 14, nbcpreproccpu=12,    plan_model = ['3d_fullres'],
-                     plan_type = [ '-p nnUNetPlans'], init_model_dir=None, dout=None, serveur='ICM'):
+                     plan_type = [ '-p nnUNetPlans'], init_model_dir=None,continue_from=None, dout=None, serveur='ICM'):
 
+    if nbfold >0:
+        fold_list = range(nbfold)
+    else:
+        fold_list = [5]
     jobs=[];  #40 for V100  24 for A100 ?
     #export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     cmd_ini = f'export nnUNet_n_proc_DA={nbcpreproccpu}; nnUNetv2_train  {datasetNum} ' #--c does not work if model
     #cmd_ini = f'nnUNetv2_train {datasetNum} '
     for pm, pt in zip(plan_model, plan_type):
-        for fold in range(nbfold):
+        for fold in fold_list:
             if init_model_dir is not None:
                 dir_mod = gdir(init_model_dir,f'fold_{fold}')
                 fmod = gfile(dir_mod,'checkpoint_final.pth')
                 jobs.append(f'{cmd_ini} {pm} {fold} {pt} -pretrained_weights {fmod[0]}')
-
+            elif continue_from is not None:
+                dir_mod = gdir(continue_from,f'fold_{fold}')
+                fmod = gfile(dir_mod,'checkpoint_best.pth')
+                #create result dir
+                nnroot = get_parent_path(continue_from,3)[0]
+                dsdir = gdir(nnroot,f'^Dataset{datasetNum}')
+                dspreproc = gdir(nnroot,["Preproc",f'^Dataset{datasetNum}'])
+                dsname = get_parent_path(dsdir)[1][0]
+                ptargs = pt.split()
+                if (ptargs[0]=='-p' ) & (ptargs[2]=='-tr'):
+                    if fold==0:
+                        dres = r_mkdir(gdir(nnroot,'Results'),dsname)
+                        dressub = r_mkdir(dres, f"{ptargs[3]}__{ptargs[1]}__{pm}")
+                        plfile = gfile(dspreproc,f'^{ptargs[1]}.json$')
+                        fo = f"{dressub[0]}/plans.json"
+                        r_move_file(plfile,[fo],'copy')
+                        otherfile = gfile(dspreproc,f'^dataset.json$')
+                        r_move_file(otherfile, dressub, 'copy')
+                        otherfile = gfile(dspreproc,f'^dataset_fingerprint.json$')
+                        r_move_file(otherfile, dressub, 'copy')
+                    dsubfold = r_mkdir(dressub, f'fold_{fold}')
+                    print(f"copiing {fmod} in {dsubfold}")
+                    r_move_file(fmod, dsubfold, 'copy')
+                    jobs.append(f'{cmd_ini} --c {pm} {fold} {pt} ')
+                else:
+                    error('expect plan_type to be -p xxx - tr xxx')
             else:
-                jobs.append(f'{cmd_ini} {pm} {fold} {pt} ')
+                jobs.append(f'{cmd_ini} --c {pm} {fold} {pt} ')
     if dout is None:
         dout = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/job'
         #dout = '/linkhome/rech/gencme01/urd29wg/training/nnunet/mida_RFew'
@@ -342,7 +550,7 @@ def nnunet_train_job(datasetNum, jobdir_name = 'trainVasReg',nbfold = 3,nbcpu = 
     job_params['jobs'] = jobs
     job_params['job_name'] = 'nnUNet'
     if serveur=='ICM':
-        job_params['cluster_queue'] = '-p gpu-ampere,gpu-cenir --gres=gpu:1 --mem 200G'
+        job_params['cluster_queue'] = '-p gpu-ampere --gres=gpu:1 --mem 200G'
         job_params['walltime'] = '200:00:00'
 
     else:
@@ -383,7 +591,7 @@ def nnunet_make_predict_job(indirs,plan_model,plan_train,plan_type,
     job_params['output_directory'] = jobdir
     job_params['jobs'] = jobs
     job_params['job_name'] = 'nnUNet'
-    job_params['cluster_queue'] = '-p medium --mem 16G '
+    job_params['cluster_queue'] = '-p compute --mem 16G '
 
     job_params['cpus_per_task'] = nbcpu
     # job_params['mem'] = 32000
@@ -396,8 +604,8 @@ def nnunet_make_predict_job(indirs,plan_model,plan_train,plan_type,
             # --save_probabilities
     #dataset 708 (nb Classe 39) lancé en cpu : 33 G but runtime is crasy ! 3H par volume !
 
-def nnunet_siam_pred_job(indirs,model_num_list=[1],
-                            nbcpu=4,Lustre=True,device='gpu',
+def nnunet_siam_pred_job(indirs,model_num_list=[1], res_str="res",
+                            nbcpu=4,Lustre=True,device='gpu', skip_if_exist=True,
                             jobdir='/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/job_pred/siam_pred'):
     ddd=['/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/ultracortex/vol_T1std',
  '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/ULTRA_all/vol_ct',
@@ -427,7 +635,13 @@ def nnunet_siam_pred_job(indirs,model_num_list=[1],
     for ii, indir in enumerate(indirs):
         ds_name = testset_name[ii]
         for model_num in model_num_list:
-            jobs.append( f'{cmd_ini} -m {model_num} -i {indir} -o res  ' )
+            rr, ff, prefix = get_model_path_and_fold(model_num)
+            resdir = f"{indir}/{prefix}{res_str}"
+            if os.path.isdir(resdir):
+                print(f'Skiping because Exist {resdir}')
+            else:
+                jobs.append( f'{cmd_ini} -m {model_num} -i {indir} -o res  ' )
+
 
     from script.create_jobs import create_jobs
     job_params = dict()
@@ -442,7 +656,7 @@ def nnunet_siam_pred_job(indirs,model_num_list=[1],
         job_params['sbatch_args'] = '--gres=gpu:1'
     else: #cpu
         job_params['cpus_per_task'] = 8
-        job_params['cluster_queue'] = '-p medium --mem 16G '
+        job_params['cluster_queue'] = '-p compute --mem 16G '
         job_params['cpus_per_task'] = nbcpu
         # job_params['mem'] = 32000
     job_params['walltime'] = '20:00:00'
@@ -594,9 +808,556 @@ def make_validation_csv_compare_vol(fcsv, outdir_csv, compare_label=False, pred_
     df_multi.to_csv(fname_multi, index=False)
     return fcsv_out
 
+def make_validation_csv_HCP_repeate(fcsvT1,fcsvT2,outdir_csv, pred_regex='.*',
+                                    label_remap_csv='auto', auto_DS=None, metrics_name="dice volume "):
+    #fcsvT1,fcsvT2 = gfile(gdir(rd,['HCP_tes','07$']),'csv')
+    fcsv_out=[]
+    df_multi, dict_one_row_multi = pd.DataFrame(), {}
+    df1 = pd.read_csv(fcsvT1)
+    df2 = pd.read_csv(fcsvT2)
+    for cc in df1.columns:
+        if cc.startswith('lab_'):
+            df1.drop(columns=cc, axis=1, inplace=True)
+    for cc in df2.columns:
+        if cc.startswith('lab_'):
+            df2.drop(columns=cc, axis=1, inplace=True)
+    #df1ref = df1.iloc[::2,:]
+    #df1vol = df1.iloc[1::2, :]
+    dir_dataT1 = get_parent_path(df1.vol_path[0])[0]
+    dir_dataT2 = get_parent_path(df2.vol_path[0])[0]
+    if isinstance(pred_regex, list):
+        dir_predsT1,dir_predsT2 = [], []
+        for pp in pred_regex:
+            dir_predsT1 += gdir(dir_dataT1, f'^{pp}$')
+            dir_predsT2 += gdir(dir_dataT2, f'^{pp}$')
+    else:
+        dir_predsT1 = gdir(dir_dataT1, pred_regex)
+        dir_predsT2 = gdir(dir_dataT2, pred_regex)
+    #vol_name_listT1_ref = df1.iloc[::2,1]
+    if 'sujname' in df1.keys():
+        vol_name_listT1 = df1['sujname']
+        vol_name_listT2 = df2['sujname']
+    else:
+        vol_name_listT1 = df1.iloc[:,1]
+        vol_name_listT2 = df2.iloc[:,1]
+    #vol_name_listT1_ref_forT2 = []
+    #for ss in  vol_name_listT1_ref:
+    #    vol_name_listT1_ref_forT2.append(ss);    vol_name_listT1_ref_forT2.append(ss)
+
+    for dir_pred1,dir_pred2 in zip(dir_predsT1,dir_predsT2):
+        # check if pred are
+        dir_pred, vol_name_list, df = dir_pred1, vol_name_listT1, df1.copy()
+        ds_name = get_parent_path(fcsvT1)[1][:-4]
+
+        pred_path_list, model_name_list, input_type_list, dataset_name_list = [], [], [], []
+        model_name = get_parent_path(dir_pred)[1]
+        input_type = get_parent_path(dir_pred, 2)[1]
+
+        for vol_n in vol_name_list:
+            if "FastSurfer" in model_name:
+                dd = gdir(dir_pred, [vol_n + '$', 'mri'])
+                ff = gfile(dd, '^remap')
+                if len(ff) == 0:
+                    print(f'Doing missing remap file in FastSurfer {dir_pred}')
+                    fapar = gfile(dd, '^aparc')
+                    tmap = get_fastsurfer_remap(fapar[0],
+                                                fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                                index_col_remap=4)
+                    ft1 = gfile(get_parent_path(fapar, 4)[0], vol_n)
+                    fffo = addprefixtofilenames(fapar, 'rmrt_')
+                    fo_final = addprefixtofilenames(fapar, 'remapHyp_')
+                    fffo[0] = fffo[0][:-4] + '.nii.gz'
+                    fo_final[0] = fo_final[0][:-4] + '.nii.gz'
+                    import subprocess
+                    cmd = f'mrgrid {fapar[0]} regrid -interp nearest -template {ft1[0]} -strides {ft1[0]} {fffo[0]}'
+                    outvalue = subprocess.run(cmd.split(' '))
+                    # remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_')
+                    remap_filelist(fffo, tmap, fref=ft1, prefix='remapHyp_')
+                    badfo = addprefixtofilenames(fffo, 'remapHyp_')
+                    r_move_file(badfo, fo_final, 'move')
+                    os.remove(fffo[0])
+                    ff = gfile(dd, '^remap')
+
+            elif ("SynthSeg" in model_name) | ("bibsnet" in model_name) | ('SuperSynth' in model_name) :
+                ff = gfile(dir_pred, '^remap.*' + vol_n)
+                if ('SuperSynth' in model_name):
+                    dd = gdir(dir_pred, vol_n)
+                    ff = gfile(dd, '^remap')
+
+                if len(ff) == 0:
+                    print(f'Doing missing remap file in FastSurfer {dir_pred}')
+                    fapar = gfile(dir_pred, vol_n)
+                    if 'ouhfi' in model_name:
+                        tmap = get_fastsurfer_remap(fapar[0], index_col_in=1, index_col_remap=3,
+                                                    fcsv='/network/iss/opendata/data/template/remap/my_synth/label_gouhfi.csv')
+                        # dfgouhfi = pd.read_csv(rd + 'label_gouhfi.csv')
+                        # tmap = {dd.synth: dd.target for ii, dd in dfgouhfi.iterrows()}
+                    else:
+                        tmap = get_fastsurfer_remap(fapar[0],
+                                                    fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                                    index_col_remap=4)
+                    ft1 = gfile(get_parent_path(fapar, 2)[0], vol_n)
+                    print(f'found T1 {ft1} for {fapar}')
+                    # remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_',reslice_with_mrgrid=True)
+                    remap_filelist(fapar, tmap, fref=ft1, prefix='remapHyp_', reslice_4D=True)
+                    ff = gfile(dir_pred, '^remap.*' + vol_n)
+            else:
+                ff = gfile(dir_pred, vol_n)
+
+            if len(ff) == 1:
+                pred_path_list.append(ff[0]);
+                model_name_list.append(model_name);
+                dataset_name_list.append(ds_name);
+                input_type_list.append(input_type)
+            else:
+                print(f'missing pred dir {get_parent_path(dir_pred)[1]} miss at least prediction for {vol_n}')
+                continue
+        if len(pred_path_list) == len(vol_name_list):
+            if label_remap_csv == 'auto':
+                dir_transfo = '/network/iss/opendata/data/template/remap/my_synth/transfo'
+                if ('FastSur' in model_name) | ('SynthSeg' in model_name) | ("bibsnet" in model_name):
+                    reg_transfo = '^DSFree_remap'
+                elif model_name.startswith('pred_DS'):
+                    reg_transfo = f'^{model_name[5:10]}'
+                if auto_DS:
+                    reg_transfo = auto_DS
+
+                # which GT depend on dataset
+                if 'DBB' in ds_name:
+                    reg_transfo += '.*label_DBB_GT'
+
+                elif 'dHcp' in ds_name:
+                    reg_transfo += '.*label_dHCP_GT'
+
+                elif 'ULTRA' in ds_name:
+                    reg_transfo += '.*label_GT.csv'
+                elif 'vol_all05' in ds_name:
+                    reg_transfo += '.*label_GTVas.csv'
+                else:
+                    reg_transfo += '.*label_GT_Head'
+                    # reg_transfo += '.*label_GT.csv'
+                fff = gfile(dir_transfo, reg_transfo)
+                if not (len(fff) == 1):
+                    misssingfilessss
+                label_remap_fname = fff[0]
+
+            else:
+                label_remap_fname = label_remap_csv
+
+            df['predict_path'] = pred_path_list;
+            df['model_name'] = model_name_list;
+            df['dataset_name'] = dataset_name_list;
+            df['input_type'] = input_type_list
+            fcsv_out_name = f'{outdir_csv}/short_{ds_name}_{model_name}.csv'
+            fcsv_out.append(fcsv_out_name)
+
+            dfT1 = df.iloc[1::2, :]
+            dfT1ref = df.iloc[::2, :]
+            dfT1.loc[:,'lab_T1'] = dfT1ref['predict_path'].values
+            vol_ref_T1 = []
+            for vv in  dfT1ref['predict_path'].values :
+                vol_ref_T1.append(vv);vol_ref_T1.append(vv);
+            vol_ref_T1 = df['predict_path'].values
+            dict_one_row_multi['dataset_name'] = ds_name
+            dict_one_row_multi['metrics'] = metrics_name
+            dict_one_row_multi['subject_csv_filepath'] = fcsv_out_name
+            dict_one_row_multi['label_remap'] = label_remap_fname
+            dict_one_row_multi['save_dir'] = os.path.join(outdir_csv, 'results')
+
+            dfT1.to_csv(fcsv_out_name, index=False)
+            df_multi = pd.concat([df_multi, pd.DataFrame(dict_one_row_multi, index=[0])])
+
+        dir_pred, vol_name_list, df = dir_pred2, vol_name_listT2, df2.copy()
+        ds_name = get_parent_path(fcsvT2)[1][:-4]
+
+        pred_path_list, model_name_list, input_type_list, dataset_name_list = [], [], [], []
+        model_name = get_parent_path(dir_pred)[1]
+        input_type = get_parent_path(dir_pred, 2)[1]
+        vol_ref_T1 = pred_path_list
+
+        for vol_n in vol_name_list:
+            if "FastSurfer" in model_name:
+                dd = gdir(dir_pred, [vol_n + '$', 'mri'])
+                ff = gfile(dd, '^remap')
+                if len(ff) == 0:
+                    print(f'Doing missing remap file in FastSurfer {dir_pred}')
+                    fapar = gfile(dd, '^aparc')
+                    tmap = get_fastsurfer_remap(fapar[0],
+                                                fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                                index_col_remap=4)
+                    ft1 = gfile(get_parent_path(fapar, 4)[0], vol_n)
+                    fffo = addprefixtofilenames(fapar, 'rmrt_')
+                    fo_final = addprefixtofilenames(fapar, 'remapHyp_')
+                    fffo[0] = fffo[0][:-4] + '.nii.gz'
+                    fo_final[0] = fo_final[0][:-4] + '.nii.gz'
+                    import subprocess
+                    cmd = f'mrgrid {fapar[0]} regrid -interp nearest -template {ft1[0]} -strides {ft1[0]} {fffo[0]}'
+                    outvalue = subprocess.run(cmd.split(' '))
+                    # remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_')
+                    remap_filelist(fffo, tmap, fref=ft1, prefix='remapHyp_')
+                    badfo = addprefixtofilenames(fffo, 'remapHyp_')
+                    r_move_file(badfo, fo_final, 'move')
+                    os.remove(fffo[0])
+                    ff = gfile(dd, '^remap')
+
+            elif ("SynthSeg" in model_name) | ("bibsnet" in model_name) | ('SuperSynth' in model_name) :
+                ff = gfile(dir_pred, '^remap.*' + vol_n)
+                if ('SuperSynth' in model_name):
+                    dd = gdir(dir_pred, vol_n)
+                    ff = gfile(dd, '^remap')
+
+                if len(ff) == 0:
+                    print(f'Doing missing remap file in FastSurfer {dir_pred}')
+                    fapar = gfile(dir_pred, vol_n)
+                    if 'ouhfi' in model_name:
+                        tmap = get_fastsurfer_remap(fapar[0], index_col_in=1, index_col_remap=3,
+                                                    fcsv='/network/iss/opendata/data/template/remap/my_synth/label_gouhfi.csv')
+                        # dfgouhfi = pd.read_csv(rd + 'label_gouhfi.csv')
+                        # tmap = {dd.synth: dd.target for ii, dd in dfgouhfi.iterrows()}
+                    else:
+                        tmap = get_fastsurfer_remap(fapar[0],
+                                                    fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                                    index_col_remap=4)
+                    ft1 = gfile(get_parent_path(fapar, 2)[0], vol_n)
+                    print(f'found T1 {ft1} for {fapar}')
+                    # remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_',reslice_with_mrgrid=True)
+                    remap_filelist(fapar, tmap, fref=ft1, prefix='remapHyp_', reslice_4D=True)
+                    ff = gfile(dir_pred, '^remap.*' + vol_n)
+            else:
+                ff = gfile(dir_pred, vol_n)
+
+            if len(ff) == 1:
+                pred_path_list.append(ff[0]);
+                model_name_list.append(model_name);
+                dataset_name_list.append(ds_name);
+                input_type_list.append(input_type)
+            else:
+                print(f'missing pred dir {get_parent_path(dir_pred)[1]} miss at least prediction for {vol_n}')
+                continue
+        if len(pred_path_list) == len(vol_name_list):
+            if label_remap_csv == 'auto':
+                dir_transfo = '/network/iss/opendata/data/template/remap/my_synth/transfo'
+                if ('FastSur' in model_name) | ('SynthSeg' in model_name) | ("bibsnet" in model_name):
+                    reg_transfo = '^DSFree_remap'
+                elif model_name.startswith('pred_DS'):
+                    reg_transfo = f'^{model_name[5:10]}'
+                if auto_DS:
+                    reg_transfo = auto_DS
+
+                # which GT depend on dataset
+                if 'DBB' in ds_name:
+                    reg_transfo += '.*label_DBB_GT'
+
+                elif 'dHcp' in ds_name:
+                    reg_transfo += '.*label_dHCP_GT'
+
+                elif 'ULTRA' in ds_name:
+                    reg_transfo += '.*label_GT.csv'
+                elif 'vol_all05' in ds_name:
+                    reg_transfo += '.*label_GTVas.csv'
+                else:
+                    reg_transfo += '.*label_GT_Head'
+                    # reg_transfo += '.*label_GT.csv'
+                fff = gfile(dir_transfo, reg_transfo)
+                if not (len(fff) == 1):
+                    misssingfilessss
+                label_remap_fname = fff[0]
+
+            else:
+                label_remap_fname = label_remap_csv
+
+            df['predict_path'] = pred_path_list;
+            df['model_name'] = model_name_list;
+            df['dataset_name'] = dataset_name_list;
+            df['input_type'] = input_type_list
+            fcsv_out_name = f'{outdir_csv}/{ds_name}_{model_name}.csv'
+            fcsv_out.append(fcsv_out_name)
+
+            df['lab_T1'] = vol_ref_T1
+
+            df.to_csv(fcsv_out_name, index=False)
+            dict_one_row_multi['dataset_name'] = ds_name
+            dict_one_row_multi['metrics'] = metrics_name
+            dict_one_row_multi['subject_csv_filepath'] = fcsv_out_name
+            dict_one_row_multi['label_remap'] = label_remap_fname
+            dict_one_row_multi['save_dir'] = os.path.join(outdir_csv, 'results')
+            df_multi = pd.concat([df_multi, pd.DataFrame(dict_one_row_multi, index=[0])])
+
+    fname_multi = f'{outdir_csv}/multi_all.csv'
+    if os.path.isfile(fname_multi):
+        print(f"append to {fname_multi}")
+        df_previous = pd.read_csv(fname_multi)
+        df_multi = pd.concat([df_previous, df_multi])
+    df_multi.to_csv(fname_multi, index=False)
+    return fcsv_out
+
+def make_validation_csv_HCP_autoref(fcsvT1,fcsvT2,outdir_csv, pred_regex='.*',
+                                    label_remap_csv='auto', auto_DS=None, metrics_name="dice volume "):
+    #fcsvT1,fcsvT2 = gfile(gdir(rd,['HCP_tes','07$']),'csv')
+    fcsv_out=[]
+    df_multi, dict_one_row_multi = pd.DataFrame(), {}
+    df1 = pd.read_csv(fcsvT1)
+    df2 = pd.read_csv(fcsvT2)
+    for cc in df1.columns:
+        if cc.startswith('lab_'):
+            df1.drop(columns=cc, axis=1, inplace=True)
+    for cc in df2.columns:
+        if cc.startswith('lab_'):
+            df2.drop(columns=cc, axis=1, inplace=True)
+    dir_dataT1 = get_parent_path(df1.vol_path[0])[0]
+    dir_dataT2 = get_parent_path(df2.vol_path[0])[0]
+    if isinstance(pred_regex, list):
+        dir_predsT1,dir_predsT2 = [], []
+        for pp in pred_regex:
+            dir_predsT1 += gdir(dir_dataT1, f'^{pp}$')
+            dir_predsT2 += gdir(dir_dataT2, f'^{pp}$')
+    else:
+        dir_predsT1 = gdir(dir_dataT1, pred_regex)
+        dir_predsT2 = gdir(dir_dataT2, pred_regex)
+
+    vol_name_listT1 = df1['sujname']
+    vol_name_listT2 = df2['sujname']
+
+    for dir_pred1,dir_pred2 in zip(dir_predsT1,dir_predsT2):
+        # check if pred are
+        dir_pred, vol_name_list, df = dir_pred1, vol_name_listT1, df1.copy()
+        ds_name = get_parent_path(fcsvT1)[1][:-4]
+
+        pred_path_list, model_name_list, input_type_list, dataset_name_list = [], [], [], []
+        model_name = get_parent_path(dir_pred)[1]
+        input_type = get_parent_path(dir_pred, 2)[1]
+
+        for vol_n in vol_name_list:
+            if "FastSurfer" in model_name:
+                dd = gdir(dir_pred, [vol_n , 'mri'])
+                ff = gfile(dd, '^remap')
+                if len(ff) == 0:
+                    print(f'Doing missing remap file in FastSurfer {dir_pred}')
+                    fapar = gfile(dd, '^aparc')
+                    tmap = get_fastsurfer_remap(fapar[0],
+                                                fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                                index_col_remap=4)
+                    ft1 = gfile(get_parent_path(fapar, 4)[0], vol_n)
+                    fffo = addprefixtofilenames(fapar, 'rmrt_')
+                    fo_final = addprefixtofilenames(fapar, 'remapHyp_')
+                    fffo[0] = fffo[0][:-4] + '.nii.gz'
+                    fo_final[0] = fo_final[0][:-4] + '.nii.gz'
+                    import subprocess
+                    cmd = f'mrgrid {fapar[0]} regrid -interp nearest -template {ft1[0]} -strides {ft1[0]} {fffo[0]}'
+                    outvalue = subprocess.run(cmd.split(' '))
+                    # remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_')
+                    remap_filelist(fffo, tmap, fref=ft1, prefix='remapHyp_')
+                    badfo = addprefixtofilenames(fffo, 'remapHyp_')
+                    r_move_file(badfo, fo_final, 'move')
+                    os.remove(fffo[0])
+                    ff = gfile(dd, '^remap')
+
+            elif ("SynthSeg" in model_name) | ("bibsnet" in model_name) | ('SuperSynth' in model_name) :
+                ff = gfile(dir_pred, '^remap.*' + vol_n)
+                if ('SuperSynth' in model_name):
+                    dd = gdir(dir_pred, vol_n)
+                    ff = gfile(dd, '^remap')
+
+                if len(ff) == 0:
+                    print(f'Doing missing remap file in FastSurfer {dir_pred}')
+                    fapar = gfile(dir_pred, vol_n)
+                    if 'ouhfi' in model_name:
+                        tmap = get_fastsurfer_remap(fapar[0], index_col_in=1, index_col_remap=3,
+                                                    fcsv='/network/iss/opendata/data/template/remap/my_synth/label_gouhfi.csv')
+                        # dfgouhfi = pd.read_csv(rd + 'label_gouhfi.csv')
+                        # tmap = {dd.synth: dd.target for ii, dd in dfgouhfi.iterrows()}
+                    else:
+                        tmap = get_fastsurfer_remap(fapar[0],
+                                                    fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                                    index_col_remap=4)
+                    ft1 = gfile(get_parent_path(fapar, 2)[0], vol_n)
+                    print(f'found T1 {ft1} for {fapar}')
+                    # remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_',reslice_with_mrgrid=True)
+                    remap_filelist(fapar, tmap, fref=ft1, prefix='remapHyp_', reslice_4D=True)
+                    ff = gfile(dir_pred, '^remap.*' + vol_n)
+            elif "gouhfi" in model_name:
+                ff = gfile(dir_pred, f'^remap.*{vol_n}')
+            elif "AssN" in model_name:
+                dd = gdir(dir_pred, vol_n)
+                ff = gfile(dd, '^remap')
+
+            else:
+                ff = gfile(dir_pred, vol_n)
+
+            if len(ff) == 1:
+                pred_path_list.append(ff[0]);
+                model_name_list.append(model_name);
+                dataset_name_list.append(ds_name);
+                input_type_list.append(input_type)
+            else:
+                print(f'missing pred dir {get_parent_path(dir_pred)[1]} miss at least prediction for {vol_n}')
+                continue
+        if len(pred_path_list) == len(vol_name_list):
+            if label_remap_csv == 'auto':
+                dir_transfo = '/network/iss/opendata/data/template/remap/my_synth/transfo'
+                if ('FastSur' in model_name) | ('SynthSeg' in model_name) | ("bibsnet" in model_name):
+                    reg_transfo = '^DSFree_remap'
+                elif model_name.startswith('pred_DS'):
+                    reg_transfo = f'^{model_name[5:10]}'
+                if auto_DS:
+                    reg_transfo = auto_DS
+
+                # which GT depend on dataset
+                if 'DBB' in ds_name:
+                    reg_transfo += '.*label_DBB_GT'
+
+                elif 'dHcp' in ds_name:
+                    reg_transfo += '.*label_dHCP_GT'
+
+                elif 'ULTRA' in ds_name:
+                    reg_transfo += '.*label_GT.csv'
+                elif 'vol_all05' in ds_name:
+                    reg_transfo += '.*label_GTVas.csv'
+                else:
+                    reg_transfo += '.*label_GT_Head'
+                    # reg_transfo += '.*label_GT.csv'
+                fff = gfile(dir_transfo, reg_transfo)
+                if not (len(fff) == 1):
+                    misssingfilessss
+                label_remap_fname = fff[0]
+
+            else:
+                label_remap_fname = label_remap_csv
+
+        dir_pred, vol_name_list, df = dir_pred2, vol_name_listT2, df2.copy()
+        ds_name = get_parent_path(fcsvT2)[1][:-4]
+
+        vol_ref_T1 = pred_path_list
+
+        pred_path_list, model_name_list, input_type_list, dataset_name_list = [], [], [], []
+        model_name = get_parent_path(dir_pred)[1]
+        input_type = get_parent_path(dir_pred, 2)[1]
+
+        for vol_n in vol_name_list:
+            if "FastSurfer" in model_name:
+                dd = gdir(dir_pred, [vol_n , 'mri'])
+                ff = gfile(dd, '^remap')
+                if len(ff) == 0:
+                    print(f'Doing missing remap file in FastSurfer {dir_pred}')
+                    fapar = gfile(dd, '^aparc')
+                    tmap = get_fastsurfer_remap(fapar[0],
+                                                fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                                index_col_remap=4)
+                    ft1 = gfile(get_parent_path(fapar, 4)[0], vol_n)
+                    fffo = addprefixtofilenames(fapar, 'rmrt_')
+                    fo_final = addprefixtofilenames(fapar, 'remapHyp_')
+                    fffo[0] = fffo[0][:-4] + '.nii.gz'
+                    fo_final[0] = fo_final[0][:-4] + '.nii.gz'
+                    import subprocess
+                    cmd = f'mrgrid {fapar[0]} regrid -interp nearest -template {ft1[0]} -strides {ft1[0]} {fffo[0]}'
+                    outvalue = subprocess.run(cmd.split(' '))
+                    # remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_')
+                    remap_filelist(fffo, tmap, fref=ft1, prefix='remapHyp_')
+                    badfo = addprefixtofilenames(fffo, 'remapHyp_')
+                    r_move_file(badfo, fo_final, 'move')
+                    os.remove(fffo[0])
+                    ff = gfile(dd, '^remap')
+
+            elif ("SynthSeg" in model_name) | ("bibsnet" in model_name) | ('SuperSynth' in model_name) :
+                ff = gfile(dir_pred, '^remap.*' + vol_n)
+                if ('SuperSynth' in model_name):
+                    dd = gdir(dir_pred, vol_n)
+                    ff = gfile(dd, '^remap')
+
+                if len(ff) == 0:
+                    print(f'Doing missing remap file in FastSurfer {dir_pred}')
+                    fapar = gfile(dir_pred, vol_n)
+                    if 'ouhfi' in model_name:
+                        tmap = get_fastsurfer_remap(fapar[0], index_col_in=1, index_col_remap=3,
+                                                    fcsv='/network/iss/opendata/data/template/remap/my_synth/label_gouhfi.csv')
+                        # dfgouhfi = pd.read_csv(rd + 'label_gouhfi.csv')
+                        # tmap = {dd.synth: dd.target for ii, dd in dfgouhfi.iterrows()}
+                    else:
+                        tmap = get_fastsurfer_remap(fapar[0],
+                                                    fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                                    index_col_remap=4)
+                    ft1 = gfile(get_parent_path(fapar, 2)[0], vol_n)
+                    print(f'found T1 {ft1} for {fapar}')
+                    # remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_',reslice_with_mrgrid=True)
+                    remap_filelist(fapar, tmap, fref=ft1, prefix='remapHyp_', reslice_4D=True)
+                    ff = gfile(dir_pred, '^remap.*' + vol_n)
+            elif "gouhfi" in model_name:
+                ff = gfile(dir_pred, f'^remap.*{vol_n}')
+
+            elif "AssN" in model_name:
+                dd = gdir(dir_pred, vol_n)
+                ff = gfile(dd, '^remap')
+
+            else:
+                ff = gfile(dir_pred, vol_n)
+
+            if len(ff) == 1:
+                pred_path_list.append(ff[0]);
+                model_name_list.append(model_name);
+                dataset_name_list.append(ds_name);
+                input_type_list.append(input_type)
+            else:
+                print(f'missing pred dir {get_parent_path(dir_pred)[1]} miss at least prediction for {vol_n}')
+                continue
+        if len(pred_path_list) == len(vol_name_list):
+            if label_remap_csv == 'auto':
+                dir_transfo = '/network/iss/opendata/data/template/remap/my_synth/transfo'
+                if ('FastSur' in model_name) | ('SynthSeg' in model_name) | ("bibsnet" in model_name):
+                    reg_transfo = '^DSFree_remap'
+                elif model_name.startswith('pred_DS'):
+                    reg_transfo = f'^{model_name[5:10]}'
+                if auto_DS:
+                    reg_transfo = auto_DS
+
+                # which GT depend on dataset
+                if 'DBB' in ds_name:
+                    reg_transfo += '.*label_DBB_GT'
+
+                elif 'dHcp' in ds_name:
+                    reg_transfo += '.*label_dHCP_GT'
+
+                elif 'ULTRA' in ds_name:
+                    reg_transfo += '.*label_GT.csv'
+                elif 'vol_all05' in ds_name:
+                    reg_transfo += '.*label_GTVas.csv'
+                else:
+                    reg_transfo += '.*label_GT_Head'
+                    # reg_transfo += '.*label_GT.csv'
+                fff = gfile(dir_transfo, reg_transfo)
+                if not (len(fff) == 1):
+                    misssingfilessss
+                label_remap_fname = fff[0]
+
+            else:
+                label_remap_fname = label_remap_csv
+
+            df['predict_path'] = pred_path_list;
+            df['model_name'] = model_name_list;
+            df['dataset_name'] = dataset_name_list;
+            df['input_type'] = input_type_list
+            fcsv_out_name = f'{outdir_csv}/{ds_name}_{model_name}.csv'
+            fcsv_out.append(fcsv_out_name)
+
+            df['lab_T1'] = vol_ref_T1
+
+            df.to_csv(fcsv_out_name, index=False)
+            dict_one_row_multi['dataset_name'] = ds_name
+            dict_one_row_multi['metrics'] = metrics_name
+            dict_one_row_multi['subject_csv_filepath'] = fcsv_out_name
+            dict_one_row_multi['label_remap'] = label_remap_fname
+            dict_one_row_multi['save_dir'] = os.path.join(outdir_csv, 'results')
+            df_multi = pd.concat([df_multi, pd.DataFrame(dict_one_row_multi, index=[0])])
+
+    fname_multi = f'{outdir_csv}/multi_all.csv'
+    if os.path.isfile(fname_multi):
+        print(f"append to {fname_multi}")
+        df_previous = pd.read_csv(fname_multi)
+        df_multi = pd.concat([df_previous, df_multi])
+    df_multi.to_csv(fname_multi, index=False)
+    return fcsv_out
 
 def make_validation_csv(fcsv, outdir_csv, compare_label=False, pred_regex='.*',
-                        label_remap_csv='auto', metrics_name= "dice volume hausdorff"):
+                        label_remap_csv='auto',auto_DS=None, metrics_name= "dice volume "): #hausdorff
     fcsv_out=[]
     df_multi, dict_one_row_multi = pd.DataFrame(), {}
     for csv_pred in fcsv:
@@ -619,7 +1380,9 @@ def make_validation_csv(fcsv, outdir_csv, compare_label=False, pred_regex='.*',
             model_name = get_parent_path(dir_pred)[1]
             input_type = get_parent_path(dir_pred,2)[1]
             for vol_n in vol_name_list:
-                if "FastSurfer" in model_name:
+                if ("FastSurfer" in model_name) | ('freesurfer' in model_name):
+                    if vol_n.endswith('.nii'):
+                        vol_n = vol_n[:-4] #because of bad naming in Synth_Ctx_atro
                     dd = gdir(dir_pred,[vol_n +'$', 'mri'])
                     ff = gfile(dd,'^remap')
                     if len(ff)==0:
@@ -641,8 +1404,16 @@ def make_validation_csv(fcsv, outdir_csv, compare_label=False, pred_regex='.*',
                         os.remove(fffo[0])
                         ff = gfile(dd, '^remap')
 
-                elif "SynthSeg" in model_name:
+                elif (("synthseg" in model_name.lower()) | ("bibsnet" in model_name) |
+                      ('SuperSynth' in model_name) | ('dldirect' in model_name.lower()) ) :
+
                     ff = gfile(dir_pred,'^remap.*'+vol_n)
+                    if (('Super' in model_name)| ('dldirect' in model_name.lower()) ):
+                        if vol_n.endswith('.nii'):
+                            vol_n = vol_n[:-4] +'$' # because of bad naming in Synth_Ctx_atro
+                        dd = gdir(dir_pred, vol_n)
+                        ff = gfile(dd, '^remap')
+
                     if len(ff)==0:
                         print(f'Doing missing remap file in FastSurfer {dir_pred}')
                         fapar = gfile(dir_pred,vol_n)
@@ -657,6 +1428,11 @@ def make_validation_csv(fcsv, outdir_csv, compare_label=False, pred_regex='.*',
                         # remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_',reslice_with_mrgrid=True)
                         remap_filelist(fapar, tmap, fref=ft1,prefix='remapHyp_',reslice_4D=True)
                         ff = gfile(dir_pred, '^remap.*' + vol_n)
+                elif "AssN" in model_name:
+                    dd = gdir(dir_pred, vol_n)
+                    ff = gfile(dd, '^remap')
+                elif "gouhfi" in model_name:
+                    ff = gfile(dir_pred, f'^remap.*{vol_n}')
                 else:
                     ff = gfile(dir_pred,vol_n)
 
@@ -665,14 +1441,17 @@ def make_validation_csv(fcsv, outdir_csv, compare_label=False, pred_regex='.*',
                     dataset_name_list.append(ds_name); input_type_list.append(input_type)
                 else:
                     print(f'missing pred dir {get_parent_path(dir_pred)[1]} miss at least prediction for {vol_n}')
+                    qsdf
                     continue
             if len(pred_path_list)==len(vol_name_list):
                 if label_remap_csv == 'auto' :
                     dir_transfo = '/network/iss/opendata/data/template/remap/my_synth/transfo'
-                    if ('FastSur' in model_name) | ('SynthSeg'in model_name):
+                    if ('FastSur' in model_name) | ('SynthSeg'in model_name) | ("bibsnet" in model_name):
                         reg_transfo = '^DSFree_remap'
                     elif model_name.startswith('pred_DS'):
                         reg_transfo = f'^{model_name[5:10]}'
+                    if auto_DS :
+                        reg_transfo = auto_DS
 
                     #which GT depend on dataset
                     if 'DBB' in ds_name:
@@ -680,6 +1459,11 @@ def make_validation_csv(fcsv, outdir_csv, compare_label=False, pred_regex='.*',
 
                     elif 'dHcp' in ds_name:
                         reg_transfo += '.*label_dHCP_GT'
+
+                    elif 'ULTRA' in ds_name:
+                        reg_transfo += '.*label_GT.csv'
+                    elif 'vol_all05' in ds_name:
+                        reg_transfo += '.*label_GTVas.csv'
                     else:
                         reg_transfo += '.*label_GT_Head'
                         #reg_transfo += '.*label_GT.csv'
@@ -687,6 +1471,7 @@ def make_validation_csv(fcsv, outdir_csv, compare_label=False, pred_regex='.*',
                     if not (len(fff)==1):
                         misssingfilessss
                     label_remap_fname = fff[0]
+
                 else:
                     label_remap_fname = label_remap_csv
 
@@ -848,40 +1633,79 @@ def main_predict() :
         il.data = imask * tmp_mask
         il.save(addprefixtofilenames(str(il.path),'skull_')[0])
 
-def create_SynthSeg_job(fcsv_list, option='--robust --cpu --threads=8',jobdir = "/data/romain/PVsynth/saved_sample/nnunet/testing/predictions/jobs/predict_SS", replace_link=False):
-    cmd_ini = f"module load FreeSurfer/7.4.1\nmri_synthseg"
+def create_SynthSeg_job(fcsv_list, option='',model='orig', prefix="SynthSeg",
+                        jobdir = "/data/romain/PVsynth/saved_sample/nnunet/testing/predictions/jobs/predict_SS",
+                        replace_link=False, create_the_jobs=True):
+
+    if model=='lesion':
+        cmd_ini = f"module load FreeSurfer/8.0.0-beta\n mri_WMHsynthseg"
+    elif model=="orig":
+        cmd_ini = f"module load FreeSurfer/7.4.1\nmri_synthseg"
+        option = '--robust --cpu --threads=8'
+    elif model.startswith('super_'):
+        #cmd_ini = f" module load FreeSurfer/dev-20251127 \nmri_super_synth "
+        cmd_ini = f" module load FreeSurfer/dev-20260610 \nmri_super_synth "
+
+        option = f'--device cpu --mode {model[6:]} --threads=8'
+
     if isinstance(fcsv_list,str):
         fcsv_list = [fcsv_list]
 
-    jobs = []
-    for fcsv in fcsv_list:
-        df = pd.read_csv(fcsv)
-        outdir = os.path.join(get_parent_path(df.vol_path)[0][0], 'SynthSeg')
-        if not os.path.isdir(outdir):
-            os.mkdir(outdir)
-        vol_in = df.vol_path.values
-        volnames = get_parent_path(vol_in)[1]
-        for volpath, volname in zip(vol_in, volnames):
-            if replace_link:
-                vol_link = os.readlink(volpath)
-                if vol_link.startswith('/network/iss/'):
-                    volpath = '/network/lustre/iss02' + vol_link[12:]
+    if os.path.isdir(fcsv_list[0]): #multiple dir, so recursiv call
+        jobs = []
+        for ds in fcsv_list:
+            print(f"making job for {ds}")
+            ff=gfile(ds,'.*gz')
+            jobs += create_SynthSeg_job(ff,option=option, model=model, prefix=prefix,create_the_jobs=False)
 
-            print(f'{volname}')
-            jobs.append( f"{cmd_ini} --i {volpath} --o {outdir}/{volname} {option}" )
+    else: #single dir list of file
+        jobs = []
+        for fcsv in fcsv_list:
+            if os.path.isfile(fcsv) & (fcsv[-3:] == '.gz'):
+                sujn = get_parent_path(fcsv)[1][:-7]
+                df = pd.DataFrame({'vol_path': fcsv, 'sujname': sujn}, index=[0])
+            else:
+                df = pd.read_csv(fcsv)
 
-    job_params = dict()
-    job_params[
-        'output_directory'] = jobdir
-    job_params['jobs'] = jobs
-    job_params['job_name'] = 'predSynthSeg'
-    job_params['walltime'] = '24:00:00'
-    job_params['job_pack'] = 1
-    job_params['cluster_queue'] = '-p medium'
-    job_params['cpus_per_task'] = 4
-    job_params['mem'] = 16000
+            outdir = os.path.join(get_parent_path(df.vol_path)[0][0], prefix)
+            if not os.path.isdir(outdir):
+                os.mkdir(outdir)
 
-    create_jobs(job_params)
+            vol_in = df.vol_path.values
+            volnames = get_parent_path(vol_in)[1]
+            for volpath, volname in zip(vol_in, volnames):
+                if model.startswith("super_"):
+                    ooo = os.path.join(outdir, sujn); volname=sujn
+                    if not os.path.isdir(ooo):
+                        os.mkdir(ooo)
+
+                if replace_link:
+                    vol_link = os.readlink(volpath)
+                    if vol_link.startswith('/network/iss/'):
+                        volpath = '/network/lustre/iss02' + vol_link[12:]
+
+                print(f'{volname}')
+                ccmd = f"{cmd_ini} --i {volpath} --o {outdir}/{volname} {option}"
+                jobs.append( ccmd )
+
+    if create_the_jobs:
+        job_params = dict()
+        job_params[
+            'output_directory'] = jobdir
+        job_params['jobs'] = jobs
+        job_params['job_name'] = 'predSynthSeg'
+        job_params['walltime'] = '24:00:00'
+        job_params['job_pack'] = 1
+        job_params['cluster_queue'] = '-p compute'
+        job_params['cpus_per_task'] = 4
+        job_params['mem'] = 64000
+        if model == "lesion":
+            job_params['cpus_per_task'] = 8
+            job_params['mem'] = 44000
+
+        create_jobs(job_params)
+    else :
+        return jobs
 
 def create_hdbet_job(fcsv, option='--save_bet_mask --no_bet_image ',jobdir = "/data/romain/PVsynth/saved_sample/nnunet/testing/predictions/jobs/predict_HD"):
     cmd_ini = f"hd-bet"
@@ -909,9 +1733,8 @@ def create_hdbet_job(fcsv, option='--save_bet_mask --no_bet_image ',jobdir = "/d
 
     create_jobs(job_params)
 
-
-def create_FS_job(fcsv_list, option='--vox_size min  --seg_only --no_cereb --no_hypothal  --parallel --3T ', prefix_out = 'FastSurfer',
-                  jobdir = "/data/romain/PVsynth/saved_sample/nnunet/testing/predictions/jobs/predict_FS", device='cpu'):
+def create_DLDirect_job(fcsv_list, option=' --no-cth ', prefix_out = 'DlDirectCT',device='cpu',
+                  jobdir = "/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/job_pred/DlDirect"):
 
     if isinstance(fcsv_list,str):
         fcsv_list = [fcsv_list]
@@ -927,16 +1750,79 @@ def create_FS_job(fcsv_list, option='--vox_size min  --seg_only --no_cereb --no_
         if not os.path.isdir(outdir):
             os.mkdir(outdir)
 
-        cmd_ini = "singularity exec   --network=bridge  --nv --no-home -B /network/iss/cenir/analyse/irm/users/:/network/iss/cenir/analyse/irm/users/ -B /network/iss/opendata/data/:/network/iss/opendata/data/"
-        cmd_ini = f"{cmd_ini} -B {get_parent_path(df.vol_path)[0][0]}:/data"
-        cmd_ini = f"{cmd_ini} -B {outdir}:/output -B /network/iss/apps/software/scit/freesurfer/7.4.1/:/fs_license "
-        cmd_ini = f"{cmd_ini} /network/iss/cenir/software/irm/singularity/fastsurfer-gpu.sif /fastsurfer/run_fastsurfer.sh"
-        cmd_ini = f"{cmd_ini}  {option} --sd /output"
-        cmd_ini = f"{cmd_ini}  --fs_license /fs_license/license.txt"
+        cmd_ini = f"dl+direct --subject suj {option}"
 
-        for volname, sujname in zip(get_parent_path(df.vol_path)[1], df.sujname):
+        for volname, sujname in zip(df.vol_path, df.sujname):
+            ooo = os.path.join(outdir, sujn);
+            if not os.path.isdir(ooo):
+                os.mkdir(ooo)
+
             print(f'{sujname} {volname}')
-            jobs.append( f"{cmd_ini}   --sid {sujname} --t1 /data/{volname} " )
+            jobs.append( f"{cmd_ini}  {volname} {ooo}" )
+
+    job_params = dict()
+    job_params[
+        'output_directory'] = jobdir
+    job_params['jobs'] = jobs
+    job_params['job_name'] = 'DlDirect'
+    job_params['walltime'] = '24:00:00'
+    job_params['job_pack'] = 1
+    if device=="gpu":
+        job_params['cpus_per_task'] = 12
+        job_params['mem'] = 64000
+        job_params['cluster_queue'] = '-p gpu-cenir,gpu-ampere'
+        job_params['sbatch_args'] = '--gres=gpu:1'
+    else: #cpu
+        job_params['cluster_queue'] = '-p compute'
+        job_params['cpus_per_task'] = 4
+        job_params['mem'] = 16000
+
+    create_jobs(job_params)
+
+def create_FS_job(fcsv_list, option='--vox_size min  --seg_only --no_cereb --no_hypothal  --parallel --3T ', prefix_out = 'FastSurfer',
+                  jobdir = "/data/romain/PVsynth/saved_sample/nnunet/testing/predictions/jobs/predict_FS", device='cpu'):
+
+    if isinstance(fcsv_list,str):
+        fcsv_list = [fcsv_list]
+
+    jobs = []
+    for fcsv in fcsv_list:
+        if os.path.isfile(fcsv) & (fcsv[-3:]=='.gz') :
+            sujn = get_parent_path(fcsv)[1][:-7]
+            df = pd.DataFrame({'vol_path' : fcsv, 'sujname' : sujn} ,index= [0])
+        elif os.path.isfile(fcsv) & (fcsv[-3:] == 'nii'):
+                sujn = get_parent_path(fcsv)[1][:-4]
+                df = pd.DataFrame({'vol_path': fcsv, 'sujname': sujn}, index=[0])
+        else:
+            df = pd.read_csv(fcsv)
+        outdir = os.path.join(get_parent_path(df.vol_path)[0][0], prefix_out)
+        if not os.path.isdir(outdir):
+            os.mkdir(outdir)
+
+        if option=="CC":
+            #python3 fastsurfer_cc.py --sd /path/to/fastsurfer/output --sid test-case --verbose
+            cmd_ini = "singularity exec   --network=bridge  --nv --no-home -B /network/iss/cenir/analyse/irm/users/:/network/iss/cenir/analyse/irm/users/ -B /network/iss/opendata/data/:/network/iss/opendata/data/"
+            cmd_ini = f"{cmd_ini} -B {get_parent_path(df.vol_path)[0][0]}:/data"
+            cmd_ini = f"{cmd_ini} -B {outdir}:/output -B /network/iss/apps/software/scit/freesurfer/7.4.1/:/fs_license "
+            cmd_ini = f"{cmd_ini} /network/iss/cenir/software/irm/singularity/fastsurfer-gpu.sif "
+            cmd_ini = f"{cmd_ini} python3 fastsurfer_cc.py --sd /output --sid test-case "
+            cmd_ini = f"{cmd_ini}  --sd /output"
+            cmd_ini = f"{cmd_ini}  --fs_license /fs_license/license.txt"
+            for volname, sujname in zip(get_parent_path(df.vol_path)[1], df.sujname):
+                print(f'{sujname} {volname}')
+                jobs.append( f"{cmd_ini}   --sid {sujname}  " )
+
+        else:
+            cmd_ini = "singularity exec   --network=bridge  --nv --no-home -B /network/iss/cenir/analyse/irm/users/:/network/iss/cenir/analyse/irm/users/ -B /network/iss/opendata/data/:/network/iss/opendata/data/"
+            cmd_ini = f"{cmd_ini} -B {get_parent_path(df.vol_path)[0][0]}:/data"
+            cmd_ini = f"{cmd_ini} -B {outdir}:/output -B /network/iss/apps/software/scit/freesurfer/7.4.1/:/fs_license "
+            cmd_ini = f"{cmd_ini} /network/iss/cenir/software/irm/singularity/fastsurfer-gpu.sif /fastsurfer/run_fastsurfer.sh"
+            cmd_ini = f"{cmd_ini}  {option} --sd /output"
+            cmd_ini = f"{cmd_ini}  --fs_license /fs_license/license.txt"
+
+            for volname, sujname in zip(get_parent_path(df.vol_path)[1], df.sujname):
+                print(f'{sujname} {volname}')
+                jobs.append( f"{cmd_ini}   --sid {sujname} --t1 /data/{volname} " )
 
     job_params = dict()
     job_params[
@@ -951,34 +1837,123 @@ def create_FS_job(fcsv_list, option='--vox_size min  --seg_only --no_cereb --no_
         job_params['cluster_queue'] = '-p gpu-cenir,gpu-ampere'
         job_params['sbatch_args'] = '--gres=gpu:1'
     else: #cpu
-        job_params['cluster_queue'] = '-p medium'
+        job_params['cluster_queue'] = '-p compute'
         job_params['cpus_per_task'] = 4
         job_params['mem'] = 16000
 
     create_jobs(job_params)
 
-def create_AssN_job(fcsv, option=' ',
-                  jobdir = "/data/romain/PVsynth/saved_sample/nnunet/testing/predictions/jobs/predict_AssN", device='cpu'):
-    df = pd.read_csv(fcsv)
-    inputdir = os.path.join(get_parent_path(df.vol_path)[0][0], 'AssN')
-    if not os.path.isdir(inputdir):
-        os.mkdir(inputdir)
+def create_LST_job(fT1,fflair, option='--device cpu', prefix_out = 'LST_AI',
+                  jobdir = "/data/romain/PVsynth/saved_sample/nnunet/testing/predictions/jobs/predict_LST", device='cpu'):
 
-    jobs=[]; ii=0
-    for volname, sujname in zip(get_parent_path(df.vol_path)[1], df.sujname):
-        print(f'{sujname} {volname}')
-        outdir = os.path.join(inputdir, sujname)
+    outdirs = addprefixtofilenames(remove_extension(fflair),'LST/')
+    maindir = get_parent_path(outdirs)[0][0]
+    if not os.path.isdir(maindir):
+        os.mkdir(maindir)
+
+    jobs = []
+    for f1,f2,outdir in zip(fT1,fflair,outdirs):
         if not os.path.isdir(outdir):
             os.mkdir(outdir)
-        fout = os.path.join(outdir,volname)
-        if not os.path.isfile(fout):
-            #os.symlink(f'../../{volname}', fout)
-            shutil.copyfile(df.vol_path.values[ii], fout)
-        ii+=1
-        cmd_ini = f"export od={outdir}\n"
-        cmd_ini = f"{cmd_ini} singularity run -B /network/iss/cenir/analyse/irm/users/:/network/iss/cenir/analyse/irm/users/ "
-        cmd_ini = f"{cmd_ini} -B $od:/data  -B $od:/tmp -B $od:/data_out "
-        cmd_ini = f"{cmd_ini} /network/iss/cenir/software/irm/singularity/assemblynet_1.0.0.sif  /data /data_out "
+
+        cmd_ini = "singularity run --network=bridge  --nv --no-home -B /network/iss/:/network/iss/ -B $HOME:$HOME "
+        cmd_ini = f"{cmd_ini} /network/iss/cenir/software/irm/singularity/LST_AI.simg "
+        cmd_ini = f"{cmd_ini} --t1 {f1} "
+        cmd_ini = f"{cmd_ini} --flair {f2} "
+        cmd_ini = f"{cmd_ini} --output {outdir} "
+        cmd_ini = f"{cmd_ini} {option} "
+        jobs.append(cmd_ini)
+
+    job_params = dict()
+    job_params[
+        'output_directory'] = jobdir
+    job_params['jobs'] = jobs
+    job_params['job_name'] = 'predictFS'
+    job_params['walltime'] = '24:00:00'
+    job_params['job_pack'] = 1
+    if device=="gpu":
+        job_params['cpus_per_task'] = 12
+        job_params['mem'] = 64000
+        job_params['cluster_queue'] = '-p gpu-cenir,gpu-ampere'
+        job_params['sbatch_args'] = '--gres=gpu:1'
+    else: #cpu
+        job_params['cluster_queue'] = '-p compute'
+        job_params['cpus_per_task'] = 4
+        job_params['mem'] = 16000
+
+    create_jobs(job_params)
+
+def create_AssN_job(fcsv_list, option=' ', prefix_out = 'AssN',
+                  jobdir = "/data/romain/PVsynth/saved_sample/nnunet/testing/predictions/jobs/predict_AssN", device='cpu'):
+
+    jobs=[];
+    jobs = []
+    for fcsv in fcsv_list:
+        if os.path.isfile(fcsv) & (fcsv[-3:]=='.gz') :
+            sujn = get_parent_path(fcsv)[1][:-7]
+            df = pd.DataFrame({'vol_path' : fcsv, 'sujname' : sujn} ,index= [0])
+        elif os.path.isfile(fcsv) & (fcsv[-3:] == 'nii'):
+                sujn = get_parent_path(fcsv)[1][:-4]
+                df = pd.DataFrame({'vol_path': fcsv, 'sujname': sujn}, index=[0])
+        else:
+            df = pd.read_csv(fcsv)
+
+        inputdir = os.path.join(get_parent_path(df.vol_path)[0][0], 'AssN')
+        if not os.path.isdir(inputdir):
+            os.mkdir(inputdir)
+        ii = 0
+        for volname, sujname in zip(get_parent_path(df.vol_path)[1], df.sujname):
+            print(f'{sujname} {volname}')
+            outdir = os.path.join(inputdir, sujname)
+            if not os.path.isdir(outdir):
+                os.mkdir(outdir)
+            fout = os.path.join(outdir,volname)
+            if not os.path.isfile(fout):
+                #os.symlink(f'../../{volname}', fout)
+                shutil.copyfile(df.vol_path.values[ii], fout)
+            ii+=1
+            cmd_ini = f"export od={outdir}\n"
+            cmd_ini = f"{cmd_ini} singularity run -B /network/iss/cenir/analyse/irm/users/:/network/iss/cenir/analyse/irm/users/ "
+            cmd_ini = f"{cmd_ini} -B $od:/data  -B $od:/tmp -B $od:/data_out "
+            cmd_ini = f"{cmd_ini} /network/iss/cenir/software/irm/singularity/assemblynet_1.0.0.sif  /data /data_out "
+            jobs.append(cmd_ini)
+
+    job_params = dict()
+    job_params[
+        'output_directory'] = jobdir
+    job_params['jobs'] = jobs
+    job_params['job_name'] = 'predict'
+    job_params['walltime'] = '24:00:00'
+    job_params['job_pack'] = 1
+    if device=="gpu":
+        job_params['cpus_per_task'] = 12
+        job_params['mem'] = 64000
+        job_params['cluster_queue'] = '-p gpu-cenir,gpu-ampere'
+        job_params['sbatch_args'] = '--gres=gpu:1'
+    else: #cpu
+        job_params['cluster_queue'] = '-p compute'
+        job_params['cpus_per_task'] = 4
+        job_params['mem'] = 16000
+
+    create_jobs(job_params)
+
+def create_bibsnet_job(bids_dir='/network/iss/opendata/data/template/manual_seg/BOBS/ds005450',
+                       out_dir='/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/BOBS/Bibs',
+                       option=' ',
+                       jobdir = "/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/job_pred/predict_bibsnet", device='cpu'):
+
+    suj = gdir(bids_dir,'sub')
+    sujid = [ss[4:] for ss in get_parent_path(suj)[1] ]
+    if not os.path.isdir(out_dir):
+        os.mkdir(out_dir)
+
+    jobs=[];
+    #for volname, sujname in zip(get_parent_path(df.vol_path)[1], df.sujname):
+    for sid in sujid:
+        print(f'Suj {sid} ')
+        cmd_ini = f" singularity run  --nv --cleanenv --no-home  -B {bids_dir}:/input -B {out_dir}:/output  "
+        cmd_ini = f"{cmd_ini} /network/iss/cenir/software/irm/singularity/bibsnet.sif /input /output participant -v  "
+        cmd_ini = f"{cmd_ini} -participant {sid}"
         jobs.append(cmd_ini)
 
     job_params = dict()
@@ -994,15 +1969,46 @@ def create_AssN_job(fcsv, option=' ',
         job_params['cluster_queue'] = '-p gpu-cenir,gpu-ampere'
         job_params['sbatch_args'] = '--gres=gpu:1'
     else: #cpu
-        job_params['cluster_queue'] = '-p medium'
+        job_params['cluster_queue'] = '-p compute'
         job_params['cpus_per_task'] = 4
         job_params['mem'] = 16000
 
     create_jobs(job_params)
 
-
 # jobdir = '/data/romain/PVsynth/saved_sample/nnunet/testing/predictions/jobs/predict_FS2'
 # create_FS_job(fcsv,option='--vox_size min --parallel --3T ', prefix_out='FastSurferAll', jobdir=jobdir)
+def convert_bibsnet_result():
+    dires='/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/BOBS/Bibs/bibsnet'
+    dfsuj = pd.read_csv('/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/BOBS/sessions.tsv',sep='\t')
+    dfsuj = dfsuj.sort_values('age')
+    dfsuj = dfsuj.reset_index(drop=True) #so that ii next line match
+    dfsuj['subject_id'] = [f'S{ii:02}_' + ss['participant_id'][4:]+'_'+ss['session_id'] for ii,ss in dfsuj.iterrows() ]
+    doutT1 = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/BOBS/T1/bibsnet'
+    doutT2 = '/network/iss/cenir/analyse/irm/users/romain.valabregue/PVsynth/training_saved_sample/nnunet/testing_set/BOBS/T2/bibsnet'
+    tc = tio.ToCanonical()
+    for ii, dfser in dfsuj.iterrows():
+        sujid = dfser['subject_id']
+        sid = dfser['participant_id']
+        ses = dfser['session_id']
+        onesuj = gdir(dires,[sid,ses,'anat'])
+        fT1 = gfile(onesuj,'T1.*dseg.*nii.gz')
+        fT2 = gfile(onesuj,'T2.*dseg.*nii.gz')
+        if len(fT1)==0:
+            print(f'mising T1 for {onesuj}')
+            continue
+        tmap = get_fastsurfer_remap(fT1[0], fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                 index_col_remap=4)
+        il = tc(tmap(tio.LabelMap(fT1[0])))
+        il.save(doutT1 + f'/remapHyp_{sujid}.nii.gz')
+        if len(fT2)==0:
+            print(f'mising T2 for {onesuj}')
+            continue
+        tmap = get_fastsurfer_remap(fT2[0], fcsv='/network/iss/opendata/data/template/remap/free_remapV2.csv',
+                                 index_col_remap=4)
+        il = tc(tmap(tio.LabelMap(fT2[0])))
+        il.save(doutT2 + f'/remapHyp_{sujid}.nii.gz')
+
+
 
 def get_nnunet_proba(fprob_list, fnii_list, label_list, prefix_list):
 
